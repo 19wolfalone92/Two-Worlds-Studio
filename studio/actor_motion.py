@@ -6,7 +6,7 @@ the same physical body and coordinate space. Do not synthesize new faces here.
 from __future__ import annotations
 import math
 from pathlib import Path
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageOps
 from studio.premium_assets import resolve_asset,inspect_image
 
 def validate_motion(meta:dict,assets:Path,*,publish:bool=False)->dict:
@@ -54,16 +54,45 @@ def validate_motion(meta:dict,assets:Path,*,publish:bool=False)->dict:
             raise ValueError("Blink overlay needs transparent alpha image")
         if blink.get("sha256") and blink["sha256"]!=info["sha256"]:
             raise ValueError("Blink overlay sha mismatch")
+        # A translucent "closed eye" drawn OVER open eyes is the exact visual
+        # artifact observed in the first pilot. A separately painted, aligned
+        # ERASE MASK is mandatory for production; preview without it freezes eyes.
+        erase=blink.get("erase_mask")
+        if erase is not None:
+            mask=resolve_asset(assets,erase)
+            m_info=inspect_image(mask)
+            if (m_info["width"],m_info["height"])!=(info["width"],info["height"]):
+                raise ValueError("Blink eye-erasure mask dimensions must match overlay")
+            if blink.get("erase_mask_sha256") and blink["erase_mask_sha256"]!=m_info["sha256"]:
+                raise ValueError("Blink eye-erasure mask SHA-256 mismatch")
         if publish:
+            if not erase or blink.get("erase_mask_sha256")!=m_info["sha256"]:
+                raise ValueError("Approved blinking requires aligned, hash-pinned eye-erasure mask")
             if blink.get("review_status")!="approved" or blink.get("rights") not in (
                 "original","owned","commissioned","licensed") or len(blink.get("rights_note","").strip())<8:
                 raise ValueError("Blink overlay has not been rights/artist approved")
-        result={"blink_frames":len(frames),"overlay":blink["path"]}
+        result={"blink_frames":len(frames) if erase else 0,
+                "blink_safe":bool(erase),
+                "overlay":blink["path"]}
     return result
 
 def animate_actor(source:Image.Image,meta:dict,t:float,*,overlay:Image.Image=None,
+                  blink_erase_mask:Image.Image=None,
                   mouth_overlay:Image.Image=None,mouth_is_open:bool=False)->Image.Image:
     src=source.convert("RGBA")
+    # Build a correct closed-eye sprite BEFORE actor motion: remove the existing
+    # open eyes (mask=white) and replace them with artist-drawn eyelids.
+    # If no aligned mask is supplied, DO NOT show a malformed blink.
+    if overlay is not None and blink_erase_mask is not None and meta.get("blink"):
+        timeline=meta["blink"].get("at",[])
+        duration=float(meta["blink"].get("duration",.045))
+        if any(abs(max(0,min(1,float(t)))-float(at))<duration/2 for at in timeline):
+            if blink_erase_mask.size!=src.size or overlay.size!=src.size:
+                raise ValueError("Eye sprite and erasure mask must align with actor canvas")
+            mask=blink_erase_mask.convert("L")
+            cut=ImageChops.multiply(src.getchannel("A"),ImageChops.invert(mask))
+            src.putalpha(cut)
+            src=Image.alpha_composite(src,overlay.convert("RGBA"))
     w,h=src.size
     t=max(0.0,min(1.0,float(t)))
     cycles=float(meta.get("cycles",1.0))
@@ -77,14 +106,6 @@ def animate_actor(source:Image.Image,meta:dict,t:float,*,overlay:Image.Image=Non
     # Transparent canvas avoids wraparound artifacts from ImageChops.offset.
     target=Image.new("RGBA",(w,h),(0,0,0,0))
     target.alpha_composite(src,(round((w-zw)/2)+dx,round((h-zh)/2)+dy))
-    if overlay is not None and meta.get("blink"):
-        schedule=meta["blink"].get("at",[])
-        duration=float(meta["blink"].get("duration",.045))
-        if any(abs(t-float(at))<duration/2 for at in schedule):
-            closed=overlay.convert("RGBA").resize((max(1,zw),max(1,zh)),Image.Resampling.BICUBIC)
-            layer=Image.new("RGBA",(w,h),(0,0,0,0))
-            layer.alpha_composite(closed,(round((w-zw)/2)+dx,round((h-zh)/2)+dy))
-            target=Image.alpha_composite(target,layer)
     if mouth_overlay is not None and mouth_is_open:
         open_mouth=mouth_overlay.convert("RGBA").resize(
             (max(1,zw),max(1,zh)),Image.Resampling.BICUBIC)
