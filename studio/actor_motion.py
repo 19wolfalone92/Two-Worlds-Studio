@@ -18,6 +18,24 @@ def validate_motion(meta:dict,assets:Path,*,publish:bool=False)->dict:
         n=meta.get(key,1.0 if key=="cycles" else 0.0)
         if isinstance(n,bool) or not isinstance(n,(int,float)) or not lo<=n<=hi:
             raise ValueError(f"{key} must be {lo}..{hi}")
+    mouth=meta.get("mouth")
+    if mouth is not None:
+        if not isinstance(mouth,dict):
+            raise ValueError("Mouth motion needs overlay specification")
+        overlay=resolve_asset(assets,mouth.get("path"))
+        info=inspect_image(overlay)
+        if not info["alpha"]:
+            raise ValueError("Mouth overlay must have transparency")
+        if mouth.get("sha256") and mouth["sha256"]!=info["sha256"]:
+            raise ValueError("Mouth sprite hash mismatch")
+        threshold=mouth.get("threshold",.22)
+        if isinstance(threshold,bool) or not isinstance(threshold,(int,float)) or not .05<=threshold<=.8:
+            raise ValueError("Mouth threshold must be .05..0.8")
+        if publish and (mouth.get("sha256")!=info["sha256"]
+                       or mouth.get("review_status")!="approved"
+                       or mouth.get("rights") not in ("owned","original","licensed","commissioned")
+                       or len(mouth.get("rights_note","").strip())<8):
+            raise ValueError("Mouth overlay missing identity / rights approval")
     blink=meta.get("blink")
     result={"blink_frames":0}
     if blink is not None:
@@ -43,7 +61,8 @@ def validate_motion(meta:dict,assets:Path,*,publish:bool=False)->dict:
         result={"blink_frames":len(frames),"overlay":blink["path"]}
     return result
 
-def animate_actor(source:Image.Image,meta:dict,t:float,*,overlay:Image.Image=None)->Image.Image:
+def animate_actor(source:Image.Image,meta:dict,t:float,*,overlay:Image.Image=None,
+                  mouth_overlay:Image.Image=None,mouth_is_open:bool=False)->Image.Image:
     src=source.convert("RGBA")
     w,h=src.size
     t=max(0.0,min(1.0,float(t)))
@@ -66,4 +85,10 @@ def animate_actor(source:Image.Image,meta:dict,t:float,*,overlay:Image.Image=Non
             layer=Image.new("RGBA",(w,h),(0,0,0,0))
             layer.alpha_composite(closed,(round((w-zw)/2)+dx,round((h-zh)/2)+dy))
             target=Image.alpha_composite(target,layer)
+    if mouth_overlay is not None and mouth_is_open:
+        open_mouth=mouth_overlay.convert("RGBA").resize(
+            (max(1,zw),max(1,zh)),Image.Resampling.BICUBIC)
+        mouth_layer=Image.new("RGBA",(w,h),(0,0,0,0))
+        mouth_layer.alpha_composite(open_mouth,(round((w-zw)/2)+dx,round((h-zh)/2)+dy))
+        target=Image.alpha_composite(target,mouth_layer)
     return target
