@@ -70,3 +70,34 @@ of the timeline. It rejects impossible unsignaled transitions and consecutive
 episodes with inconsistent start/end states. Approved scheduled episodes **must**
 contain these annotations. This is a mechanized subset of continuity review,
 not a substitute for a human screenplay editor.
+
+## Art director and scriptwriter (experimental feature branch)
+
+The new `studio.art_director` produces original detailed image prompts for
+characters' **physical bodies** and settings. It persists stable body identity,
+costume and reference hashes across episodes, and can send SDXL requests to a
+user-run ComfyUI GPU server (only when explicitly enabled). This repository
+does not include GPUs, checkpoints or paid image service credentials. Text
+prompts and seeds alone do **not** ensure identical faces: supply rights-cleared
+reference sheets and custom reference-conditioning (e.g. IP-Adapter + pose)
+and manually inspect outputs.
+
+```sh
+python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --output-dir dist/art
+# Real image generation requires running ComfyUI and an installed licensed checkpoint
+python -m studio.art_director --backend comfyui --checkpoint your-model.safetensors
+```
+
+The new `studio.story_writer` uses locked story beats + persistent canon
+snapshot and outputs **unapproved** episode drafts (E03, E04). Default offline
+`outline` mode fills prepared beats; it is not an LLM novelist. Optional local
+Ollama mode writes English scene text and dialogue constrained by the beats:
+```sh
+python -m studio.story_writer --episode E03 --engine outline
+ollama pull qwen2.5:7b
+python -m studio.story_writer --episode E03 --engine ollama --model qwen2.5:7b
+```
+
+Ollama must be running on your own machine or reachable server. Neither
+writer output nor generated art is published or silently marked approved.
+See `docs/AI_STUDIO.md`.

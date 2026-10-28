@@ -50,7 +50,11 @@
         "state": "pre",
         "body": "noctaris_lyra",
         "occupant": "Lyra"
-      }
+      },
+      "subjects": [
+        "earth_mira",
+        "noctaris_lyra"
+      ]
     },
     {
       "id": "S04",
@@ -65,7 +69,11 @@
       "continuity": {
         "state": "transition",
         "event": "mira_lyra_exchange"
-      }
+      },
+      "subjects": [
+        "earth_mira",
+        "noctaris_lyra"
+      ]
     },
     {
       "id": "S05",

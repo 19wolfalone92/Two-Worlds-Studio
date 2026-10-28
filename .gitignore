@@ -9,3 +9,5 @@ tmp/
 .env*
 !*.env.example
 assets/private/
+
+drafts/

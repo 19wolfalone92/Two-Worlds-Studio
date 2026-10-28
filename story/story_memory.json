@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "snapshot": "planned_continuity_before_E03",
+  "review_status": "story_canon_in_development",
+  "published_episodes": [],
+  "planned_episodes": [
+    "E01",
+    "E02"
+  ],
+  "chronology": [
+    "Six months before E01: Eli and Ilan's consciousnesses swapped; both bodies remained in their home worlds.",
+    "E01: Mira and Lyra's consciousnesses exchange through resonant mirrors.",
+    "E02: Mira occupies Lyra's Noctaris body; Lyra occupies Mira's Earth body; neither can easily return."
+  ],
+  "character_knowledge": {
+    "Mira": [
+      "her brother disappeared",
+      "she met a lookalike in a mirror",
+      "she is in unfamiliar armor beneath two moons",
+      "she cannot understand Noctari language"
+    ],
+    "Lyra": [
+      "a mirror exchanged her consciousness into a foreign body",
+      "Earth has strange lights, buildings and a real sun",
+      "she cannot open the mirror at will"
+    ],
+    "Eli": [
+      "he was displaced six months ago",
+      "Noctaris has a war and two moons"
+    ],
+    "Ilan": [
+      "he occupies Eli's body on Earth"
+    ]
+  },
+  "unanswered": [
+    "Why did Eli's mirror resonate before Mira's?",
+    "Who initiated the latest war experiment?",
+    "Why are Mira and Lyra paired?",
+    "What does Varos actually know about the ancient mechanisms?"
+  ],
+  "hard_limits": [
+    "No material body transport",
+    "Only mirrored pair consciousness swap under resonance",
+    "Never instant expertise or language comprehension",
+    "No unconstrained knowledge from dreams",
+    "No viewer-voted story branches"
+  ],
+  "irreversible_events": [],
+  "editorial_note": "Do not automatically mark any drafted episode as canon or published."
+}
