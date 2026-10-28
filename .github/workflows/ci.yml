@@ -21,7 +21,7 @@ permissions:
 jobs:
   validate-render:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -46,7 +46,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "schedule" ]]; then
-            python -m studio.production --scheduled --date "$(date -u +%F)" --output-dir dist
+            python -m studio.production --scheduled --date "$(date -u +%F)" --output-dir dist --quality master --width 1080 --height 1920 --fps 24
           elif [[ "$EVENT_NAME" == "pull_request" ]]; then
             # Prove the studio can render two consecutive scripted episodes.
             python -m studio.production --episode episodes/E01_THE_REFLECTION.json --output-dir dist --width 360 --height 640 --fps 10 --voiceover

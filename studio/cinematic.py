@@ -14,8 +14,14 @@ from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
 
 try:
     from studio.premium_assets import resolve_asset, validate_premium_scene
+    from studio.actor_motion import animate_actor, validate_motion
+    from studio.audio_master import audio_asset
+    from studio.lipsync import voice_envelope, mouth_open
 except ModuleNotFoundError:
     from premium_assets import resolve_asset, validate_premium_scene
+    from actor_motion import animate_actor, validate_motion
+    from audio_master import audio_asset
+    from lipsync import voice_envelope, mouth_open
 
 
 def ease(x:float)->float:
@@ -84,11 +90,35 @@ class CinematicPanel:
         self.scene=scene
         self.width,self.height=width,height
         self.layers=[]
+        self.voice_levels=None
+        self.voice_delay_ms=0
+        self.voice_step_ms=50
+        voice=scene.get("voice")
+        if voice and any(x.get("motion",{}).get("mouth") for x in scene["cinematic"]["layers"]):
+            clip=audio_asset(assets_root,voice.get("path"))
+            self.voice_levels=voice_envelope(clip,step_ms=self.voice_step_ms)
+            self.voice_delay_ms=int(voice.get("offset_ms",100))
         for layer in scene["cinematic"]["layers"]:
             path=resolve_asset(assets_root,layer["path"])
             with Image.open(path) as image:
                 image.load()
-                self.layers.append((layer,image.convert("RGBA")))
+                blink_overlay=None
+                mouth_overlay=None
+                if layer.get("motion"):
+                    validate_motion(layer["motion"],assets_root,publish=False)
+                    mouth_spec=layer["motion"].get("mouth")
+                    if mouth_spec:
+                        if self.voice_levels is None:
+                            raise ValueError("Mouth animation requires a recorded scene voice")
+                        with Image.open(resolve_asset(assets_root,mouth_spec["path"])) as lip:
+                            lip.load()
+                            mouth_overlay=lip.convert("RGBA")
+                    blink_spec=layer["motion"].get("blink")
+                    if blink_spec:
+                        with Image.open(resolve_asset(assets_root,blink_spec["path"])) as overlay:
+                            overlay.load()
+                            blink_overlay=overlay.convert("RGBA")
+                self.layers.append((layer,image.convert("RGBA"),blink_overlay,mouth_overlay))
         self.grain=float(scene["cinematic"].get("grain",0.0) or 0.0)
         self.vignette=float(scene["cinematic"].get("vignette",0.14) or 0.0)
         if not 0<=self.vignette<=0.85:
@@ -112,9 +142,20 @@ class CinematicPanel:
     def frame(self,t:float)->Image.Image:
         x,y,zoom=camera_state(self.scene,t)
         canvas=Image.new("RGBA",(self.width,self.height),(0,0,0,255))
-        for meta,im in self.layers:
+        for meta,im,blink_overlay,mouth_overlay in self.layers:
             depth=float(meta.get("depth",0))
-            current=_place(canvas,im,zoom=zoom,cx=x,cy=y,depth=depth,
+            if meta.get("motion"):
+                mouth_enabled=False
+                if mouth_overlay is not None and self.voice_levels is not None:
+                    mouth_enabled=mouth_open(self.voice_levels,t*float(self.scene["duration"]),
+                       step_ms=self.voice_step_ms,
+                       delay_ms=self.voice_delay_ms,
+                       threshold=float(meta["motion"]["mouth"].get("threshold",.22)))
+                moving=animate_actor(im,meta["motion"],t,overlay=blink_overlay,
+                                      mouth_overlay=mouth_overlay,mouth_is_open=mouth_enabled)
+            else:
+                moving=im
+            current=_place(canvas,moving,zoom=zoom,cx=x,cy=y,depth=depth,
                            role=meta["role"])
             canvas=_blend(canvas,current,meta.get("blend","over"),
                           float(meta.get("opacity",1)))

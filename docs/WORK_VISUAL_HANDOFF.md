@@ -183,3 +183,81 @@ A human QC pass still precedes TikTok delivery.
 
 Large high-quality renders are CPU expensive and should run on a dedicated
 renderer instead of assuming free CI minutes or a reliable cloud GPU.
+
+## Additional master-release contract
+
+Before the art enters production, Work returns a locked episode. Generate
+the hash using `python -m studio.work_contract --episode episodes/FILE.json`.
+Only the actual owner may record genuine approval:
+
+```json
+"work_lock": {
+  "origin": "chatgpt_work",
+  "script_sha256": "sha256 reported by the lock command",
+  "editorial_approved": true,
+  "approved_by": "actual owner reviewer"
+}
+```
+
+For every on-screen recurring physical body, provide `body_id` and
+`identity_version` in the `character` cinematic layer, and maintain
+`story/identity_registry.json` with **three approved rights-cleared angles**
+(front, three-quarter, profile), including matching SHA-256. This system
+validates **which** identity is referenced, not whether faces visually match.
+Artist/owner manual identity review remains required.
+
+Master audio uses `audio/voice_registry.json`: speaker IDs follow acting
+**consciousness** (Mira speaks with Mira's profile while inhabiting Lyra's
+body). Provide each spoken scene's `voice` metadata including approved
+recording path (relative to `assets`), `speaker`, `voice_version`,
+`sha256`, rights and provenance. Clips must fit within scene durations;
+master audio automatically mixes approved voice/music into an AAC stereo
+track. Synthetic `espeak` is for previews only, never master.
+Existing preview rendering needs none of this extra data.
+
+Video output also gets quantitative dark-frame, white-frame and lack-of-motion
+diagnostics. These flag possible production issues; not a quality guarantee.
+
+## Automated visual asset staging
+
+Work provides a locked episode and a per-panel **image map**. This is only
+an artwork handoff map; the studio **must not** invent dialogue or scenes.
+Sample structure:
+
+```json
+{
+  "schema": 1,
+  "episode": "E77",
+  "script_sha256": "script SHA from studio.work_contract",
+  "panels": {
+    "S01": [
+      {"role":"background","source":"S01/background.png"},
+      {"role":"character","source":"S01/character_rgba.png","body_id":"earth_mira"},
+      {"role":"foreground","source":"S01/foreground_rgba.png"}
+    ]
+  }
+}
+```
+
+Complete **every actual Work-authored scene** in the map, using only its IDs.
+`studio.asset_ingest` copies artwork into immutable fresh asset paths,
+adds camera/light recommendations but never touches story, continuity, timing,
+dialogue or captions. Its SHA-check confirms the Work script survived staging.
+All new layers are **unreviewed** by design.
+
+```bash
+python -m studio.asset_ingest \
+  --episode episodes/WORK_LOCKED_EPISODE.json \
+  --image-map input/image_map.json --source-dir input/artwork \
+  --assets assets --output dist/staged_episode.json
+python -m studio.production --episode-file dist/staged_episode.json \
+  --width 540 --height 960 --fps 12
+```
+
+For premium character motion, each transparent character layer may contain
+`motion.breath_scale`, `motion.sway_x`, `motion.sway_y` and `motion.cycles`.
+Optional `motion.blink` is a separately designed transparent, rights-cleared
+eye overlay with normalized blink times, and `motion.mouth` is an approved
+open-mouth overlay. The corresponding scene must have a **recorded voice asset**
+for mouth cue timing. Lip animation uses energy-based open/closed cues, not
+realistic phoneme-accurate performance. Human visual approval is mandatory.

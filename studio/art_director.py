@@ -18,6 +18,7 @@ from pathlib import Path
 
 from studio.continuity import BODIES, check_episode
 from studio.render import validate_episode
+from studio.identity_qc import load_registry, verify_body, REGISTRY
 
 ROOT=Path(__file__).resolve().parent.parent
 STYLES=ROOT/"story/visual_bible.json"
@@ -61,8 +62,30 @@ def panel_prompt(scene:dict,style:dict,episode_id:str)->dict:
         raise ValueError("Unknown illustrated location")
     details=[]
     references={}
+    versioned={}
+    registry=load_registry()
     for body in bodies:
         ch=style["characters"][body]
+        registry_body=registry["bodies"].get(body)
+        if registry_body is None:
+            raise ValueError(f"Missing visual identity version for {body}")
+        versioned[body]={"identity_version":registry_body["version"],
+                         "reference_views":[],
+                         "reference_ready":False}
+        if registry_body.get("references"):
+            try:
+                checked=verify_body(body,registry_body["version"],registry,ROOT/"assets",strict=True)
+            except (ValueError,FileNotFoundError):
+                # Report incomplete reference library, never claim stable faces.
+                pass
+            else:
+                versioned[body]["reference_ready"]=True
+                for ref in registry_body["references"]:
+                    versioned[body]["reference_views"].append({
+                       "view":ref["view"],"file":ref["file"],"sha256":ref["sha256"]})
+                first=next(ref for ref in registry_body["references"] if ref["view"]=="front")
+                references[body]={"file":"assets/"+first["file"],
+                                  "sha256":first["sha256"]}
         details.append(f'{ch["body_name"]}: {ch["gender"]}, age {ch["age"]}; '
                        f'fixed facial identity {ch["body"]}; signature {ch["distinctive"]}; '
                        f'wardrobe: {ch["clothing"]}.')
@@ -92,6 +115,7 @@ def panel_prompt(scene:dict,style:dict,episode_id:str)->dict:
     return {"episode":episode_id,"scene":scene["id"],"bodies":bodies,
             "location":location,"seed":seed,"prompt":prompt,
             "negative":style["negative"],"references":references,
+            "identity_versions":versioned,
             "review_status":"unreviewed","consistency_verified":False,
             "note":"Same descriptions/seeds support repeatability, but DO NOT guarantee identical faces. "
                    "Use approved multi-angle references with a ComfyUI IP-Adapter custom workflow."}

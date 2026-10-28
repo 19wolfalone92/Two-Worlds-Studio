@@ -128,19 +128,61 @@ def wrap_lines(draw: ImageDraw.ImageDraw, text: str, face, max_width: int) -> li
     return lines
 
 
-def centered_text(draw, text, face, center_y, width, fill, max_width):
+def centered_text(draw, text, face, center_y, width, fill, max_width,
+                  max_height=None, center_x=None):
+    """Mobile-safe text fitting, avoiding the right-side social-app controls.
+
+    Never silently clip long captions. Shrink font and wrap at up to four lines;
+    reject unrenderable text rather than drawing outside safe bounds.
+    """
     if not text:
         return
-    lines = wrap_lines(draw, text, face, max_width)
-    line_h = draw.textbbox((0, 0), "Ag", font=face)[3] + 12
-    first_y = center_y - line_h * len(lines) / 2
-    for i, line in enumerate(lines):
-        bbox = draw.textbbox((0, 0), line, font=face)
-        tw = bbox[2] - bbox[0]
-        x = (width - tw) // 2
-        y = round(first_y + i * line_h)
-        draw.text((x+2, y+3), line, font=face, fill=(0, 0, 0), stroke_width=4, stroke_fill=(0, 0, 0))
-        draw.text((x, y), line, font=face, fill=fill)
+    max_height = max_height or 100000
+    center_x = center_x if center_x is not None else width / 2
+    size = getattr(face, "size", 18)
+    best = None
+    for font_size in range(max(10, size), 9, -1):
+        font_now = font(font_size)
+        lines = []
+        for para in text.strip().splitlines():
+            line = ""
+            for word in para.split():
+                proposal = (line + " " + word).strip()
+                if line and draw.textbbox((0, 0), proposal, font=font_now)[2] > max_width:
+                    lines.append(line)
+                    line = word
+                else:
+                    line = proposal
+                # Word longer than the available width? Split safely into chunks.
+                if line and draw.textbbox((0, 0), line, font=font_now)[2] > max_width:
+                    chunk = ""
+                    for char in line:
+                        next_chunk = chunk + char
+                        if chunk and draw.textbbox((0, 0), next_chunk, font=font_now)[2] > max_width:
+                            lines.append(chunk)
+                            chunk = char
+                        else:
+                            chunk = next_chunk
+                    line = chunk
+            if line:
+                lines.append(line)
+        bbox = draw.textbbox((0, 0), "Ag", font=font_now)
+        line_h = bbox[3] - bbox[1] + max(3, int(font_size * 0.28))
+        if len(lines) <= 4 and line_h * len(lines) <= max_height:
+            best = (font_now,lines,line_h,font_size)
+            break
+    if best is None:
+        raise ValueError("Caption cannot fit into safe text area")
+    face_now,lines,line_h,font_size = best
+    y0 = center_y - line_h * len(lines) / 2
+    stroke = max(1,round(font_size*.11))
+    for index,line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=face_now)
+        tw = bbox[2]-bbox[0]
+        x = round(center_x - tw/2)
+        y = round(y0 + index*line_h)
+        draw.text((x,y),line,font=face_now,fill=fill,
+                  stroke_width=stroke,stroke_fill=(0,0,0))
 
 
 def animate_frame(base, scene: dict, t: float, frame_index: int, fps: int) -> Image.Image:
@@ -200,8 +242,12 @@ def animate_frame(base, scene: dict, t: float, frame_index: int, fps: int) -> Im
     draw = ImageDraw.Draw(img)
     heading = scene.get("heading", "")
     caption = scene.get("caption", "")
-    centered_text(draw, heading, font(max(13, round(w*.061))), h*.665, w, (255,236,209), round(w*.88))
-    centered_text(draw, caption, font(max(11, round(w*.036))), h*.769, w, (219,232,247), round(w*.85))
+    centered_text(draw, heading, font(max(13, round(w*.055))), h*.665, w,
+                  (255,236,209), round(w*.70), max_height=round(h*.105),
+                  center_x=w*.45)
+    centered_text(draw, caption, font(max(11, round(w*.033))), h*.772, w,
+                  (219,232,247), round(w*.70), max_height=round(h*.135),
+                  center_x=w*.45)
     # Keep fades short to avoid sluggish comic pacing.
     fade = min(1.0, t/.18, (duration-t)/.18)
     fade = max(.0, fade)
@@ -238,6 +284,12 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
             raise ValueError("Master output requires at least 1080x1920 at 24 fps")
         src = json.loads(episode.read_text(encoding="utf-8"))
         review_episode(src,assets,publish=True)
+        from studio.work_contract import verify_work_lock
+        from studio.identity_qc import verify_episode_characters
+        from studio.audio_master import audit_audio
+        verify_work_lock(src,strict=True)
+        verify_episode_characters(src,assets,strict=True)
+        audit_audio(src,assets,publish=True,fps=fps)
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required and must be on PATH")
     if width < 64 or height < 64 or fps < 1 or fps > 60:
