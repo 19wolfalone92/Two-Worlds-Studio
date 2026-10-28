@@ -100,3 +100,11 @@ python -m studio.kokoro_tts --text "Voice test only." --speaker Mira --dry-run
 The studio now contains a GitHub Actions workflow that can call Kaggle's official API to **submit a private GPU kernel**. It uses the encrypted GitHub secret **KAGGLE_API_TOKEN** and a non-secret **KAGGLE_USERNAME** repository variable. A run must be started manually in Actions; no scheduled GPU or TikTok publication. The Kaggle worker packages source code into a kernel without transmitting GitHub credentials. The real portrait/voice files remain unreviewed.
 
 **Critical:** The feature remains in a pull request; to see the GitHub Run workflow button, the workflow must be present on the default branch after review/merge. The API token must be added by the account owner in GitHub Settings; this chat cannot read it and nobody should paste it here. This public repository deliberately avoids uploading unpublished art to public Actions artifacts; download such results from the private Kaggle notebook. Details: docs/KAGGLE_API_AUTOMATION.md.
+
+## Kaggle API: token-only bootstrap (account username auto-discovery)
+The connected personal token was detected in GitHub Actions, but the
+KAGGLE_USERNAME variable was empty in the initial connection check.
+The manual Kaggle and connection-check workflows now attempt to determine
+the authenticated Kaggle username via official CLI; no additional variable
+is needed if introspection works. GPU usage still requires an explicit
+manual workflow trigger, and the reference portraits remain unreviewed.
