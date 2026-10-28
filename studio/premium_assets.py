@@ -118,7 +118,9 @@ def validate_premium_scene(scene:dict, root:Path, *, publish:bool=False,
     if config is None:
         if publish:
             raise ValueError(f"{scene.get('id')}: premium release requires cinematic scene layers")
-        return {"scene":scene.get("id"),"cinematic":False,"layers":[],"warnings":["Procedural placeholder art, not production approved"]}
+        return {"scene":scene.get("id"),"cinematic":False,"layers":[],
+                "warnings":["Procedural placeholder art, not production approved"],
+                "tech_preflight_pass":False}
     if not isinstance(config,dict) or not isinstance(config.get("layers"),list):
         raise ValueError("cinematic needs layers list")
     layers=config["layers"]
