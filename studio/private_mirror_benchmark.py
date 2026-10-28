@@ -153,7 +153,7 @@ class Scene:
         # The actor's ground shadow belongs to the authored rig and travels
         # with her feet. Lyra remains on the far side of the glass.
         pose_time=eased(min(1,max(0,sec/5.65)))
-        mira=np.asarray(self.mira_rig.frame(pose_time).convert('RGBA'),dtype=np.uint8)
+        mira=np.array(self.mira_rig.frame(pose_time).convert('RGBA'),dtype=np.uint8)
         mira[:,:,:3]=np.uint8(np.clip(
             mira[:,:,:3].astype(np.float32)*self.dark_mira[:3],0,255))
         frame=composite(room[:,:,:3].copy(),mira)
