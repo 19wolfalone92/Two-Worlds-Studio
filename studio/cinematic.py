@@ -103,6 +103,7 @@ class CinematicPanel:
             with Image.open(path) as image:
                 image.load()
                 blink_overlay=None
+                blink_erase_mask=None
                 mouth_overlay=None
                 if layer.get("motion"):
                     validate_motion(layer["motion"],assets_root,publish=False)
@@ -114,11 +115,14 @@ class CinematicPanel:
                             lip.load()
                             mouth_overlay=lip.convert("RGBA")
                     blink_spec=layer["motion"].get("blink")
-                    if blink_spec:
+                    if blink_spec and blink_spec.get("erase_mask"):
                         with Image.open(resolve_asset(assets_root,blink_spec["path"])) as overlay:
                             overlay.load()
                             blink_overlay=overlay.convert("RGBA")
-                self.layers.append((layer,image.convert("RGBA"),blink_overlay,mouth_overlay))
+                        with Image.open(resolve_asset(assets_root,blink_spec["erase_mask"])) as mask_img:
+                            mask_img.load()
+                            blink_erase_mask=mask_img.convert("L")
+                self.layers.append((layer,image.convert("RGBA"),blink_overlay,blink_erase_mask,mouth_overlay))
         self.grain=float(scene["cinematic"].get("grain",0.0) or 0.0)
         self.vignette=float(scene["cinematic"].get("vignette",0.14) or 0.0)
         if not 0<=self.vignette<=0.85:
@@ -142,7 +146,7 @@ class CinematicPanel:
     def frame(self,t:float)->Image.Image:
         x,y,zoom=camera_state(self.scene,t)
         canvas=Image.new("RGBA",(self.width,self.height),(0,0,0,255))
-        for meta,im,blink_overlay,mouth_overlay in self.layers:
+        for meta,im,blink_overlay,blink_erase_mask,mouth_overlay in self.layers:
             depth=float(meta.get("depth",0))
             if meta.get("motion"):
                 mouth_enabled=False
@@ -152,6 +156,7 @@ class CinematicPanel:
                        delay_ms=self.voice_delay_ms,
                        threshold=float(meta["motion"]["mouth"].get("threshold",.22)))
                 moving=animate_actor(im,meta["motion"],t,overlay=blink_overlay,
+                                      blink_erase_mask=blink_erase_mask,
                                       mouth_overlay=mouth_overlay,mouth_is_open=mouth_enabled)
             else:
                 moving=im
