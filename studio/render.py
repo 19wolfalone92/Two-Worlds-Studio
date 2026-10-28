@@ -16,10 +16,10 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
     from studio.cinematic import CinematicPanel
-    from studio.premium_assets import validate_premium_scene
+    from studio.premium_assets import validate_premium_scene, review_episode
 except ModuleNotFoundError:
     from cinematic import CinematicPanel
-    from premium_assets import validate_premium_scene
+    from premium_assets import validate_premium_scene, review_episode
 
 try:
     from studio.comic_art import panel as comic_panel
@@ -234,7 +234,6 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
     if quality not in ("preview","master"):
         raise ValueError("Unknown encoder quality preset")
     if quality == "master":
-        from studio.premium_assets import review_episode
         if width < 1080 or height < 1920 or fps < 24:
             raise ValueError("Master output requires at least 1080x1920 at 24 fps")
         src = json.loads(episode.read_text(encoding="utf-8"))

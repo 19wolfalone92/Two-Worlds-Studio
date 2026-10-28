@@ -12,7 +12,10 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
 
-from studio.premium_assets import resolve_asset, validate_premium_scene
+try:
+    from studio.premium_assets import resolve_asset, validate_premium_scene
+except ModuleNotFoundError:
+    from premium_assets import resolve_asset, validate_premium_scene
 
 
 def ease(x:float)->float:
