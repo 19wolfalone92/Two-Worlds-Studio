@@ -17,11 +17,13 @@ try:
     from studio.actor_motion import animate_actor, validate_motion
     from studio.audio_master import audio_asset
     from studio.lipsync import voice_envelope, mouth_open
+    from studio.character_engine import CharacterRig
 except ModuleNotFoundError:
     from premium_assets import resolve_asset, validate_premium_scene
     from actor_motion import animate_actor, validate_motion
     from audio_master import audio_asset
     from lipsync import voice_envelope, mouth_open
+    from character_engine import CharacterRig
 
 
 def ease(x:float)->float:
@@ -122,7 +124,8 @@ class CinematicPanel:
                         with Image.open(resolve_asset(assets_root,blink_spec["erase_mask"])) as mask_img:
                             mask_img.load()
                             blink_erase_mask=mask_img.convert("L")
-                self.layers.append((layer,image.convert("RGBA"),blink_overlay,blink_erase_mask,mouth_overlay))
+                rig=CharacterRig(layer["rig"],assets_root,image.size) if layer.get("rig") else None
+                self.layers.append((layer,image.convert("RGBA"),blink_overlay,blink_erase_mask,mouth_overlay,rig))
         self.grain=float(scene["cinematic"].get("grain",0.0) or 0.0)
         self.vignette=float(scene["cinematic"].get("vignette",0.14) or 0.0)
         if not 0<=self.vignette<=0.85:
@@ -146,9 +149,11 @@ class CinematicPanel:
     def frame(self,t:float)->Image.Image:
         x,y,zoom=camera_state(self.scene,t)
         canvas=Image.new("RGBA",(self.width,self.height),(0,0,0,255))
-        for meta,im,blink_overlay,blink_erase_mask,mouth_overlay in self.layers:
+        for meta,im,blink_overlay,blink_erase_mask,mouth_overlay,rig in self.layers:
             depth=float(meta.get("depth",0))
-            if meta.get("motion"):
+            if rig is not None:
+                moving=rig.frame(t)
+            elif meta.get("motion"):
                 mouth_enabled=False
                 if mouth_overlay is not None and self.voice_levels is not None:
                     mouth_enabled=mouth_open(self.voice_levels,t*float(self.scene["duration"]),

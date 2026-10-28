@@ -82,12 +82,17 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
     if isinstance(opacity,bool) or not isinstance(opacity,(float,int)) or not 0<=opacity<=1:
         raise ValueError("Layer opacity must be between 0 and 1")
     if "motion" in layer:
-        if layer["role"]!="character":
-            raise ValueError("Actor motion is only supported on character layers")
+        if layer["role"]!="character" or "rig" in layer:
+            raise ValueError("Legacy actor motion cannot be combined with an articulated rig")
         from studio.actor_motion import validate_motion
         validate_motion(layer["motion"],root,publish=publish)
     path=resolve_asset(root,layer.get("path"))
     result=inspect_image(path)
+    if "rig" in layer:
+        if layer["role"]!="character":
+            raise ValueError("Only character layers support articulated rig")
+        from studio.character_engine import validate_rig
+        validate_rig(layer["rig"],root,(result["width"],result["height"]),publish=publish)
     warnings=[]
     if result["width"]<min_width or result["height"]<min_height:
         warnings.append("Artwork resolution below target for chosen output")
