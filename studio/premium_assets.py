@@ -102,7 +102,9 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
         warnings.append("Very low background luminance contrast — check visibility on mobile")
     if layer["role"]=="background" and (result["brightness"]<0.065 or result["brightness"]>0.96):
         warnings.append("Extreme background brightness — check exposure")
-    if result["alpha"] and result["alpha_coverage"]<0.002:
+    # A rig is rendered from its reviewed articulated sprites. The base
+    # character canvas may deliberately be transparent; this is not missing art.
+    if result["alpha"] and result["alpha_coverage"]<0.002 and "rig" not in layer:
         warnings.append("Layer is almost completely transparent")
     if layer.get("sha256") is not None and layer["sha256"]!=result["sha256"]:
         raise ValueError(f"Artwork hash mismatch: {layer['path']}")
