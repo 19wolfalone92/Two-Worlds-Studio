@@ -247,6 +247,7 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--episode",help="Exact episode JSON path relative to repository, e.g. episodes/E01_THE_REFLECTION.json")
     group.add_argument("--scheduled",action="store_true",help="Prepare episodes explicitly approved for specified UTC date")
+    group.add_argument("--episode-file",type=Path,help="Explicitly render a staged Work-approved episode JSON without moving it into episodes/")
     parser.add_argument("--date",default=dt.datetime.now(dt.timezone.utc).date().isoformat(),help="UTC schedule date YYYY-MM-DD")
     parser.add_argument("--plan",type=Path,default=ROOT/"release_plan.json")
     parser.add_argument("--output-dir",type=Path,default=ROOT/"dist")
@@ -264,6 +265,10 @@ def main():
         if not episodes:
             print(json.dumps({"date":str(date),"staged":0,"reason":"no approved episodes due"}))
             return
+    elif args.episode_file is not None:
+        if args.episode_file.suffix.lower()!=".json" or not args.episode_file.is_file():
+            parser.error("--episode-file requires an existing JSON file")
+        episodes=[args.episode_file.resolve()]
     else:
         episodes=[safe_episode_path(args.episode)]
     for episode in episodes:
