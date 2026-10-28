@@ -23,6 +23,13 @@ def audit_performance(episode:dict,*,publish:bool=False)->dict:
         kind=anim.get("kind")
         if kind not in KINDS:
             issues.append("Missing authored actor-performance format (not just camera pan/zoom)")
+        if kind=="rigged_2d":
+            rigs=[layer.get("rig") for layer in actors if isinstance(layer.get("rig"),dict)]
+            if not rigs:
+                issues.append("rigged_2d requires an actual articulated character rig")
+            elif not any(len(t)>1 for rig in rigs for t in rig.get("tracks",{}).values()
+                         if isinstance(t,list)):
+                issues.append("Rig lacks keyframed movement")
         cues=anim.get("cues",[])
         if not isinstance(cues,list):
             issues.append("Animation cues must be a list")

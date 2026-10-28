@@ -58,7 +58,7 @@ class StudioFirstQualityTests(unittest.TestCase):
     def test_authored_performance_must_be_reviewed_and_grounded(self):
         ep={"scenes":[{"id":"S01","cinematic":{"layers":[
             {"role":"background"},{"role":"character"}]},
-            "animation":{"kind":"rigged_2d","cues":["gaze","pose"],
+            "animation":{"kind":"drawn_sequence","cues":["gaze","pose"],
             "integration":{"contact_shadow":True,"lighting":True,"perspective":True},
             "reviewed_by":"actual art director"}}]}
         result=audit_performance(ep,publish=True)

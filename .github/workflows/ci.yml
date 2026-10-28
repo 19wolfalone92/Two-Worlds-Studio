@@ -38,6 +38,10 @@ jobs:
           python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --output-dir dist/art
           python -m studio.visual_prep --demo --output-dir dist/premium_demo
           python -m studio.premium_assets --episode episodes/E01_THE_REFLECTION.json --report dist/reports/E01_visual.json
+      - name: Demonstrate articulated character rig (synthetic technical art ONLY)
+        if: github.event_name == 'pull_request'
+        run: |
+          python -m studio.rig_demo --output dist/character_demo/CHARACTER_RIG_TECH_DEMO.mp4 --fps 12 --seconds 8
       - name: Verify free Kaggle FLUX and Kokoro plans without GPU or downloads
         run: |
           python -m studio.kaggle_flux --mode character --body earth_mira --view front --dry-run --output-dir dist/gpu_plans > dist/kaggle_plan.json
