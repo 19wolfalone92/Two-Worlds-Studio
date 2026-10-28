@@ -38,3 +38,11 @@ python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --backe
 The actual `--quality master` export is guarded by Work editorial lock,
 license/identity provenance, reference views and genuine recorded approved
 audio. No API keys or publishing actions are stored in this repository.
+
+## Reference-aware art packs
+When the three-angle approved reference registry is complete, art prompt packs
+automatically include the current version of the physical body and the front
+reference SHA. ComfyUI can then load that reference using an explicitly
+reference-conditioned **custom API workflow**. The base text-to-image
+workflow cannot hold facial identity reliably. Multi-person reference shots
+require a proper multi-reference workflow, composite layers and a human check.
