@@ -73,3 +73,15 @@ Only a real API run after owner token setup can verify this.
 - Push/status/output: https://github.com/Kaggle/kaggle-cli/blob/main/docs/kernels.md
 - GitHub workflow dispatch:
   https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow
+
+## Optional username discovery after live connection check
+
+The initial connection-check run found an encrypted Kaggle API token but no
+GitHub repository variable named KAGGLE_USERNAME. To reduce the work required
+from the owner, the new workflows first authenticate through a read-only
+`kaggle quota` call, then try resolving the account handle using the
+authenticated `kaggle config view`. The result is validated and passed
+through GitHub Actions environment without printing secrets. If the
+token-backed CLI cannot resolve the username, the owner still needs to
+create variable KAGGLE_USERNAME under the repository's Actions Variables.
+This preflight does not request a GPU.
