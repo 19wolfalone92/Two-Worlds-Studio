@@ -21,15 +21,35 @@ def art(zip_path,scale=1):
         names=set(z.namelist())
         if any(ASSET_PREFIX+x not in names for x in REQUIRED):
             raise ValueError('Missing approved Work reference assets; do not fake them')
+        manifest_name='TWO_WORLDS_Studio_Handoff_v1_1/EP01_WORK_CANDIDATE_v1_1.json'
+        if manifest_name not in names:
+            raise ValueError('Work editorial candidate absent from handoff')
+        manifest=json.loads(z.read(manifest_name))
+        pinned={}
+        voice_pinned=None
+        for scene in manifest.get('scenes',[]):
+            for layer in scene.get('cinematic',{}).get('layers',[]):
+                path=layer.get('path')
+                digest=layer.get('sha256')
+                if path in pinned and pinned[path]!=digest:
+                    raise ValueError('Conflicting Work asset SHA-256: '+str(path))
+                pinned[path]=digest
+            if scene.get('id')=='S03':
+                voice_pinned=scene.get('voice',{}).get('sha256')
         images={}
-        for name in REQUIRED:
+        for name in sorted(REQUIRED):
             import io
-            with Image.open(io.BytesIO(z.read(ASSET_PREFIX+name))) as im:
+            original=z.read(ASSET_PREFIX+name)
+            if pinned.get('E01/shared/'+name)!=hashlib.sha256(original).hexdigest():
+                raise ValueError('Work source asset has changed: '+name)
+            with Image.open(io.BytesIO(original)) as im:
                 im.load()
                 if im.size!=(W,H): raise ValueError('Cannot change Work art dimensions')
                 if scale!=1:im=im.resize((round(W*scale),round(H*scale)),Image.Resampling.LANCZOS)
                 images[name]=np.array(im.convert('RGBA'),dtype=np.uint8)
         audio=z.read(VOICE_PREFIX+'S03_Mira_af_heart.wav')
+        if voice_pinned!=hashlib.sha256(audio).hexdigest():
+            raise ValueError('Work original voice SHA-256 changed')
         return images,audio
 
 def prep_arm(actor:np.ndarray,which:str):
