@@ -42,7 +42,7 @@ No Work art, faces or source voices are added to the public repository.
 
 ## Performance requirements: real character acting, not sliding stickers
 
-- **0–2 s:** Mira stands 3/4 to camera BACK (face not exposed), looks toward
+- **0–2 s:** Mira stands with her BACK squarely toward the camera (face not visible), looks toward
   the mirror. Her centre of gravity and weight shift are visibly grounded.
 - **2–5.65 s:** She cautiously approaches glass with at least two believable
   foot contacts. Shoulder, elbow, wrist and head tracks are independent, but
