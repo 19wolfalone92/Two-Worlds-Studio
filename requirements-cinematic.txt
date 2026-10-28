@@ -1,0 +1,3 @@
+# Extra, optional computer-vision library used for private Work-art rigging
+# Project base tests do not need it. Install only on a private rendering worker.
+opencv-python-headless>=4.8,<5
