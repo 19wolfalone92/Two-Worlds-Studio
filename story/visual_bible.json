@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "visual_style": "Original premium graphic-novel illustration; fine engraved ink lines, richly layered painted textures, chiaroscuro, cinematic lighting, physically plausible expressions, restrained mature palette, depth-separated environments. Avoid franchise imitation.",
+  "composition": "Vertical 9:16, medium/cinematic closeups, foreground midground background, strong silhouettes, negative space for captions, visual storytelling, not a slideshow.",
+  "negative": "blurry, plastic 3D render, amateur sketch, clipart, low-detail, malformed hands, duplicate limbs, inconsistent eyes, waxy skin, text, signatures, watermark, logos, oversaturated neon, franchise characters",
+  "locations": {
+    "earth": "Rain-drenched modern apartment and northern European city, bluish slate practical lighting, glass reflections, contemporary architecture and believable materials.",
+    "noctaris": "Original dark-fantasy twilight realm; imposing stone citadels and carved bridges beneath two moons, copper-violet clouds, fire-lit smoke, complex culture, no destroyed futuristic Earth."
+  },
+  "characters": {
+    "earth_mira": {
+      "identity_id": "mira_lyra",
+      "body_name": "Mira's Earth body",
+      "gender": "woman",
+      "age": 25,
+      "body": "olive undertone, oval face, green-gray almond eyes, defined narrow nose, slightly arched dark brows, softly angular jaw, shoulder-length wavy dark chestnut hair, slender athletic build",
+      "distinctive": "no facial scar; thin silver necklace with tiny crescent pendant",
+      "clothing": "oatmeal knitted sweater and dark trousers on Earth",
+      "reference_file": null,
+      "seed_anchor": 510241
+    },
+    "noctaris_lyra": {
+      "identity_id": "mira_lyra",
+      "body_name": "Lyra's Noctaris body",
+      "gender": "woman",
+      "age": 25,
+      "body": "olive undertone, oval face, green-gray almond eyes, defined narrow nose, slightly arched dark brows, softly angular jaw, shoulder-length wavy dark chestnut hair, trained athletic build",
+      "distinctive": "small diagonal scar at outer left cheekbone; copper ring braided into hair",
+      "clothing": "functional blackened steel lamellar armor with asymmetrical silver filigree and deep wine cloak, no oversized spikes",
+      "reference_file": null,
+      "seed_anchor": 510241
+    },
+    "earth_eli": {
+      "identity_id": "eli_ilan",
+      "body_name": "Eli's Earth body",
+      "gender": "man",
+      "age": 19,
+      "body": "light olive skin, short dark brown hair, hazel eyes, youthful narrow face, straight nose, faint freckles at right temple, slim build",
+      "distinctive": "dark green jacket and a scratched watch",
+      "clothing": "ordinary Earth streetwear",
+      "reference_file": null,
+      "seed_anchor": 903811
+    },
+    "noctaris_ilan": {
+      "identity_id": "eli_ilan",
+      "body_name": "Ilan's Noctaris body",
+      "gender": "man",
+      "age": 19,
+      "body": "light olive skin, short dark brown hair, hazel eyes, youthful narrow face, straight nose, faint freckles at right temple, lean build",
+      "distinctive": "bronze cord tied to left wrist",
+      "clothing": "Noctaris silver-grey scout uniform with black padded armor",
+      "reference_file": null,
+      "seed_anchor": 903811
+    }
+  }
+}

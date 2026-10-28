@@ -1,0 +1,72 @@
+name: TWO WORLDS — Verify and stage motion comics
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Tuesday and Friday, 17:15 UTC; only due+approved episodes are staged.
+    - cron: "15 17 * * 2,5"
+  workflow_dispatch:
+    inputs:
+      episode_file:
+        description: "Preview a specific episode JSON file (never publishes)"
+        required: false
+        default: "episodes/E01_THE_REFLECTION.json"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install offline dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+      - name: Test renderer, editorial controls and packaging
+        run: python -m unittest discover -s tests -v
+      - name: Verify premium visual asset pipeline and reference prompts (no GPU)
+        run: |
+          python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --output-dir dist/art
+          python -m studio.visual_prep --demo --output-dir dist/premium_demo
+          python -m studio.premium_assets --episode episodes/E01_THE_REFLECTION.json --report dist/reports/E01_visual.json
+      - name: Verify free Kaggle FLUX and Kokoro plans without GPU or downloads
+        run: |
+          python -m studio.kaggle_flux --mode character --body earth_mira --view front --dry-run --output-dir dist/gpu_plans > dist/kaggle_plan.json
+          python -m studio.kokoro_tts --text "Visual production test only." --speaker Mira --dry-run --output-dir dist/voice_plans > dist/kokoro_plan.json
+      - name: Test private Kaggle API submission packaging (offline; no token)
+        run: |
+          python -m studio.kaggle_api prepare --username ci-account \
+            --run-nonce unit-gh-2026 --mode portrait --body earth_mira \
+            --view front --output-dir /tmp/two-worlds-kaggle-api
+      - name: Stage review-only episodes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_EPISODE: ${{ inputs.episode_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            python -m studio.production --scheduled --date "$(date -u +%F)" --output-dir dist --quality master --width 1080 --height 1920 --fps 24
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            # Prove the studio can render two consecutive scripted episodes.
+            python -m studio.production --episode episodes/E01_THE_REFLECTION.json --output-dir dist --width 360 --height 640 --fps 10 --voiceover
+            python -m studio.production --episode episodes/E02_THE_WRONG_WORLD.json --output-dir dist --width 360 --height 640 --fps 10 --voiceover
+          else
+            python -m studio.production --episode "${REQUESTED_EPISODE:-episodes/E01_THE_REFLECTION.json}" --output-dir dist --width 360 --height 640 --fps 10 --voiceover
+          fi
+      - name: Archive review package — NOT PUBLICATION
+        uses: actions/upload-artifact@v4
+        with:
+          name: two-worlds-review-package-${{ github.run_number }}
+          path: dist/
+          retention-days: 14
+          if-no-files-found: ignore

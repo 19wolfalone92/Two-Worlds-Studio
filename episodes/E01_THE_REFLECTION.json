@@ -1,0 +1,113 @@
+{
+  "id": "E01",
+  "title": "THE REFLECTION",
+  "subtitle": "Two lives. One impossible exchange.",
+  "fps": 12,
+  "scenes": [
+    {
+      "id": "S01",
+      "duration": 3.4,
+      "palette": "earth",
+      "effect": "rain",
+      "heading": "SIX MONTHS AGO",
+      "caption": "My brother disappeared.",
+      "shot": "Earth apartment, rainy night. Mira studies Eli's photograph.",
+      "art": "earth_photo",
+      "voiceover": "Six months ago, my brother disappeared.",
+      "continuity": {
+        "state": "pre",
+        "body": "earth_mira",
+        "occupant": "Mira"
+      }
+    },
+    {
+      "id": "S02",
+      "duration": 3.2,
+      "palette": "earth",
+      "effect": "mirror",
+      "heading": "00:17",
+      "caption": "The reflection moved first.",
+      "shot": "Blackout. Mira approaches antique mirror; Lyra appears in armor, does not mimic her.",
+      "art": "earth_mirror",
+      "voiceover": "That reflection isn't me.",
+      "continuity": {
+        "state": "pre",
+        "body": "earth_mira",
+        "occupant": "Mira"
+      }
+    },
+    {
+      "id": "S03",
+      "duration": 3.1,
+      "palette": "noctaris",
+      "effect": "portal",
+      "heading": "WHO ARE YOU?",
+      "caption": "Two faces. Two different lives.",
+      "shot": "Both women face one another across mirrored glass, worlds visible in reverse.",
+      "art": "two_worlds",
+      "voiceover": "Who are you?",
+      "continuity": {
+        "state": "pre",
+        "body": "noctaris_lyra",
+        "occupant": "Lyra"
+      },
+      "subjects": [
+        "earth_mira",
+        "noctaris_lyra"
+      ]
+    },
+    {
+      "id": "S04",
+      "duration": 3,
+      "palette": "noctaris",
+      "effect": "flash",
+      "heading": "THE EXCHANGE",
+      "caption": "Both touch the glass.",
+      "shot": "Paired contact, resonance peak; consciousnesses swap, bodies do not cross.",
+      "art": "exchange",
+      "voiceover": "No!",
+      "continuity": {
+        "state": "transition",
+        "event": "mira_lyra_exchange"
+      },
+      "subjects": [
+        "earth_mira",
+        "noctaris_lyra"
+      ]
+    },
+    {
+      "id": "S05",
+      "duration": 3.8,
+      "palette": "noctaris",
+      "effect": "embers",
+      "heading": "COMMANDER?",
+      "caption": "A voice behind the door: Commander, the council is waiting.",
+      "shot": "Mira wakes in Lyra's armored body in Noctaris fortress; she sees two moons.",
+      "art": "fortress",
+      "voiceover": "Commander, the council is waiting.",
+      "continuity": {
+        "state": "post",
+        "body": "noctaris_lyra",
+        "occupant": "Mira"
+      }
+    },
+    {
+      "id": "S06",
+      "duration": 3.5,
+      "palette": "earth",
+      "effect": "none",
+      "heading": "THE FIRST SUN",
+      "caption": "Lyra wakes in Mira's body. She looks toward the city.",
+      "shot": "Lyra sees the Earth sunrise for the first time. Hard cut to TWO WORLDS logo.",
+      "art": "sunrise",
+      "voiceover": "Where am I?",
+      "continuity": {
+        "state": "post",
+        "body": "earth_mira",
+        "occupant": "Lyra"
+      }
+    }
+  ],
+  "continuity_start": "pre",
+  "continuity_end": "post"
+}
