@@ -1,30 +1,72 @@
-# TWO WORLDS — Motion Comic Studio
+# TWO WORLDS — Autonomous Motion Comic Studio (MVP)
 
-Original English-language dark-fantasy / sci-fi serial. **Independent of all Williams projects.**
+Original international dark-fantasy / science-fiction comic series. **Independent** of Williams Bot and Williams AI.
 
-## Status
-**MVP / review stage.** A free, deterministic *motion-comic compositor* and pilot storyboard are included. It renders motion, depth, mirror glow, transitions, English caption overlays and a generated ambient audio bed. It does **not** generate new illustrated characters, realistic acting, voice dialogue, or upload to TikTok. Those are separate capabilities and are not represented as complete.
+## What really works
 
-## Quick start
-Requirements: Python 3.11+, FFmpeg on PATH.
+- Deterministic **free, offline** graphic-novel panels drawn programmatically (no PixVerse and no AI image API).
+- Animated camera, rain, mirror resonance, particles, transitions and subtitles.
+- Video and atmospheric soundtrack composed with Python, Pillow, NumPy and FFmpeg.
+- Optional **offline robotic English narration** with `espeak-ng`.
+- Production packaging: MP4 + timed SRT + caption/hashtags + QC manifest with SHA-256.
+- Automated tests and scheduled GitHub Actions workflow. Scheduled work is **review-gated**, and generates an artifact only when an episode has both approvals and a UTC release date.
 
-```bash
+## What does NOT work automatically yet
+
+- Photorealistic actors, hand-painted professional character art, automatic novel-quality scriptwriting, or a stable character-consistent image generator.
+- Publishing to TikTok/Metricool from unattended GitHub Actions.
+- Reading audience comments and choosing story branches.
+- Guarantee of engagement, high production quality or commercial readiness.
+
+The procedural art is an original *working visual stand-in*. Production illustrations can be replaced with legally usable images at `assets/` referenced from the episode JSON.
+
+## Quick start (local)
+
+Requirements: Python >=3.11, `ffmpeg` and `ffprobe` in PATH, optional `espeak-ng`.
+
+```sh
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
-python studio/render.py --episode episodes/E01_THE_REFLECTION.json --output dist/E01_preview.mp4 --width 540 --height 960 --fps 12
+python -m studio.production --episode episodes/E01_THE_REFLECTION.json --output-dir dist
+# optional voice (requires espeak-ng):
+python -m studio.production --episode episodes/E01_THE_REFLECTION.json --voiceover
 ```
 
-For full-size output change to `--width 1080 --height 1920 --fps 24`. Production-quality artwork should be placed in `assets/` and linked from the episode JSON using relative paths. Without artwork, the renderer displays **abstract procedural stand-in scenes** so the end-to-end pipeline can be checked without paid services.
+Find `dist/E01/E01_preview.mp4`, `E01.srt`, `POSTING_PACKAGE.md` and `manifest.json`.
 
-## Production sequence
-1. Finalize story bible and episode scripts; review continuity.
-2. Prepare character sheets and illustration layers (rights-cleared).
-3. Animate and render MP4.
-4. Review video, captions, audio, continuity and license provenance.
-5. After **human approval**, schedule via Metricool. Credentials must never be committed.
+Use `--width 1080 --height 1920 --fps 24` for a higher-resolution render.
 
-## Automation
-GitHub Actions checks Python logic on pull requests and supports a **manual** preview render. It does **not** publish or generate fresh AI art on a schedule. A future automated scheduler requires dependable approved visual assets or a compliant image generator, persistent storage, a publishing integration and safeguards.
+## Scheduled studio (no publishing)
 
-## Repository visibility
-If this series and its scripts are not ready for public disclosure, make the GitHub repository **private** in Settings → General → Danger Zone → Change repository visibility.
+See `release_plan.json`. To stage an episode on an intended UTC date:
+
+1. Review complete script, art, narration, copyright/usage rights and consistency.
+2. Set `release_date` to the intended UTC day, e.g. `2026-11-03`.
+3. Explicitly set **both** `editorial_approved: true` and `rights_approved: true`.
+4. Merge reviewed changes after passing CI.
+5. The scheduled GitHub Actions run produces downloadable review artifacts. **It does not publish** or access Metricool credentials.
+
+For testing a date manually:
+
+```sh
+python -m studio.production --scheduled --date 2026-11-03
+```
+
+Without approved content, nothing is rendered. GitHub cron is approximate and could run late or be skipped; a production scheduler would need missed-run handling and persistent storage.
+
+## Governance
+
+- All changes on feature branches and PR review first.
+- Do not commit API keys, accounts, third-party media without rights, or private data.
+- Publish only after explicit human approval and compliance checks.
+- Check `docs/STORY_CANON.md` for hard identity and mirror invariants.
+- This repository is **currently public**; change to **Private** under GitHub repository Settings if desired.
+
+## Story continuity quality gate
+
+`studio/continuity.py` verifies in every annotated panel whether the depicted
+consciousness belongs in the corresponding Earth/Noctaris **body** at that point
+of the timeline. It rejects impossible unsignaled transitions and consecutive
+episodes with inconsistent start/end states. Approved scheduled episodes **must**
+contain these annotations. This is a mechanized subset of continuity review,
+not a substitute for a human screenplay editor.

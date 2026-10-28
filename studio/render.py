@@ -14,6 +14,12 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+try:
+    from studio.comic_art import panel as comic_panel
+except ModuleNotFoundError:
+    # Enables direct execution with `python studio/render.py` as well as `-m`.
+    from comic_art import panel as comic_panel
+
 HERE = Path(__file__).resolve().parent.parent
 FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -51,6 +57,12 @@ def validate_episode(data: dict, asset_root: Path) -> list[dict]:
             raise ValueError(f"{sid}: unknown effect")
         if any(not isinstance(scene.get(k, ""), str) for k in ("heading", "caption")):
             raise ValueError(f"{sid}: headings and captions must be text")
+        art = scene.get("art")
+        if art is not None and art not in (
+            "earth_photo", "earth_mirror", "two_worlds",
+            "exchange", "fortress", "sunrise"
+        ):
+            raise ValueError(f"{sid}: unsupported comic scene art")
         bg = scene.get("background")
         if bg is not None:
             if not isinstance(bg, str):
@@ -233,6 +245,8 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
                 if scene.get("background"):
                     with Image.open(assets / scene["background"]) as original:
                         base = cover(original, (width, height))
+                elif scene.get("art"):
+                    base = comic_panel(scene, width, height)
                 else:
                     base = gradient((width,height),palette)
                 frames = max(1,round(float(scene["duration"])*fps))

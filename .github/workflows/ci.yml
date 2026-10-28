@@ -1,32 +1,58 @@
-name: Test and preview motion comic
+name: TWO WORLDS — Verify and stage motion comics
 
 on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    # Tuesday and Friday, 17:15 UTC; only due+approved episodes are staged.
+    - cron: "15 17 * * 2,5"
   workflow_dispatch:
+    inputs:
+      episode_file:
+        description: "Preview a specific episode JSON file (never publishes)"
+        required: false
+        default: "episodes/E01_THE_REFLECTION.json"
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   validate-render:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install deps
+      - name: Install offline dependencies
         run: |
           python -m pip install -r requirements.txt
-          sudo apt-get update && sudo apt-get install -y ffmpeg
-      - name: Run tests
+          sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
+      - name: Test renderer, editorial controls and packaging
         run: python -m unittest discover -s tests -v
-      - name: Render sample preview
-        run: python studio/render.py --episode episodes/E01_THE_REFLECTION.json --output dist/E01_preview.mp4 --width 360 --height 640 --fps 10
-      - name: Upload preview artifact
+      - name: Stage review-only episodes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_EPISODE: ${{ inputs.episode_file }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            python -m studio.production --scheduled --date "$(date -u +%F)" --output-dir dist
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            # Prove the studio can render two consecutive scripted episodes.
+            python -m studio.production --episode episodes/E01_THE_REFLECTION.json --output-dir dist --width 360 --height 640 --fps 10 --voiceover
+            python -m studio.production --episode episodes/E02_THE_WRONG_WORLD.json --output-dir dist --width 360 --height 640 --fps 10 --voiceover
+          else
+            python -m studio.production --episode "${REQUESTED_EPISODE:-episodes/E01_THE_REFLECTION.json}" --output-dir dist --width 360 --height 640 --fps 10 --voiceover
+          fi
+      - name: Archive review package — NOT PUBLICATION
         uses: actions/upload-artifact@v4
         with:
-          name: two-worlds-e01-preview
-          path: dist/E01_preview.mp4
-          retention-days: 7
+          name: two-worlds-review-package-${{ github.run_number }}
+          path: dist/
+          retention-days: 14
+          if-no-files-found: ignore

@@ -50,3 +50,12 @@ Earth Eli-body ← Ilan; Noctaris Ilan-body ← Eli.
 - Conclude both pairs' arcs without defaulting to world-ending catastrophe.
 
 Canonical story content requires review before production scripts are locked.
+
+## Language/localization rule (critical)
+Noctaris inhabitants speak **Noctari**, not modern English. Their lines are rendered in
+English **for the viewer** as translated captions; this does not imply Mira or Lyra
+can immediately understand speech after the swap. Mira initially cannot understand
+Noctari, and Lyra does not know modern Earth English. Gestures, diagrams, prior
+limited knowledge and earned language learning are the only immediate workarounds.
+No automatic translation from a mirror or unearned miraculous linguistic knowledge.
+This distinction must be kept consistent in every scene, including scenes E01–E02.
