@@ -33,6 +33,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
       - name: Test renderer, editorial controls and packaging
         run: python -m unittest discover -s tests -v
+      - name: Dry-run scriptwriter and visual director (no paid APIs or GPU)
+        run: |
+          python -m studio.story_writer --episode E03 --engine outline --output-dir dist/drafts
+          python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --output-dir dist/art
+          python -m studio.art_director --episode dist/drafts/E03.json --output-dir dist/art
       - name: Stage review-only episodes
         env:
           EVENT_NAME: ${{ github.event_name }}

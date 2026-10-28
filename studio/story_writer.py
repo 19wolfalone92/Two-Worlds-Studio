@@ -179,6 +179,7 @@ def draft(episode_id:str, engine="outline", *, model="qwen2.5:7b",
         fixed={key:copy.deepcopy(beat[key]) for key in
                ("id","duration","palette","effect","art")}
         fixed.update(line)
+        fixed["shot"] = beat["shot"]  # plot action stays locked; model writes dialogue, not events
         # IMPORTANT: model cannot change assigned physical body/occupant.
         body=beat["body"]
         fixed["continuity"]={"state":"post","body":body,
