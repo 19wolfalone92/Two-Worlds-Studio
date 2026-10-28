@@ -132,6 +132,36 @@ class StudioHardeningTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"missing approved voice"):
             audit_audio(ep,self.assets,publish=True)
 
+    @unittest.skipUnless(shutil.which("ffprobe") and shutil.which("ffmpeg"),
+                         "FFmpeg required")
+    def test_real_audio_mix_is_not_synthetic_voice(self):
+        audio=self._record_wav(seconds=.6)
+        scene={"id":"S01","duration":1.0,"palette":"earth",
+               "effect":"none","heading":"HELLO","caption":"Hello."}
+        epfile=self.root/"scene.json"
+        epfile.write_text(json.dumps({"id":"E88","scenes":[scene]}),encoding="utf-8")
+        video=self.root/"raw.mp4"
+        render(epfile,video,self.assets,180,320,6)
+        mixed=self.root/"mixed.mp4"
+        out=mix_audio(video,[{"kind":"voice","path":str(audio),"start_ms":150}],output=mixed)
+        self.assertTrue(out.is_file())
+        self.assertGreater(out.stat().st_size,10000)
+
+    def test_approved_reference_motion_requires_rights(self):
+        from studio.actor_motion import validate_motion,animate_actor
+        self.assertEqual(validate_motion({"breath_scale":.02,"sway_x":.01},
+                                          self.assets)["blink_frames"],0)
+        with self.assertRaisesRegex(ValueError,"breath_scale"):
+            validate_motion({"breath_scale":.3},self.assets)
+        with self.assertRaisesRegex(ValueError,"blink overlay"):
+            validate_motion({"blink":{"path":"missing.png","at":[.4]}},self.assets)
+        pic=Image.new("RGBA",(160,270),(0,0,0,0))
+        from PIL import ImageDraw
+        ImageDraw.Draw(pic).ellipse((40,55,95,110),fill=(245,220,200,255))
+        start=animate_actor(pic,{"breath_scale":.02,"sway_x":.01},0)
+        end=animate_actor(pic,{"breath_scale":.02,"sway_x":.01},.3)
+        self.assertNotEqual(start.tobytes(),end.tobytes())
+
     @unittest.skipUnless(shutil.which("ffmpeg"),"ffmpeg required")
     def test_video_diagnostics_are_advisory(self):
         from studio.render import render
