@@ -60,6 +60,8 @@ def verify_body(body_id:str,version:str,registry:dict,assets:Path,*,strict=True)
         raise ValueError(f"{body_id}: approved front/three-quarter/profile reference set missing")
     checked=[verify_reference(x,assets,strict=strict) for x in references]
     if strict:
+        if len({x["sha256"] for x in checked})<len(checked):
+            raise ValueError(f"{body_id}: duplicate image used for multiple visual reference angles")
         needed={"front","three_quarter","profile"}
         views={x["view"] for x in checked if x["approved"]}
         if not needed<=views:
