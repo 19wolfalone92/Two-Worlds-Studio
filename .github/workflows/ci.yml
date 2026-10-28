@@ -38,6 +38,10 @@ jobs:
           python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --output-dir dist/art
           python -m studio.visual_prep --demo --output-dir dist/premium_demo
           python -m studio.premium_assets --episode episodes/E01_THE_REFLECTION.json --report dist/reports/E01_visual.json
+      - name: Verify free Kaggle FLUX and Kokoro plans without GPU or downloads
+        run: |
+          python -m studio.kaggle_flux --mode character --body earth_mira --view front --dry-run --output-dir dist/gpu_plans > dist/kaggle_plan.json
+          python -m studio.kokoro_tts --text "Visual production test only." --speaker Mira --dry-run --output-dir dist/voice_plans > dist/kokoro_plan.json
       - name: Stage review-only episodes
         env:
           EVENT_NAME: ${{ github.event_name }}

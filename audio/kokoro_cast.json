@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "license": "Kokoro-82M model Apache-2.0. Preset voices are not clones; actual output awaits owner review.",
+  "speakers": {
+    "Mira": {
+      "language": "a",
+      "voice": "af_heart",
+      "identity_version": "MIRA_VOICE_v001"
+    },
+    "Lyra": {
+      "language": "b",
+      "voice": "bf_emma",
+      "identity_version": "LYRA_VOICE_v001"
+    },
+    "Eli": {
+      "language": "a",
+      "voice": "am_michael",
+      "identity_version": "ELI_VOICE_v001"
+    },
+    "Ilan": {
+      "language": "b",
+      "voice": "bm_george",
+      "identity_version": "ILAN_VOICE_v001"
+    },
+    "Taren": {
+      "language": "b",
+      "voice": "bm_lewis",
+      "identity_version": "TAREN_VOICE_v001"
+    },
+    "Varos": {
+      "language": "a",
+      "voice": "am_adam",
+      "identity_version": "VAROS_VOICE_v001"
+    }
+  }
+}
