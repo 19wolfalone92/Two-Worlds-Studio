@@ -147,6 +147,23 @@ class StudioHardeningTests(unittest.TestCase):
         self.assertTrue(out.is_file())
         self.assertGreater(out.stat().st_size,10000)
 
+    @unittest.skipUnless(shutil.which("ffmpeg"),"ffmpeg required")
+    def test_recorded_voice_drives_open_mouth_frames(self):
+        from studio.lipsync import voice_envelope,mouth_open
+        from studio.actor_motion import animate_actor
+        wave_path=self._record_wav(seconds=.75)
+        levels=voice_envelope(wave_path,step_ms=50)
+        self.assertGreater(len(levels),2)
+        self.assertTrue(mouth_open(levels,.20,step_ms=50,threshold=.20))
+        self.assertFalse(mouth_open(levels,10.0,step_ms=50,threshold=.20))
+        base=Image.new("RGBA",(150,260),(0,0,0,0))
+        overlay=Image.new("RGBA",(150,260),(0,0,0,0))
+        from PIL import ImageDraw
+        ImageDraw.Draw(overlay).ellipse((55,100,85,125),fill=(180,53,73,255))
+        closed=animate_actor(base,{},.2,mouth_overlay=overlay,mouth_is_open=False)
+        opened=animate_actor(base,{},.2,mouth_overlay=overlay,mouth_is_open=True)
+        self.assertNotEqual(closed.tobytes(),opened.tobytes())
+
     def test_approved_reference_motion_requires_rights(self):
         from studio.actor_motion import validate_motion,animate_actor
         self.assertEqual(validate_motion({"breath_scale":.02,"sway_x":.01},
