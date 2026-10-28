@@ -105,6 +105,16 @@ class PremiumVisualTests(unittest.TestCase):
         self.assertGreater(result["frames"],0)
         self.assertTrue((self.root/"preview.mp4").stat().st_size>10000)
 
+    def test_master_export_needs_real_approved_high_res_art(self):
+        epfile=self.root/"scene.json"
+        epfile.write_text(json.dumps(self.episode),encoding="utf-8")
+        with self.assertRaisesRegex(ValueError,"Master output requires"):
+            render(epfile,self.root/"master.mp4",self.assets,180,320,6,
+                   quality="master")
+        with self.assertRaisesRegex(ValueError,"Unknown encoder quality preset"):
+            render(epfile,self.root/"master.mp4",self.assets,180,320,6,
+                   quality="unlicensed")
+
     def test_demo_assets_do_not_mark_art_approved(self):
         folder=self.root/"procedural"
         spec,ep=make_demo_assets(folder,width=360,height=640)
