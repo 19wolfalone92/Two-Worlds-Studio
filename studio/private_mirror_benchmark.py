@@ -101,7 +101,7 @@ def alpha_over(bg:np.ndarray,fg:np.ndarray)->np.ndarray:
     return np.uint8(np.clip(np.concatenate((col,aa),axis=2)*255,0,255))
 
 class Scene:
-    def __init__(self,images):
+    def __init__(self,images,mira_rear_rig):
         self.h,self.w=next(iter(images.values())).shape[:2]
         self.f=self.w/W
         self.room=images['earth_blackout.png']
@@ -110,7 +110,7 @@ class Scene:
         self.mira_hand=images['mira_contact_hand_rgba.png']
         self.lyra_hand=images['lyra_contact_hand_rgba.png']
         self.lyra_body,self.lyra_arm,self.lyra_pivot=prep_arm(images['lyra_inside_mirror_rgba.png'],'lyra')
-        self.mira_body,self.mira_arm,self.mira_pivot=prep_arm(images['mira_dialogue_rgba.png'],'mira')
+        # A rear-facing articulated model is mandatory. Never use the old\n        # frontal Work dialogue art or mirror/flip it to counterfeit a back view.\n        if mira_rear_rig is None:\n            raise ValueError('Mira rear-facing multipart rig is required')\n        if tuple(mira_rear_rig.size)!=(self.w,self.h):\n            raise ValueError('Mira rear rig must match the scene canvas')\n        self.mira_rig=mira_rear_rig
         yy,xx=np.mgrid[0:self.h,0:self.w]
         # Only the mirror oval receives animated glass reflections.
         cx,cy=548*self.f,875*self.f
@@ -118,13 +118,10 @@ class Scene:
         self.glass=np.float32(np.clip(self.inside_oval*1.2,0,1))
         self.rain_phase=(xx*.007+yy*.0035)
         self.vignette=(1-.2*np.minimum(1,((xx-self.w/2)/(self.w/2))**2+((yy-self.h/2)/(self.h/2))**2))[:,:,None]
-        self.shadow_oval=np.uint8(np.clip(np.exp(-(((xx-750*self.f)/(255*self.f))**2+((yy-1700*self.f)/(65*self.f))**2))*65,0,255))
         self.dark_mira=np.array([.81,.84,.89,1.0],dtype=np.float32)
         self.dark_lyra=np.array([.89,.9,.98,1.0],dtype=np.float32)
     def mirror_actor_frame(self,sec):
         f=self.f; t=max(0,min(sec/10,1))
-        entry=eased((sec-.15)/4.8)
-        armraise=eased((sec-2.4)/4.2)
         lyra_move=eased((sec-1.7)/4.3)
         # Original Work art and its internal spatial order, no horizontal mirroring.
         room=self.room.copy()
@@ -150,35 +147,29 @@ class Scene:
             rgb[:,:,2]=np.clip(rgb[:,:,2]+scan*161,0,255)
             room[:,:,:3]=rgb.astype('uint8')
         room=alpha_over(room,self.frame)
-        # Physical Mira walks into foreground. Body and raised arm move on independent
-        # keyed joint. All art comes from canonical Work original, not replacement faces.
-        mira_arm=roto(self.mira_arm,self.mira_pivot,linear(-28,7,armraise))
-        mira=alpha_over(self.mira_body,mira_arm)
-        # Actor advances from the dark bedroom toward mirror. Foreground gets larger,
-        # directional shadow falls on the room side, and foreground light dims.
-        scale=linear(.68,.81,entry)
-        dx=linear(435,355,entry)*f
-        dy=linear(312,260,entry)*f
-        mira=roto(mira,(0,0),0,scale,dx,dy)
-        mira[:,:,0:3]=np.uint8(np.clip(mira[:,:,:3].astype(np.float32)*self.dark_mira[:3],0,255))
-        # Shadow is under the foreground character; visible on left floor only.
-        frame=room[:,:,:3].copy()
-        shadow=self.shadow_oval.astype(np.float32)/255
-        frame=np.uint8(np.clip(frame.astype(np.float32)*(1-shadow[:,:,None]*.52),0,255))
-        frame=composite(frame,mira)
+        # Correct staging: Mira is seen FROM BEHIND, facing the mirror.
+        # Multipart rear view comes from Studio CharacterRig: animated root,
+        # head, upper/lower arm and both legs, not the Work frontal cutout.
+        # The actor's ground shadow belongs to the authored rig and travels
+        # with her feet. Lyra remains on the far side of the glass.
+        pose_time=eased(min(1,max(0,sec/5.65)))
+        mira=np.asarray(self.mira_rig.frame(pose_time).convert('RGBA'),dtype=np.uint8)
+        mira[:,:,:3]=np.uint8(np.clip(
+            mira[:,:,:3].astype(np.float32)*self.dark_mira[:3],0,255))
+        frame=composite(room[:,:,:3].copy(),mira)
         # Very subtle frame-coherent lighting, no random pixel glitter / eye deformation.
         bloom=6*math.exp(-((sec-8.75)/.75)**2)
         if bloom:
             gl=self.glass*bloom
             frame=np.uint8(np.clip(frame.astype(np.float32)+gl[:,:,None]*np.array([.56,.70,.95]),0,255))
         frame=np.uint8(np.clip(frame.astype(np.float32)*self.vignette,0,255))
-        # The real Work sprite ends before the bottom of the vertical canvas.
-        # Push the camera into the two faces so that clipping is naturally
-        # outside frame rather than creating floating sticker-cutout legs.
-        focus=(.52*self.w,.38*self.h)
-        mat=cv2.getRotationMatrix2D(focus,0,1.28)
+        # Keep the full staging legible: do NOT crop away Mira's body
+        # to conceal floating cutout feet as the former prototype did.
+        focus=(.50*self.w,.52*self.h)
+        mat=cv2.getRotationMatrix2D(focus,0,1.025)
         return cv2.warpAffine(frame,mat,(self.w,self.h),
-                             flags=cv2.INTER_LINEAR,borderMode=cv2.BORDER_REPLICATE)
+                             flags=cv2.INTER_LINEAR,
+                             borderMode=cv2.BORDER_REPLICATE)
     def palms_frame(self,sec):
         # Exact Work S08 photo-cutout palms and their original left/right
         # physical bodies. The glass is represented as a fixed plane: hands
@@ -225,14 +216,20 @@ class Scene:
 def main():
     p=argparse.ArgumentParser()
     p.add_argument('--handoff',type=Path,required=True)
+    p.add_argument('--mira-rear-rig',type=Path,required=True)
+    p.add_argument('--mira-rig-assets',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--fps',type=int,default=24)
     p.add_argument('--scale',type=float,default=1.)
     p.add_argument('--seconds',type=float,default=10.)
     p.add_argument('--frames',type=Path,default=None)
     a=p.parse_args()
+    if a.scale!=1.0:
+        raise ValueError('Rear rig proof must be rendered at native scale=1')
+    from studio.mirror_rear_rig import load_mira_rear_rig
+    rear=load_mira_rear_rig(a.mira_rear_rig,a.mira_rig_assets,(W,H))
     images,voice=art(a.handoff,a.scale)
-    scene=Scene(images)
+    scene=Scene(images,rear)
     if a.frames:
         a.frames.mkdir(parents=True,exist_ok=True)
         for sec in (0,2,4,6,8,9.5):
@@ -269,8 +266,8 @@ def main():
     wav.unlink(missing_ok=True)
     stats={'status':'OWNER_REVIEW_ONLY','duration_seconds':duration,'frames':n,
            'resolution':'1080x1920','actual_art':'Work v1.1 original Mira and Lyra',
-           'animation':'Two separately animated actor arm/shoulder joints, root motion, depth-aware mirror foreground, light and shadow',
-           'limitations':'Manual 2D joint separation and simple pose changes; not true walking physics or automatic body rigging, not full animation',
+           'animation':'Mira true rear-view multipart keyframed rig (root, head, arms, legs) plus Lyra arm, mirror and glass',
+           'limitations':'Rear-view rig must be artist-produced and visually approved; deterministic 2D motion alone does not prove natural walking or expressive acting',
            'published':False,'qa_source_sha256':hashlib.sha256(a.handoff.read_bytes()).hexdigest(),
            'mp4_sha256':hashlib.sha256(a.output.read_bytes()).hexdigest()}
     a.output.with_suffix('.json').write_text(json.dumps(stats,indent=2)+'\n')
