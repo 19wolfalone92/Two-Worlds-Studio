@@ -13,7 +13,12 @@
       "heading": "TWO MOONS",
       "caption": "Mira wakes in a fortress. This isn't her world.",
       "voiceover": "This isn't my home.",
-      "shot": "Mira, now occupying Lyra's body, rises. Two moons visible."
+      "shot": "Mira, now occupying Lyra's body, rises. Two moons visible.",
+      "continuity": {
+        "state": "post",
+        "body": "noctaris_lyra",
+        "occupant": "Mira"
+      }
     },
     {
       "id": "S02",
@@ -24,7 +29,12 @@
       "heading": "COMMANDER!",
       "caption": "The soldier speaks. Mira understands none of it.",
       "voiceover": "Commander, the council is waiting.",
-      "shot": "Guard addresses Mira in Noctari language. Translation subtitled for viewer; Mira does not understand."
+      "shot": "Guard addresses Mira in Noctari language. Translation subtitled for viewer; Mira does not understand.",
+      "continuity": {
+        "state": "post",
+        "body": "noctaris_lyra",
+        "occupant": "Mira"
+      }
     },
     {
       "id": "S03",
@@ -35,7 +45,12 @@
       "heading": "A STRANGER'S SCAR",
       "caption": "The body is not hers. The orders are real.",
       "voiceover": "What happened to me?",
-      "shot": "Mira notices scar on Lyra's arm. A distant war horn calls."
+      "shot": "Mira notices scar on Lyra's arm. A distant war horn calls.",
+      "continuity": {
+        "state": "post",
+        "body": "noctaris_lyra",
+        "occupant": "Mira"
+      }
     },
     {
       "id": "S04",
@@ -46,7 +61,12 @@
       "heading": "BACK ON EARTH",
       "caption": "Lyra searches the mirror. The glass is cold.",
       "voiceover": "Open. Please.",
-      "shot": "Lyra inhabits Mira's Earth body, tries to reconnect to Noctaris; no resonance remains."
+      "shot": "Lyra inhabits Mira's Earth body, tries to reconnect to Noctaris; no resonance remains.",
+      "continuity": {
+        "state": "post",
+        "body": "earth_mira",
+        "occupant": "Lyra"
+      }
     },
     {
       "id": "S05",
@@ -57,7 +77,12 @@
       "heading": "THE FIRST DAWN",
       "caption": "For the first time in her life, Lyra sees the sun.",
       "voiceover": "What is that light?",
-      "shot": "Earth sunrise. Lyra stares, deeply unsettled and awed."
+      "shot": "Earth sunrise. Lyra stares, deeply unsettled and awed.",
+      "continuity": {
+        "state": "post",
+        "body": "earth_mira",
+        "occupant": "Lyra"
+      }
     },
     {
       "id": "S06",
@@ -68,7 +93,14 @@
       "heading": "THE COUNCIL WAITS",
       "caption": "The door opens. The soldiers kneel.",
       "voiceover": "Don't let them know.",
-      "shot": "Mira must pass as commander while not understanding local speech."
+      "shot": "Mira must pass as commander while not understanding local speech.",
+      "continuity": {
+        "state": "post",
+        "body": "noctaris_lyra",
+        "occupant": "Mira"
+      }
     }
-  ]
+  ],
+  "continuity_start": "post",
+  "continuity_end": "post"
 }

@@ -13,7 +13,12 @@
       "caption": "My brother disappeared.",
       "shot": "Earth apartment, rainy night. Mira studies Eli's photograph.",
       "art": "earth_photo",
-      "voiceover": "Six months ago, my brother disappeared."
+      "voiceover": "Six months ago, my brother disappeared.",
+      "continuity": {
+        "state": "pre",
+        "body": "earth_mira",
+        "occupant": "Mira"
+      }
     },
     {
       "id": "S02",
@@ -24,7 +29,12 @@
       "caption": "The reflection moved first.",
       "shot": "Blackout. Mira approaches antique mirror; Lyra appears in armor, does not mimic her.",
       "art": "earth_mirror",
-      "voiceover": "That reflection isn't me."
+      "voiceover": "That reflection isn't me.",
+      "continuity": {
+        "state": "pre",
+        "body": "earth_mira",
+        "occupant": "Mira"
+      }
     },
     {
       "id": "S03",
@@ -35,7 +45,12 @@
       "caption": "Two faces. Two different lives.",
       "shot": "Both women face one another across mirrored glass, worlds visible in reverse.",
       "art": "two_worlds",
-      "voiceover": "Who are you?"
+      "voiceover": "Who are you?",
+      "continuity": {
+        "state": "pre",
+        "body": "noctaris_lyra",
+        "occupant": "Lyra"
+      }
     },
     {
       "id": "S04",
@@ -46,7 +61,11 @@
       "caption": "Both touch the glass.",
       "shot": "Paired contact, resonance peak; consciousnesses swap, bodies do not cross.",
       "art": "exchange",
-      "voiceover": "No!"
+      "voiceover": "No!",
+      "continuity": {
+        "state": "transition",
+        "event": "mira_lyra_exchange"
+      }
     },
     {
       "id": "S05",
@@ -57,7 +76,12 @@
       "caption": "A voice behind the door: Commander, the council is waiting.",
       "shot": "Mira wakes in Lyra's armored body in Noctaris fortress; she sees two moons.",
       "art": "fortress",
-      "voiceover": "Commander, the council is waiting."
+      "voiceover": "Commander, the council is waiting.",
+      "continuity": {
+        "state": "post",
+        "body": "noctaris_lyra",
+        "occupant": "Mira"
+      }
     },
     {
       "id": "S06",
@@ -68,7 +92,14 @@
       "caption": "Lyra wakes in Mira's body. She looks toward the city.",
       "shot": "Lyra sees the Earth sunrise for the first time. Hard cut to TWO WORLDS logo.",
       "art": "sunrise",
-      "voiceover": "Where am I?"
+      "voiceover": "Where am I?",
+      "continuity": {
+        "state": "post",
+        "body": "earth_mira",
+        "occupant": "Lyra"
+      }
     }
-  ]
+  ],
+  "continuity_start": "pre",
+  "continuity_end": "post"
 }
