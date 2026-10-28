@@ -11,7 +11,9 @@
       "effect": "rain",
       "heading": "SIX MONTHS AGO",
       "caption": "My brother disappeared.",
-      "shot": "Earth apartment, rainy night. Mira studies Eli's photograph."
+      "shot": "Earth apartment, rainy night. Mira studies Eli's photograph.",
+      "art": "earth_photo",
+      "voiceover": "Six months ago, my brother disappeared."
     },
     {
       "id": "S02",
@@ -20,7 +22,9 @@
       "effect": "mirror",
       "heading": "00:17",
       "caption": "The reflection moved first.",
-      "shot": "Blackout. Mira approaches antique mirror; Lyra appears in armor, does not mimic her."
+      "shot": "Blackout. Mira approaches antique mirror; Lyra appears in armor, does not mimic her.",
+      "art": "earth_mirror",
+      "voiceover": "That reflection isn't me."
     },
     {
       "id": "S03",
@@ -29,7 +33,9 @@
       "effect": "portal",
       "heading": "WHO ARE YOU?",
       "caption": "Two faces. Two different lives.",
-      "shot": "Both women face one another across mirrored glass, worlds visible in reverse."
+      "shot": "Both women face one another across mirrored glass, worlds visible in reverse.",
+      "art": "two_worlds",
+      "voiceover": "Who are you?"
     },
     {
       "id": "S04",
@@ -38,7 +44,9 @@
       "effect": "flash",
       "heading": "THE EXCHANGE",
       "caption": "Both touch the glass.",
-      "shot": "Paired contact, resonance peak; consciousnesses swap, bodies do not cross."
+      "shot": "Paired contact, resonance peak; consciousnesses swap, bodies do not cross.",
+      "art": "exchange",
+      "voiceover": "No!"
     },
     {
       "id": "S05",
@@ -47,16 +55,20 @@
       "effect": "embers",
       "heading": "COMMANDER?",
       "caption": "A voice behind the door: Commander, the council is waiting.",
-      "shot": "Mira wakes in Lyra's armored body in Noctaris fortress; she sees two moons."
+      "shot": "Mira wakes in Lyra's armored body in Noctaris fortress; she sees two moons.",
+      "art": "fortress",
+      "voiceover": "Commander, the council is waiting."
     },
     {
       "id": "S06",
       "duration": 3.5,
       "palette": "earth",
-      "effect": "rain",
+      "effect": "none",
       "heading": "THE FIRST SUN",
       "caption": "Lyra wakes in Mira's body. She looks toward the city.",
-      "shot": "Lyra sees the Earth sunrise for the first time. Hard cut to TWO WORLDS logo."
+      "shot": "Lyra sees the Earth sunrise for the first time. Hard cut to TWO WORLDS logo.",
+      "art": "sunrise",
+      "voiceover": "Where am I?"
     }
   ]
 }

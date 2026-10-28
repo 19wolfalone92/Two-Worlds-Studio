@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "timezone": "UTC",
+  "description": "Scheduled production requires editorial_approved AND rights_approved. No automatic publishing.",
+  "episodes": [
+    {
+      "id": "E01",
+      "episode_file": "episodes/E01_THE_REFLECTION.json",
+      "release_date": null,
+      "editorial_approved": false,
+      "rights_approved": false
+    }
+  ]
+}
