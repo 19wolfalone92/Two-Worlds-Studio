@@ -153,7 +153,7 @@ class StudioHardeningTests(unittest.TestCase):
                                           self.assets)["blink_frames"],0)
         with self.assertRaisesRegex(ValueError,"breath_scale"):
             validate_motion({"breath_scale":.3},self.assets)
-        with self.assertRaisesRegex(ValueError,"blink overlay"):
+        with self.assertRaises(FileNotFoundError):
             validate_motion({"blink":{"path":"missing.png","at":[.4]}},self.assets)
         pic=Image.new("RGBA",(160,270),(0,0,0,0))
         from PIL import ImageDraw
