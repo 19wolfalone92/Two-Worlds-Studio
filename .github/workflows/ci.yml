@@ -42,6 +42,11 @@ jobs:
         run: |
           python -m studio.kaggle_flux --mode character --body earth_mira --view front --dry-run --output-dir dist/gpu_plans > dist/kaggle_plan.json
           python -m studio.kokoro_tts --text "Visual production test only." --speaker Mira --dry-run --output-dir dist/voice_plans > dist/kokoro_plan.json
+      - name: Test private Kaggle API submission packaging (offline; no token)
+        run: |
+          python -m studio.kaggle_api prepare --username ci-account \
+            --run-nonce unit-gh-2026 --mode portrait --body earth_mira \
+            --view front --output-dir /tmp/two-worlds-kaggle-api
       - name: Stage review-only episodes
         env:
           EVENT_NAME: ${{ github.event_name }}
