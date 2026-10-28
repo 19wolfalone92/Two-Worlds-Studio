@@ -15,6 +15,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
+    from studio.cinematic import CinematicPanel
+    from studio.premium_assets import validate_premium_scene, review_episode
+except ModuleNotFoundError:
+    from cinematic import CinematicPanel
+    from premium_assets import validate_premium_scene, review_episode
+
+try:
     from studio.comic_art import panel as comic_panel
 except ModuleNotFoundError:
     # Enables direct execution with `python studio/render.py` as well as `-m`.
@@ -63,6 +70,8 @@ def validate_episode(data: dict, asset_root: Path) -> list[dict]:
             "exchange", "fortress", "sunrise"
         ):
             raise ValueError(f"{sid}: unsupported comic scene art")
+        if "cinematic" in scene:
+            validate_premium_scene(scene,asset_root,publish=False,min_width=256,min_height=448)
         bg = scene.get("background")
         if bg is not None:
             if not isinstance(bg, str):
@@ -220,7 +229,15 @@ def make_audio(path: Path, total_duration: float):
         f.writeframes(pcm.tobytes())
 
 
-def render(episode: Path, output: Path, assets: Path, width: int, height: int, fps: int):
+def render(episode: Path, output: Path, assets: Path, width: int, height: int, fps: int,
+           quality: str = "preview"):
+    if quality not in ("preview","master"):
+        raise ValueError("Unknown encoder quality preset")
+    if quality == "master":
+        if width < 1080 or height < 1920 or fps < 24:
+            raise ValueError("Master output requires at least 1080x1920 at 24 fps")
+        src = json.loads(episode.read_text(encoding="utf-8"))
+        review_episode(src,assets,publish=True)
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required and must be on PATH")
     if width < 64 or height < 64 or fps < 1 or fps > 60:
@@ -235,12 +252,15 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
         audio = work / "ambient.wav"
         cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "rawvideo",
                "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-r", str(fps),
-               "-i", "-", "-an", "-c:v", "libx264", "-preset", "veryfast",
-               "-crf", "23", "-pix_fmt", "yuv420p", str(silent)]
+               "-i", "-", "-an", "-c:v", "libx264",
+               "-preset", "slow" if quality == "master" else "veryfast",
+               "-crf", "18" if quality == "master" else "23",
+               "-pix_fmt", "yuv420p", str(silent)]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         total_frames = 0
         try:
             for scene in scenes:
+                premium = CinematicPanel(scene,assets,width,height) if scene.get("cinematic") else None
                 palette = scene.get("palette","earth")
                 if scene.get("background"):
                     with Image.open(assets / scene["background"]) as original:
@@ -251,7 +271,9 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
                     base = gradient((width,height),palette)
                 frames = max(1,round(float(scene["duration"])*fps))
                 for frame in range(frames):
-                    image = animate_frame(base, scene, frame/fps, frame, fps)
+                    # Cinematic scene layers replace procedural stand-ins entirely.
+                    frame_base = premium.frame(frame/max(1,frames-1)) if premium else base
+                    image = animate_frame(frame_base, scene, frame/fps, frame, fps)
                     proc.stdin.write(image.tobytes())
                 total_frames += frames
             proc.stdin.close()
@@ -268,8 +290,10 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
         make_audio(audio, actual_duration)
         mux = ["ffmpeg","-nostdin","-v","error","-y","-i",str(silent),
                "-i",str(audio),"-map","0:v:0","-map","1:a:0","-c:v","copy",
-               "-c:a","aac","-b:a","96k","-shortest","-movflags","+faststart",
-               str(output)]
+               "-c:a","aac","-b:a","192k" if quality == "master" else "96k",
+               "-ar","48000" if quality == "master" else "22050",
+               "-ac","2" if quality == "master" else "1",
+               "-shortest","-movflags","+faststart",str(output)]
         subprocess.run(mux, check=True)
     return {"output":str(output),"frames":total_frames,"duration_seconds":actual_duration}
 
@@ -282,8 +306,10 @@ def main():
     p.add_argument("--width",type=int,default=540)
     p.add_argument("--height",type=int,default=960)
     p.add_argument("--fps",type=int,default=12)
+    p.add_argument("--quality",choices=("preview","master"),default="preview")
     args=p.parse_args()
-    result=render(args.episode,args.output,args.assets,args.width,args.height,args.fps)
+    result=render(args.episode,args.output,args.assets,args.width,args.height,args.fps,
+                  quality=args.quality)
     print(json.dumps(result,ensure_ascii=False))
 
 
