@@ -152,7 +152,13 @@ class Scene:
             gl=self.glass*bloom
             frame=np.uint8(np.clip(frame.astype(np.float32)+gl[:,:,None]*np.array([.56,.70,.95]),0,255))
         frame=np.uint8(np.clip(frame.astype(np.float32)*self.vignette,0,255))
-        return frame
+        # The real Work sprite ends before the bottom of the vertical canvas.
+        # Push the camera into the two faces so that clipping is naturally
+        # outside frame rather than creating floating sticker-cutout legs.
+        focus=(.52*self.w,.38*self.h)
+        mat=cv2.getRotationMatrix2D(focus,0,1.28)
+        return cv2.warpAffine(frame,mat,(self.w,self.h),
+                             flags=cv2.INTER_LINEAR,borderMode=cv2.BORDER_REPLICATE)
     def palms_frame(self,sec):
         # Exact Work S08 photo-cutout palms and their original left/right
         # physical bodies. The glass is represented as a fixed plane: hands
