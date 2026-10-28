@@ -6,6 +6,7 @@ instance and downloads PNGs. Never claims face consistency has been verified.
 """
 from __future__ import annotations
 import argparse
+import uuid
 import hashlib
 import json
 import os
@@ -22,7 +23,7 @@ ROOT=Path(__file__).resolve().parent.parent
 STYLES=ROOT/"story/visual_bible.json"
 WORKFLOW=ROOT/"templates/comfyui_sdxl_api.json"
 SUPPORTED={"__PROMPT__","__NEGATIVE__","__WIDTH__","__HEIGHT__",
-           "__SEED__","__CHECKPOINT__","__PREFIX__"}
+           "__SEED__","__CHECKPOINT__","__PREFIX__","__REFERENCE_IMAGE__"}
 MAX_ART_BYTES=12*1024*1024
 
 
@@ -117,7 +118,7 @@ def substitute(obj, values:dict):
     return obj
 
 
-def comfy_workflow(prompt:dict, template:dict, checkpoint:str, width:int=768, height:int=1344)->dict:
+def comfy_workflow(prompt:dict, template:dict, checkpoint:str, width:int=768, height:int=1344, reference_image=None)->dict:
     if not checkpoint or checkpoint.strip()!=checkpoint:
         raise ValueError("Set a checkpoint name installed on your ComfyUI instance")
     if width%64 or height%64 or not (512<=width<=2048 and 512<=height<=2048):
@@ -128,6 +129,11 @@ def comfy_workflow(prompt:dict, template:dict, checkpoint:str, width:int=768, he
         "__WIDTH__":width, "__HEIGHT__":height,
         "__PREFIX__":f'TWO_WORLDS_{prompt["episode"]}_{prompt["scene"]}'
     }
+    expects_ref="__REFERENCE_IMAGE__" in json.dumps(template)
+    if expects_ref and not reference_image:
+        raise ValueError("Reference-conditioned workflow requires uploaded reference image")
+    if expects_ref:
+        replacements["__REFERENCE_IMAGE__"]=reference_image
     workflow=substitute(template,replacements)
     if not isinstance(workflow,dict) or "9" not in workflow:
         raise ValueError("Expected ComfyUI API JSON workflow with SaveImage node 9")
@@ -143,6 +149,39 @@ def _http_json(url:str,payload=None,timeout=60):
     req=urllib.request.Request(url,data=body,headers={"Content-Type":"application/json"},method="POST" if body else "GET")
     with urllib.request.urlopen(req,timeout=timeout) as response:
         return json.loads(response.read(4*1024*1024).decode("utf-8"))
+
+
+def upload_reference(base_url:str, path:Path)->str:
+    """Upload an approved reference to the configured ComfyUI host.
+
+    Only uploading does not ensure reference conditioning. The workflow must
+    actively connect its LoadImage node to the sampler via IP-Adapter/ControlNet.
+    """
+    if not base_url.startswith(("http://","https://")):
+        raise ValueError("ComfyUI URL must be http(s)")
+    if path.suffix.lower() not in (".png",".jpg",".jpeg") or not path.is_file():
+        raise ValueError("Expected an existing PNG/JPEG reference")
+    if path.stat().st_size > MAX_ART_BYTES:
+        raise ValueError("Reference image too large")
+    boundary=("----TW"+uuid.uuid4().hex).encode("ascii")
+    filename=path.name.encode("utf-8")
+    crlf=bytes((13,10))
+    form=(
+        b"--"+boundary+crlf
+        +b'Content-Disposition: form-data; name="image"; filename="'+filename+b'"'+crlf
+        +b"Content-Type: application/octet-stream"+crlf+crlf
+        +path.read_bytes()
+        +crlf+b"--"+boundary+b"--"+crlf
+    )
+    req=urllib.request.Request(base_url.rstrip("/")+"/upload/image",
+        data=form,method="POST",
+        headers={"Content-Type":"multipart/form-data; boundary="+boundary.decode("ascii")})
+    with urllib.request.urlopen(req,timeout=90) as resp:
+        answer=json.loads(resp.read(1024*1024).decode("utf-8"))
+    result=answer.get("name")
+    if not isinstance(result,str) or not result or "/" in result or chr(92) in result:
+        raise RuntimeError("Malformed image name returned by ComfyUI")
+    return result
 
 
 def comfy_render(workflow:dict,base_url:str,out:Path,timeout=240,client=None)->dict:
@@ -213,13 +252,23 @@ def run(episode:Path,output:Path,backend="prompts",workflow_file:Path=WORKFLOW,
         if not checkpoint:
             raise RuntimeError("COMFYUI_CHECKPOINT is required for actual image generation")
         workflow=json.loads(workflow_file.read_text(encoding="utf-8"))
+        endpoint=base_url or os.environ.get("COMFYUI_URL","http://127.0.0.1:8188")
+        template_uses_reference="__REFERENCE_IMAGE__" in json.dumps(workflow)
         for scene in pack["scenes"]:
-            if len(scene["bodies"])>1 and len(scene["references"])>1:
-                # Composite multi-character panels need an explicit multi-reference workflow.
-                raise ValueError("Multi-character reference control needs a custom ComfyUI workflow and art review")
-            graph=comfy_workflow(scene,workflow,checkpoint,width,height)
+            if len(scene["references"])>1:
+                raise ValueError("Multi-character identity control needs a bespoke multi-reference workflow")
+            if scene["references"] and not template_uses_reference:
+                raise ValueError("Approved character reference configured, but workflow has no __REFERENCE_IMAGE__ conditioning node")
+            reference_name=None
+            if scene["references"]:
+                info=next(iter(scene["references"].values()))
+                art=ROOT/info["file"]
+                if hashlib.sha256(art.read_bytes()).hexdigest()!=info["sha256"]:
+                    raise ValueError("Reference image changed after prompt-pack compilation")
+                reference_name=upload_reference(endpoint,art)
+            graph=comfy_workflow(scene,workflow,checkpoint,width,height,reference_image=reference_name)
             img=out/(scene["scene"]+".png")
-            result=comfy_render(graph,base_url or os.environ.get("COMFYUI_URL","http://127.0.0.1:8188"),img)
+            result=comfy_render(graph,endpoint,img)
             scene["generated"]=result
         pack["backend"]="comfyui"
     dest=out/"prompts.json"

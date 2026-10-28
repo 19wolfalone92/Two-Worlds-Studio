@@ -68,3 +68,21 @@ the offline motion renderer can use them in final composites.
   multi-season novelist; later expansion needs episode planning, facts ledger,
   semantic continuity checking, creative QA, persistent model hosting and quotas.
 - No password or credential in source code. No automatic uploads/publication.
+
+### Reference-conditioned image generation (when character sheets exist)
+
+The ComfyUI integration now supports an optional `__REFERENCE_IMAGE__`
+placeholder in **your own API-format workflow**. During an explicit generation
+run the studio checks the approved reference-image SHA, uploads that image to
+`/upload/image` on the configured ComfyUI server, and injects the returned name
+into the workflow. Construct the custom workflow with a `LoadImage` node using
+`__REFERENCE_IMAGE__`, then connect that node to a compatible IP-Adapter /
+ControlNet reference-conditioning chain. A standalone LoadImage node that is not
+connected to sampling **does not provide identity control**.
+
+If a character reference is declared but the chosen workflow has no
+`__REFERENCE_IMAGE__`, generation **fails closed**, rather than ignoring the
+reference and incorrectly claiming consistent characters.
+
+Two-person reference scenes are intentionally blocked by the simple adapter;
+use an approved multi-reference compositor/custom workflow instead.
