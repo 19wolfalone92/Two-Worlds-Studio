@@ -86,7 +86,7 @@ def make_demo_assets(directory:Path,width:int=720,height:int=1280)->tuple[Path,d
         py=int(height*(.76+.02*(i%3)))
         f.ellipse((px-26,py-8,px+26,py+10),fill=(193,113,150,26))
     front=front.filter(ImageFilter.GaussianBlur(1.6))
-    front_path=images/"foreground.png";front.save(front)
+    front_path=images/"foreground.png";front.save(front_path)
     layers=[]
     for role,p,depth in [("background",bg_path,-0.85),("midground",mid_path,0.15),("foreground",front_path,0.90)]:
         layers.append({"role":role,"path":str(p.relative_to(directory/"assets")),
