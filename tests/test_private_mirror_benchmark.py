@@ -67,9 +67,13 @@ class RearViewStagingContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"head"):
             validate_mira_rear_contract(bad)
 
+    @unittest.skipUnless(cv2 is not None, 'Optional opencv-python-headless not installed')
     def test_render_fails_closed_without_private_rear_art(self):
         from studio.private_mirror_parallel import run
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaisesRegex(ValueError,"genuine private"):
                 run(Path(temp)/"work.zip",Path(temp)/"preview.mp4")
             self.assertFalse((Path(temp)/"preview.mp4").exists())
+
+if __name__=="__main__":
+    unittest.main()
