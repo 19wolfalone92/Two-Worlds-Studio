@@ -238,6 +238,12 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
             raise ValueError("Master output requires at least 1080x1920 at 24 fps")
         src = json.loads(episode.read_text(encoding="utf-8"))
         review_episode(src,assets,publish=True)
+        from studio.work_contract import verify_work_lock
+        from studio.identity_qc import verify_episode_characters
+        from studio.audio_master import audit_audio
+        verify_work_lock(src,strict=True)
+        verify_episode_characters(src,assets,strict=True)
+        audit_audio(src,assets,publish=True,fps=fps)
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required and must be on PATH")
     if width < 64 or height < 64 or fps < 1 or fps > 60:

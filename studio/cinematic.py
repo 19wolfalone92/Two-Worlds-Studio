@@ -14,8 +14,10 @@ from PIL import Image, ImageChops, ImageEnhance, ImageFilter, ImageOps
 
 try:
     from studio.premium_assets import resolve_asset, validate_premium_scene
+    from studio.actor_motion import animate_actor, validate_motion
 except ModuleNotFoundError:
     from premium_assets import resolve_asset, validate_premium_scene
+    from actor_motion import animate_actor, validate_motion
 
 
 def ease(x:float)->float:
@@ -88,7 +90,15 @@ class CinematicPanel:
             path=resolve_asset(assets_root,layer["path"])
             with Image.open(path) as image:
                 image.load()
-                self.layers.append((layer,image.convert("RGBA")))
+                blink_overlay=None
+                if layer.get("motion"):
+                    validate_motion(layer["motion"],assets_root,publish=False)
+                    blink_spec=layer["motion"].get("blink")
+                    if blink_spec:
+                        with Image.open(resolve_asset(assets_root,blink_spec["path"])) as overlay:
+                            overlay.load()
+                            blink_overlay=overlay.convert("RGBA")
+                self.layers.append((layer,image.convert("RGBA"),blink_overlay))
         self.grain=float(scene["cinematic"].get("grain",0.0) or 0.0)
         self.vignette=float(scene["cinematic"].get("vignette",0.14) or 0.0)
         if not 0<=self.vignette<=0.85:
@@ -112,9 +122,13 @@ class CinematicPanel:
     def frame(self,t:float)->Image.Image:
         x,y,zoom=camera_state(self.scene,t)
         canvas=Image.new("RGBA",(self.width,self.height),(0,0,0,255))
-        for meta,im in self.layers:
+        for meta,im,blink_overlay in self.layers:
             depth=float(meta.get("depth",0))
-            current=_place(canvas,im,zoom=zoom,cx=x,cy=y,depth=depth,
+            if meta.get("motion"):
+                moving=animate_actor(im,meta["motion"],t,overlay=blink_overlay)
+            else:
+                moving=im
+            current=_place(canvas,moving,zoom=zoom,cx=x,cy=y,depth=depth,
                            role=meta["role"])
             canvas=_blend(canvas,current,meta.get("blend","over"),
                           float(meta.get("opacity",1)))

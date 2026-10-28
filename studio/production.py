@@ -18,6 +18,10 @@ from pathlib import Path
 from studio.render import render, validate_episode
 from studio.continuity import check_episode
 from studio.premium_assets import review_episode
+from studio.identity_qc import verify_episode_characters
+from studio.work_contract import verify_work_lock
+from studio.audio_master import audit_audio, mix_audio
+from studio.video_qc import report as video_report
 
 ROOT = Path(__file__).resolve().parent.parent
 EPISODE_ID = re.compile(r"^E[0-9]{2,4}$")
@@ -71,6 +75,9 @@ def scheduled_episodes(plan_path: Path, on_date: dt.date) -> list[Path]:
         check_episode(episode, strict=True)
         # Scheduled release cannot silently use simple placeholder drawings.
         review_episode(episode,ROOT/"assets",publish=True)
+        verify_work_lock(episode,strict=True)
+        verify_episode_characters(episode,ROOT/"assets",strict=True)
+        audit_audio(episode,ROOT/"assets",publish=True)
         found.append(path)
     return found
 
@@ -174,7 +181,14 @@ def produce_episode(path: Path, outdir: Path, width=540, height=960, fps=12,
         raise ValueError("Invalid episode ID")
     scenes = validate_episode(episode, ROOT / "assets")
     if quality == "master":
+        if voiceover:
+            raise ValueError("Robotic espeak preview is not permitted in a master release")
         review_episode(episode,ROOT/"assets",publish=True)
+        verify_work_lock(episode,strict=True)
+        verify_episode_characters(episode,ROOT/"assets",strict=True)
+        audio_audit = audit_audio(episode,ROOT/"assets",publish=True,fps=fps)
+    else:
+        audio_audit = {"tracks":[],"audio_review_required":True,"approved":False}
     continuity_audit = check_episode(episode)
     visual_audit = review_episode(episode,ROOT/"assets",publish=False,
                                  min_width=width,min_height=height)
@@ -189,7 +203,13 @@ def produce_episode(path: Path, outdir: Path, width=540, height=960, fps=12,
     info = render(path, video, ROOT/"assets", width, height, fps, quality=quality)
     if voiceover:
         add_offline_voiceover(video, scenes, fps)
+    if quality == "master":
+        mastered = mix_audio(video,audio_audit["tracks"])
+        if mastered != video:
+            mastered.replace(video)
     qc = inspect_mp4(video,width,height,info["duration_seconds"])
+    # Diagnostic sampling is advisory: it may flag deliberate fade-outs or still closeups.
+    motion_qc = video_report(video)
     (target/f"{eid}.srt").write_text(subtitles(scenes,fps),encoding="utf-8")
     caption = (f"TWO WORLDS — {eid}: {episode.get('title','THE STORY')}\n"
                "Two lives. Two worlds. One impossible exchange.\n"
@@ -214,7 +234,9 @@ def produce_episode(path: Path, outdir: Path, width=540, height=960, fps=12,
         "voiceover": "offline_espeak" if voiceover else "none",
         "artwork_mode": "licensed_user_assets_or_procedural_standin",
         "qc": qc, "continuity_audit": continuity_audit,
-        "visual_audit": visual_audit
+        "visual_audit": visual_audit, "audio_audit": audio_audit,
+        "motion_quality_report": motion_qc,
+        "human_artistic_approval": False
     }
     (target/"manifest.json").write_text(json.dumps(manifest,indent=2,ensure_ascii=False)+"\n", encoding="utf-8")
     return manifest

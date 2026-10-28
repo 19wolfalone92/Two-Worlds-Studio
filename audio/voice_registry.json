@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "notes": "Voice IDs belong to the acting consciousness; rights/recordings approved by owner before public release.",
+  "speakers": {
+    "Mira": {
+      "version": "MIRA_VOICE_v001",
+      "review_status": "unreviewed"
+    },
+    "Lyra": {
+      "version": "LYRA_VOICE_v001",
+      "review_status": "unreviewed"
+    },
+    "Eli": {
+      "version": "ELI_VOICE_v001",
+      "review_status": "unreviewed"
+    },
+    "Ilan": {
+      "version": "ILAN_VOICE_v001",
+      "review_status": "unreviewed"
+    },
+    "Taren": {
+      "version": "TAREN_VOICE_v001",
+      "review_status": "unreviewed"
+    },
+    "Varos": {
+      "version": "VAROS_VOICE_v001",
+      "review_status": "unreviewed"
+    }
+  }
+}

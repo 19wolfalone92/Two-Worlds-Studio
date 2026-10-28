@@ -49,3 +49,14 @@ To avoid bloating Git:
 - Keep large layered art, voice and completed MP4 in approved external
   storage or expiring CI artifacts; store checksums to detect changes.
 - Never commit credentials or unlicensed third-party assets.
+
+## Additional release blockers
+- Work provides unmodified approved scenes with an exact `work_lock.script_sha256`.
+- Each depicted character layer has `body_id` + `identity_version` and
+  a confirmed three-angle SHA-pinned approved reference library.
+- Each scripted spoken line has a licensed recording matching the speaking
+  **consciousness** and fitting in the exact scene duration.
+- Master render uses actual 1080×1920, 24fps or better; the CI scheduled
+  release stage refuses master production if missing any approval.
+- Visual pattern statistics and machine QC are never permission to publish.
+- Studio does not write scripts; any experimental script generation is removed.

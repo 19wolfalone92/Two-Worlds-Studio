@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "documentation": "body IDs describe physical bodies, never consciousness. Reference images intentionally unapproved and absent until produced by Work/art team.",
+  "bodies": {
+    "earth_mira": {
+      "version": "MIRA_EARTH_B01_v001",
+      "references": []
+    },
+    "noctaris_lyra": {
+      "version": "LYRA_NOCTARIS_B02_v001",
+      "references": []
+    },
+    "earth_eli": {
+      "version": "ELI_EARTH_B03_v001",
+      "references": []
+    },
+    "noctaris_ilan": {
+      "version": "ILAN_NOCTARIS_B04_v001",
+      "references": []
+    }
+  }
+}

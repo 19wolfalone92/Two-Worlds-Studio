@@ -81,6 +81,11 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
     opacity=layer.get("opacity",1.0)
     if isinstance(opacity,bool) or not isinstance(opacity,(float,int)) or not 0<=opacity<=1:
         raise ValueError("Layer opacity must be between 0 and 1")
+    if "motion" in layer:
+        if layer["role"]!="character":
+            raise ValueError("Actor motion is only supported on character layers")
+        from studio.actor_motion import validate_motion
+        validate_motion(layer["motion"],root,publish=publish)
     path=resolve_asset(root,layer.get("path"))
     result=inspect_image(path)
     warnings=[]
