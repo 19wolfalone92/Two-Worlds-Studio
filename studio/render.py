@@ -15,6 +15,13 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 try:
+    from studio.cinematic import CinematicPanel
+    from studio.premium_assets import validate_premium_scene
+except ModuleNotFoundError:
+    from cinematic import CinematicPanel
+    from premium_assets import validate_premium_scene
+
+try:
     from studio.comic_art import panel as comic_panel
 except ModuleNotFoundError:
     # Enables direct execution with `python studio/render.py` as well as `-m`.
@@ -63,6 +70,8 @@ def validate_episode(data: dict, asset_root: Path) -> list[dict]:
             "exchange", "fortress", "sunrise"
         ):
             raise ValueError(f"{sid}: unsupported comic scene art")
+        if "cinematic" in scene:
+            validate_premium_scene(scene,asset_root,publish=False,min_width=256,min_height=448)
         bg = scene.get("background")
         if bg is not None:
             if not isinstance(bg, str):
@@ -241,6 +250,7 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
         total_frames = 0
         try:
             for scene in scenes:
+                premium = CinematicPanel(scene,assets,width,height) if scene.get("cinematic") else None
                 palette = scene.get("palette","earth")
                 if scene.get("background"):
                     with Image.open(assets / scene["background"]) as original:
@@ -251,7 +261,9 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
                     base = gradient((width,height),palette)
                 frames = max(1,round(float(scene["duration"])*fps))
                 for frame in range(frames):
-                    image = animate_frame(base, scene, frame/fps, frame, fps)
+                    # Cinematic scene layers replace procedural stand-ins entirely.
+                    frame_base = premium.frame(frame/max(1,frames-1)) if premium else base
+                    image = animate_frame(frame_base, scene, frame/fps, frame, fps)
                     proc.stdin.write(image.tobytes())
                 total_frames += frames
             proc.stdin.close()
