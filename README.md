@@ -69,3 +69,28 @@ remain blocked until the visual, identity, voice and rights gates pass.
 Optional `studio.lipsync` uses an artist-provided transparent mouth overlay
 and the energy envelope of an approved recorded voice. It is **not** speech
 recognition or full facial performance capture.
+
+## Free model inference notebook (new)
+
+A phone-operated **Kaggle notebook** is committed at
+`notebooks/TWO_WORLDS_Kaggle_FLUX_Kokoro.ipynb`. It clones this feature branch
+and has two explicit opt-in switches (both **False** by default):
+
+- `ENABLE_GPU_IMAGE=True`: attempt **one real FLUX.2 klein 4B image** using the
+  available Kaggle GPU, float16 on T4/P100 and CPU offloading. No real GPU
+  generation has yet been tested. Kaggle free quota and memory availability vary.
+- `ENABLE_KOKORO_VOICE=True`: synthesize a short English test WAV with
+  Kokoro-82M. No voice has yet been rendered on Kaggle/approved.
+
+The notebook creates an output ZIP to download from Kaggle. It never uploads,
+posts, changes a screenplay, or approves its own materials. Work continues to
+own **all scripts and dialogues**. Model and synth software licenses are
+subject to their own original terms.
+
+Full setup and acceptance checklist: `docs/FREE_KAGGLE_PRODUCTION.md`.
+
+```bash
+# Safe CPU-only preflight: no GPU/model download
+python -m studio.kaggle_flux --mode character --body earth_mira --view front --dry-run
+python -m studio.kokoro_tts --text "Voice test only." --speaker Mira --dry-run
+```
