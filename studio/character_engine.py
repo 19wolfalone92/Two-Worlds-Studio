@@ -228,6 +228,11 @@ class CharacterRig:
         self.tracks={name:[_keyframe(x,name) for x in frames]
                      for name,frames in config["tracks"].items()}
         self.shadow=_shadow(canvas_size,config) if config.get("ground_shadow") else None
+        self.shadow_part=None
+        if self.shadow is not None:
+            bounds=self.shadow.getchannel("A").getbbox()
+            if bounds is not None:
+                self.shadow_part=(self.shadow.crop(bounds),bounds)
         self.rest={"at":0.0,"x":0.0,"y":0.0,"angle":0.0,"scale":1.0}
 
     def pose(self,t:float)->dict:
@@ -254,8 +259,12 @@ class CharacterRig:
 
     def frame(self,t:float)->Image.Image:
         out=Image.new("RGBA",self.size,(0,0,0,0))
-        if self.shadow is not None:
-            out.alpha_composite(self.shadow)
+        if self.shadow_part is not None:
+            # Ground contact follows root travel horizontally, not vertical jumps.
+            # This preserves a stable apparent floor plane in a limited 2D rig.
+            root=_interpolate(self.tracks.get(ROOT_TRACK,[self.rest]),t)
+            _transformed_patch(out,self.shadow_part,
+                               _translate(root["x"]*self.size[0],0))
         transforms=self.pose(t)
         for name,(part,crop) in sorted(self.parts.items(),
             key=lambda e:(float(e[1][0].get("z",0)),e[0])):
