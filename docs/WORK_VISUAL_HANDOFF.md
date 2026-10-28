@@ -138,7 +138,7 @@ When all scenes include approved 1080×1920 layered art:
 
 \`\`\`sh
 python -m studio.premium_assets --episode episodes/YOUR_WORK_APPROVED_EPISODE.json --publish-gate
-python -m studio.production --episode episodes/YOUR_WORK_APPROVED_EPISODE.json --width 1080 --height 1920 --fps 24 --output-dir dist
+python -m studio.production --episode episodes/YOUR_WORK_APPROVED_EPISODE.json --width 1080 --height 1920 --fps 24 --quality master --output-dir dist
 python -m studio.review_board --episode episodes/YOUR_WORK_APPROVED_EPISODE.json --output dist/storyboard_contact.png
 \`\`\`
 
@@ -171,3 +171,15 @@ Work should hand the studio:
 
 The studio returns: QC report, review contact sheet, MP4, captions, soundtrack,
 source manifest and **review-only** publishing package.
+
+## Encoder profiles
+
+`--quality preview` (default) uses quick CPU rendering and CRF 23.
+`--quality master` uses x264 slow / CRF 18, H.264 4:2:0,
+48 kHz stereo AAC 192 kb/s. **Master is blocked** without 1080×1920+
+approved premium art and at least 24 fps; these are encoding targets,
+NOT proof that illustration, sound or artistic direction is professional.
+A human QC pass still precedes TikTok delivery.
+
+Large high-quality renders are CPU expensive and should run on a dedicated
+renderer instead of assuming free CI minutes or a reliable cloud GPU.

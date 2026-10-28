@@ -229,7 +229,16 @@ def make_audio(path: Path, total_duration: float):
         f.writeframes(pcm.tobytes())
 
 
-def render(episode: Path, output: Path, assets: Path, width: int, height: int, fps: int):
+def render(episode: Path, output: Path, assets: Path, width: int, height: int, fps: int,
+           quality: str = "preview"):
+    if quality not in ("preview","master"):
+        raise ValueError("Unknown encoder quality preset")
+    if quality == "master":
+        from studio.premium_assets import review_episode
+        if width < 1080 or height < 1920 or fps < 24:
+            raise ValueError("Master output requires at least 1080x1920 at 24 fps")
+        src = json.loads(episode.read_text(encoding="utf-8"))
+        review_episode(src,assets,publish=True)
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required and must be on PATH")
     if width < 64 or height < 64 or fps < 1 or fps > 60:
@@ -244,8 +253,10 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
         audio = work / "ambient.wav"
         cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-f", "rawvideo",
                "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-r", str(fps),
-               "-i", "-", "-an", "-c:v", "libx264", "-preset", "veryfast",
-               "-crf", "23", "-pix_fmt", "yuv420p", str(silent)]
+               "-i", "-", "-an", "-c:v", "libx264",
+               "-preset", "slow" if quality == "master" else "veryfast",
+               "-crf", "18" if quality == "master" else "23",
+               "-pix_fmt", "yuv420p", str(silent)]
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
         total_frames = 0
         try:
@@ -280,8 +291,10 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
         make_audio(audio, actual_duration)
         mux = ["ffmpeg","-nostdin","-v","error","-y","-i",str(silent),
                "-i",str(audio),"-map","0:v:0","-map","1:a:0","-c:v","copy",
-               "-c:a","aac","-b:a","96k","-shortest","-movflags","+faststart",
-               str(output)]
+               "-c:a","aac","-b:a","192k" if quality == "master" else "96k",
+               "-ar","48000" if quality == "master" else "22050",
+               "-ac","2" if quality == "master" else "1",
+               "-shortest","-movflags","+faststart",str(output)]
         subprocess.run(mux, check=True)
     return {"output":str(output),"frames":total_frames,"duration_seconds":actual_duration}
 
@@ -294,8 +307,10 @@ def main():
     p.add_argument("--width",type=int,default=540)
     p.add_argument("--height",type=int,default=960)
     p.add_argument("--fps",type=int,default=12)
+    p.add_argument("--quality",choices=("preview","master"),default="preview")
     args=p.parse_args()
-    result=render(args.episode,args.output,args.assets,args.width,args.height,args.fps)
+    result=render(args.episode,args.output,args.assets,args.width,args.height,args.fps,
+                  quality=args.quality)
     print(json.dumps(result,ensure_ascii=False))
 
 

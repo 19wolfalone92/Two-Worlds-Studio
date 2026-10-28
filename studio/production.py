@@ -166,12 +166,15 @@ def add_offline_voiceover(video: Path, scenes: list[dict], fps: int) -> None:
         shutil.copyfile(tmp,video)
 
 
-def produce_episode(path: Path, outdir: Path, width=540, height=960, fps=12, voiceover=False) -> dict:
+def produce_episode(path: Path, outdir: Path, width=540, height=960, fps=12,
+                    voiceover=False, quality="preview") -> dict:
     episode = read_json(path)
     eid = episode.get("id")
     if not isinstance(eid, str) or not EPISODE_ID.fullmatch(eid):
         raise ValueError("Invalid episode ID")
     scenes = validate_episode(episode, ROOT / "assets")
+    if quality == "master":
+        review_episode(episode,ROOT/"assets",publish=True)
     continuity_audit = check_episode(episode)
     visual_audit = review_episode(episode,ROOT/"assets",publish=False,
                                  min_width=width,min_height=height)
@@ -183,7 +186,7 @@ def produce_episode(path: Path, outdir: Path, width=540, height=960, fps=12, voi
     target = outdir / eid
     target.mkdir(parents=True, exist_ok=True)
     video = target / f"{eid}_preview.mp4"
-    info = render(path, video, ROOT/"assets", width, height, fps)
+    info = render(path, video, ROOT/"assets", width, height, fps, quality=quality)
     if voiceover:
         add_offline_voiceover(video, scenes, fps)
     qc = inspect_mp4(video,width,height,info["duration_seconds"])
@@ -206,6 +209,7 @@ def produce_episode(path: Path, outdir: Path, width=540, height=960, fps=12, voi
         "episode": eid, "title": episode.get("title"),
         "video": video.name, "sha256": digest, "subtitles":f"{eid}.srt",
         "publication_status": "awaiting_human_review",
+        "encoding_profile": quality,
         "is_ai_generated_label_recommended": True,
         "voiceover": "offline_espeak" if voiceover else "none",
         "artwork_mode": "licensed_user_assets_or_procedural_standin",
@@ -227,6 +231,7 @@ def main():
     parser.add_argument("--width",type=int,default=540)
     parser.add_argument("--height",type=int,default=960)
     parser.add_argument("--fps",type=int,default=12)
+    parser.add_argument("--quality",choices=("preview","master"),default="preview")
     parser.add_argument("--voiceover",action="store_true",help="Use local espeak-ng robotic English voice")
     args=parser.parse_args()
     if not DATE.fullmatch(args.date):
@@ -240,7 +245,8 @@ def main():
     else:
         episodes=[safe_episode_path(args.episode)]
     for episode in episodes:
-        print(json.dumps(produce_episode(episode,args.output_dir,args.width,args.height,args.fps,args.voiceover)))
+        print(json.dumps(produce_episode(episode,args.output_dir,args.width,args.height,
+                                         args.fps,args.voiceover,quality=args.quality)))
     print(f"Staged {len(episodes)} episode(s); no publication attempted.")
 
 
