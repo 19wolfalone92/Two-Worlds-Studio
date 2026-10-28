@@ -122,7 +122,7 @@ class StudioHardeningTests(unittest.TestCase):
             audit_audio(bad,self.assets,publish=True,registry_path=regfile)
         bad=copy.deepcopy(ep)
         bad["scenes"][0]["voice"]["sha256"]="deadbeef"
-        with self.assertRaisesRegex(ValueError,"hash mismatch"):
+        with self.assertRaisesRegex(ValueError,"SHA-256 mismatch"):
             audit_audio(bad,self.assets,publish=True,registry_path=regfile)
 
     @unittest.skipUnless(shutil.which("ffprobe"),"ffprobe required")
