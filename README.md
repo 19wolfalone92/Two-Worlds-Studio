@@ -9,6 +9,12 @@
 - **No autonomous storywriting; no TikTok publication** in CI.
 
 ## Tested capabilities
+- **New-character factory:** text-only first design, dependency-ordered physical
+  doubles and camera views from the factory's own generated references,
+  resumable batches with one GPU model session, and private result return.
+  See [from-scratch workflow](docs/CHARACTER_FACTORY.md). Actual generation
+  backend and execution evidence are recorded; host-assisted images and
+  autonomous GPU output are distinguished.
 - Reference-first **Character Art Studio**: current private Work appearances,
   nine drawing task types per physical body, explicit rear-view staging,
   reference-conditioned backend integration, immutable drawing variants and a

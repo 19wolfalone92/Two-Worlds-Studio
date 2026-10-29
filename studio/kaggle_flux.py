@@ -15,6 +15,7 @@ import json
 import os
 import re
 import time
+import tempfile
 from pathlib import Path
 
 from studio.art_director import ROOT,load_style
@@ -124,61 +125,109 @@ def plan_job(args)->dict:
     data=json.loads(Path(args.prompt_pack).read_text(encoding="utf-8"))
     return scene_job(data,args.scene,reference)
 
-def run_gpu(job:dict,output:Path,*,model_id:str=DEFAULT_MODEL,
-            width:int=576,height:int=1024,steps:int=4)->dict:
-    if model_id!=DEFAULT_MODEL:
-        raise ValueError("Only the reviewed Apache-2.0 FLUX.2 klein 4B checkpoint is allowed")
+def validate_gpu_request(job:dict,output:Path,*,width:int,height:int,steps:int)->None:
+    if any(type(x) is not int for x in (width,height,steps)):
+        raise ValueError("GPU dimensions and steps must be integers")
     if (width,height)!=(576,1024) and (width%64 or height%64 or
                                  min(width,height)<448 or max(width,height)>1344):
         raise ValueError("Use 576x1024 or safe multiples of 64 between 448 and 1344")
     if steps<1 or steps>8:
         raise ValueError("Klein distilled sampling uses 1..8 steps")
+    if not isinstance(job.get("prompt"),str) or len(job["prompt"])<20:
+        raise ValueError("GPU job needs a detailed drawing prompt")
+    if type(job.get("seed")) is not int or not 0<=job["seed"]<2**63:
+        raise ValueError("GPU job needs a saved nonnegative integer seed")
+    if output.exists():
+        raise FileExistsError(f"Image exists — refusing overwrite: {output}")
     if job.get("reference"):
         current=validate_reference(Path(job["reference"]["path"]))
         if current["sha256"]!=job["reference"].get("sha256"):
             raise ValueError("Identity reference changed after drawing job compilation")
-    try:
-        import torch
-        from diffusers import Flux2KleinPipeline
-        from diffusers.utils import load_image
-    except ImportError as exc:
-        raise RuntimeError("Install Kaggle FLUX dependencies from the Notebook first") from exc
-    if not torch.cuda.is_available():
-        raise RuntimeError("No CUDA GPU. Enable Kaggle Notebook Settings > Accelerator > GPU.")
-    device_name=torch.cuda.get_device_name(0)
-    # NVIDIA T4 and P100 do not support BF16; dtype based on actual CUDA support.
-    dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    gpu_gb=torch.cuda.get_device_properties(0).total_memory/(1024**3)
-    print(f"Selected {device_name} ({gpu_gb:.1f} GiB), precision={dtype}; model loading may be slow.")
-    try:
-        pipe=Flux2KleinPipeline.from_pretrained(model_id,torch_dtype=dtype)
-        pipe.enable_model_cpu_offload()
-        pipe.set_progress_bar_config(disable=False)
+
+def configure_gpu_memory(pipe,total_gib:float)->str:
+    """Use leaf-level offloading on small GPUs; retain native drawing pixels.
+
+    Diffusers' documented sequential offload trades speed for memory without
+    silently lowering the image's requested resolution or quantizing weights.
+    """
+    vae=getattr(pipe,"vae",None)
+    if vae is not None:
+        if callable(getattr(vae,"enable_tiling",None)):vae.enable_tiling()
+        if callable(getattr(vae,"enable_slicing",None)):vae.enable_slicing()
+    if total_gib<20:
+        pipe.enable_sequential_cpu_offload()
+        return "sequential_cpu_offload"
+    pipe.enable_model_cpu_offload()
+    return "model_cpu_offload"
+
+
+class GPUImageSession:
+    """Load the actual GPU pipeline once, reuse it across dependent drawings."""
+    def __init__(self,*,model_id:str=DEFAULT_MODEL):
+        if model_id!=DEFAULT_MODEL:
+            raise ValueError("Only the reviewed Apache-2.0 FLUX.2 klein 4B checkpoint is allowed")
+        try:
+            import torch
+            from diffusers import Flux2KleinPipeline
+            from diffusers.utils import load_image
+        except ImportError as exc:
+            raise RuntimeError("Install Kaggle FLUX dependencies from the Notebook first") from exc
+        if not torch.cuda.is_available():
+            raise RuntimeError("No CUDA GPU. Enable Kaggle Notebook Settings > Accelerator > GPU.")
+        self.torch,self.load_image,self.model_id = torch,load_image,model_id
+        self.device_name=torch.cuda.get_device_name(0)
+        self.total_gib=torch.cuda.get_device_properties(0).total_memory/(1024**3)
+        self.dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        try:
+            self.pipe=Flux2KleinPipeline.from_pretrained(model_id,torch_dtype=self.dtype)
+            self.memory_mode=configure_gpu_memory(self.pipe,self.total_gib)
+            self.pipe.set_progress_bar_config(disable=False)
+        except torch.cuda.OutOfMemoryError as exc:
+            raise RuntimeError("GPU memory insufficient while loading drawing model") from exc
+
+    def render(self,job:dict,output:Path,*,width:int=576,height:int=1024,steps:int=4)->dict:
+        validate_gpu_request(job,output,width=width,height=height,steps=steps)
         kwargs={
             "prompt":job["prompt"],"width":width,"height":height,
             "num_inference_steps":steps,"guidance_scale":1.0,
-            "generator":torch.Generator(device="cpu").manual_seed(job["seed"])
+            "generator":self.torch.Generator(device="cpu").manual_seed(job["seed"])
         }
-        if job["reference"]:
-            if sha256(Path(job["reference"]["path"]))!=job["reference"]["sha256"]:
-                raise ValueError("Identity reference changed while loading the model")
-            kwargs["image"]=load_image(job["reference"]["path"])
-        generated=pipe(**kwargs).images[0]
-    except torch.cuda.OutOfMemoryError as exc:
-        raise RuntimeError("GPU memory insufficient: restart Kaggle, use 448x768 or 512x768 "
-                           "and one image at a time. Loading on Kaggle T4 is not guaranteed.") from exc
-    output.parent.mkdir(parents=True,exist_ok=True)
-    if output.exists():
-        raise FileExistsError(f"Image exists — refusing overwrite: {output}")
-    generated.save(output,"PNG")
-    if output.stat().st_size<10000:
-        output.unlink(missing_ok=True)
-        raise RuntimeError("Generated PNG unexpectedly small")
-    return {"image":str(output),"sha256":sha256(output),"model":model_id,
-            "gpu_name":device_name,"precision":str(dtype),
-            "width":generated.width,"height":generated.height,
-            "reference":job["reference"],
-            "review_status":"unreviewed","identity_verified":False}
+        if job.get("reference"):
+            kwargs["image"]=self.load_image(job["reference"]["path"])
+        try:
+            generated=self.pipe(**kwargs).images[0]
+        except self.torch.cuda.OutOfMemoryError as exc:
+            raise RuntimeError(f"GPU memory insufficient on {self.device_name} at {width}x{height}, "
+                               f"mode={self.memory_mode}: {str(exc)[:300]}") from exc
+        if generated.size!=(width,height):
+            raise RuntimeError("Generator returned unexpected native image dimensions")
+        output.parent.mkdir(parents=True,exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=output.parent,suffix=".png",delete=False) as temp:
+            staged=Path(temp.name)
+        try:
+            generated.save(staged,"PNG")
+            if staged.stat().st_size<10000:
+                raise RuntimeError("Generated PNG unexpectedly small")
+            from studio.premium_assets import inspect_image
+            inspect_image(staged)
+            if output.exists():
+                raise FileExistsError("Another drawing appeared at the output path")
+            staged.replace(output)
+        finally:
+            staged.unlink(missing_ok=True)
+        return {"image":str(output),"sha256":sha256(output),"model":self.model_id,
+                "gpu_name":self.device_name,"precision":str(self.dtype),
+                "offload_mode":self.memory_mode,"gpu_total_gib":round(self.total_gib,2),
+                "width":generated.width,"height":generated.height,
+                "reference":job.get("reference"),"review_status":"unreviewed","identity_verified":False}
+
+
+def run_gpu(job:dict,output:Path,*,model_id:str=DEFAULT_MODEL,
+            width:int=576,height:int=1024,steps:int=4)->dict:
+    if model_id!=DEFAULT_MODEL:
+        raise ValueError("Only the reviewed Apache-2.0 FLUX.2 klein 4B checkpoint is allowed")
+    validate_gpu_request(job,output,width=width,height=height,steps=steps)
+    return GPUImageSession(model_id=model_id).render(job,output,width=width,height=height,steps=steps)
 
 def execute(args)->dict:
     job=plan_job(args)

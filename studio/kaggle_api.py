@@ -21,7 +21,7 @@ SLUG = "two-worlds-visual-gpu"
 USERNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,29}$")
 BODY = {"earth_mira", "noctaris_lyra", "earth_eli", "noctaris_ilan"}
 VIEWS = {"front", "three_quarter", "profile", "full_body", "expression"}
-MODES = {"portrait", "voice", "both"}
+MODES = {"portrait", "voice", "both", "design"}
 STATUS = re.compile(r"KERNELWORKERSTATUS\.([A-Z_]+)")
 RECEIPT = "two_worlds_job_receipt.json"
 PACKAGE = "TWO_WORLDS_ARTIFACTS.zip"
@@ -35,6 +35,8 @@ FILES = (
     "studio/lipsync.py", "story/visual_bible.json",
     "story/identity_registry.json", "audio/kokoro_cast.json",
     "audio/voice_registry.json",
+    "studio/character_factory.py", "studio/character_art.py",
+    "studio/character_engine.py",
 )
 
 def package_source(root: Path = ROOT) -> bytes:
@@ -55,7 +57,8 @@ def package_source(root: Path = ROOT) -> bytes:
 def build_job(username: str, nonce: str, mode: str = "portrait",
               body: str = "earth_mira", view: str = "front",
               *, source_root: Path = ROOT, output_dir: Path,
-              git_sha: str | None = None) -> dict:
+              git_sha: str | None = None, design_spec: dict | None = None,
+              max_images: int = 6) -> dict:
     if not USERNAME.fullmatch(username):
         raise ValueError("Kaggle username must be 2–30 safe characters")
     if not isinstance(nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{3,90}", nonce):
@@ -68,6 +71,14 @@ def build_job(username: str, nonce: str, mode: str = "portrait",
         raise ValueError("Invalid source revision")
     payload = {"schema": 1, "run_nonce": nonce, "mode": mode, "body": body,
                "view": view, "source_sha": git_sha}
+    if mode=="design":
+        from studio.character_factory import _validate_spec
+        if not isinstance(design_spec,dict):
+            raise ValueError("New-character GPU job requires an explicit text-only design specification")
+        _validate_spec(design_spec)
+        if type(max_images) is not int or not 1<=max_images<=12:
+            raise ValueError("Use an explicit private GPU batch limit from 1 to 12 drawings")
+        payload.update(design_spec=design_spec,max_images=max_images)
     bundle = package_source(source_root)
     template = (source_root / "tools/kaggle_api_kernel_entry.py").read_text(encoding="utf-8")
     if template.count("__TW_CONFIG_B64__") != 1 or template.count("__TW_BUNDLE_B64__") != 1:
@@ -75,9 +86,12 @@ def build_job(username: str, nonce: str, mode: str = "portrait",
     config = base64.b64encode(json.dumps(payload, sort_keys=True).encode()).decode("ascii")
     data = base64.b64encode(bundle).decode("ascii")
     rendered = template.replace("__TW_CONFIG_B64__", config).replace("__TW_BUNDLE_B64__", data)
-    kernel = f"{username}/{SLUG}"
+    # New-design runs get their own private kernel; an existing studio notebook
+    # and its result history are never replaced by the factory proof.
+    kernel_slug = ("two-worlds-factory-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]) if mode=="design" else SLUG
+    kernel = f"{username}/{kernel_slug}"
     meta = {
-        "id": kernel, "title": "Two Worlds Visual GPU",
+        "id": kernel, "title": ("Two Worlds Factory "+kernel_slug.rsplit("-",1)[-1]) if mode=="design" else "Two Worlds Visual GPU",
         "code_file": "kernel_main.py", "language": "python",
         "kernel_type": "script", "is_private": "true",
         "enable_gpu": "true" if mode != "voice" else "false",
@@ -135,15 +149,46 @@ def verify_outputs(path: Path, nonce: str) -> dict:
         raise ValueError("Result is from another run; refuse to mix outputs")
     if receipt.get("success") is not True:
         raise RuntimeError("Remote Kaggle job did not succeed")
+    actual_digest=hashlib.sha256(archives[0].read_bytes()).hexdigest()
+    if receipt.get("archive_sha256") and receipt["archive_sha256"]!=actual_digest:
+        raise ValueError("Generated output archive does not match the worker receipt")
     with zipfile.ZipFile(archives[0]) as z:
         entries = z.namelist()
-        if not entries or any(Path(n).is_absolute() or ".." in Path(n).parts for n in entries):
+        if (not entries or len(entries)!=len(set(entries)) or len(entries)>1000 or
+            sum(i.file_size for i in z.infolist())>500_000_000 or
+            any(Path(n).is_absolute() or ".." in Path(n).parts or "\\" in n for n in entries)):
             raise ValueError("Unsafe or empty output archive")
         if not any(n.lower().endswith((".png", ".wav")) for n in entries):
             raise ValueError("Kaggle did not generate an image or voice clip")
+        images=0
+        voices=0
+        for name in entries:
+            if name.lower().endswith(".png"):
+                from PIL import Image
+                try:
+                    with Image.open(io.BytesIO(z.read(name))) as image:
+                        if image.format!="PNG" or image.width*image.height>80_000_000:
+                            raise ValueError("Unexpected generated image format/dimensions")
+                        image.load()
+                except Exception as exc:
+                    raise ValueError("Cannot decode actual generated PNG: "+name) from exc
+                images+=1
+            elif name.lower().endswith(".wav"):
+                import wave
+                try:
+                    with wave.open(io.BytesIO(z.read(name))) as voice:
+                        if voice.getnframes()<1 or voice.getframerate()<8000:
+                            raise ValueError("Empty generated voice")
+                        voice.readframes(voice.getnframes())
+                except Exception as exc:
+                    raise ValueError("Cannot decode actual generated WAV: "+name) from exc
+                voices+=1
+        if receipt.get("mode")=="design" and images<1:
+            raise ValueError("New-character generation returned no actual drawings")
     return {"run_nonce": nonce, "success": True, "files": len(entries),
+            "decoded_images":images,"decoded_voices":voices,
             "archive_bytes": archives[0].stat().st_size,
-            "sha256": hashlib.sha256(archives[0].read_bytes()).hexdigest()}
+            "sha256": actual_digest}
 
 def main():
     p = argparse.ArgumentParser(description="Manual private Kaggle API runner")
@@ -155,6 +200,9 @@ def main():
     create.add_argument("--body", choices=sorted(BODY), default="earth_mira")
     create.add_argument("--view", choices=sorted(VIEWS), default="front")
     create.add_argument("--output-dir", type=Path, required=True)
+    create.add_argument("--design-spec",type=Path)
+    create.add_argument("--max-images",type=int,default=6)
+    create.add_argument("--source-sha",default=None)
     poll = cmd.add_parser("poll")
     poll.add_argument("--kernel", required=True)
     poll.add_argument("--timeout", type=int, default=3300)
@@ -165,7 +213,9 @@ def main():
     a = p.parse_args()
     if a.action == "prepare":
         result = build_job(a.username, a.run_nonce, a.mode, a.body, a.view,
-                           output_dir=a.output_dir)
+                           output_dir=a.output_dir,
+                           design_spec=json.loads(a.design_spec.read_text()) if a.design_spec else None,
+                           max_images=a.max_images,git_sha=a.source_sha)
     elif a.action == "poll":
         result = {"status": poll_kernel(a.kernel, timeout_seconds=a.timeout,
                                         interval_seconds=a.interval)}

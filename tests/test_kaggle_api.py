@@ -4,6 +4,11 @@ import json
 import tempfile
 import unittest
 import zipfile
+import io
+import os
+import subprocess
+import sys
+from PIL import Image
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +19,19 @@ from studio.kaggle_api import (
 
 
 class KaggleApiTests(unittest.TestCase):
+    def test_bundled_worker_imports_outside_the_full_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            with zipfile.ZipFile(io.BytesIO(package_source())) as z:z.extractall(root)
+            env=os.environ.copy();env['PYTHONPATH']=str(root)
+            result=subprocess.run([sys.executable,'-c',
+                'import studio.character_factory,studio.kaggle_flux; '
+                'from studio.art_director import load_style; '
+                'print(load_style()["schema"]); print(studio.kaggle_flux.__file__)'],
+                cwd=root,env=env,capture_output=True,text=True,timeout=30)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertIn(str(root/'studio/kaggle_flux.py'),result.stdout)
+
     def test_reviewed_source_bundle_excludes_credentials(self):
         blob = package_source()
         self.assertGreater(len(blob), 1000)
@@ -85,9 +103,15 @@ class KaggleApiTests(unittest.TestCase):
             (d/"two_worlds_job_receipt.json").write_text(
                 json.dumps({"run_nonce":"gh-104-1","success":True}))
             archive=d/"TWO_WORLDS_ARTIFACTS.zip"
+            pixels=io.BytesIO()
+            Image.new("RGB",(64,64),(60,100,160)).save(pixels,format="PNG")
             with zipfile.ZipFile(archive,"w") as z:
-                z.writestr("portrait.png",b"not valid image bytes for test")
+                z.writestr("portrait.png",pixels.getvalue())
             self.assertTrue(verify_outputs(d,"gh-104-1")["success"])
+            with zipfile.ZipFile(archive,"w") as z:
+                z.writestr("portrait.png",b"not valid image bytes")
+            with self.assertRaisesRegex(ValueError,"actual generated PNG"):
+                verify_outputs(d,"gh-104-1")
             with self.assertRaisesRegex(ValueError,"another run"):
                 verify_outputs(d,"gh-104-2")
             with zipfile.ZipFile(archive,"w") as z:
