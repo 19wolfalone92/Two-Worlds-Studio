@@ -201,11 +201,25 @@ def main():
     parser.add_argument('--view',default='back',
                         choices=('back','front','profile','three_quarter','rear_three_quarter'))
     parser.add_argument('--facing',default='mirror')
+    parser.add_argument('--auto-matte',action='store_true',
+                        help='Try conservative flat-background extraction from an RGB GPU PNG')
     opts=parser.parse_args()
-    result=prepare_auto_rig(opts.image,opts.output,body_id=opts.body,
-                            camera_view=opts.view,facing=opts.facing)
+    import tempfile
+    matte_report=None
+    with tempfile.TemporaryDirectory(prefix='two-worlds-private-matte-') as tmp:
+        source=opts.image
+        if opts.auto_matte:
+            from studio.auto_matte import matte_plain_background
+            source=Path(tmp)/'temporary_review_matte.png'
+            matte_report=matte_plain_background(opts.image,source)
+        result=prepare_auto_rig(source,opts.output,body_id=opts.body,
+                                camera_view=opts.view,facing=opts.facing)
+    if matte_report:
+        (opts.output/'matte_provenance.json').write_text(
+            json.dumps(matte_report,indent=2)+'\\n',encoding='utf-8')
     print(json.dumps({'rig':str(opts.output/'rig.json'),
                       'parts':len(result['parts']),
+                      'auto_matte':matte_report is not None,
                       'review':'ARTIST_REPAIR_REQUIRED',
                       'approved':False,
                       'publication_allowed':False},ensure_ascii=False,indent=2))
