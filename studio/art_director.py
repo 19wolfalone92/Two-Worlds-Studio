@@ -55,7 +55,26 @@ def get_subjects(scene:dict,style:dict)->list[str]:
     return ids
 
 
-def panel_prompt(scene:dict,style:dict,episode_id:str)->dict:
+def panel_prompt(scene:dict,style:dict,episode_id:str,*,character_project:Path|None=None)->dict:
+    if character_project is not None:
+        from studio.character_art import load_project, scene_job, resolve_asset
+        project=load_project(character_project)
+        job=scene_job(character_project,{"id":episode_id,"scenes":[scene]},scene["id"])
+        references={}
+        for ref in job["references"]:
+            references.setdefault(ref["body_id"],{
+                "file":str(resolve_asset(character_project,ref["file"])),
+                "sha256":ref["sha256"],"source_pixels":ref["source_pixels"]})
+        return {"episode":episode_id,"scene":scene["id"],"bodies":job["body_ids"],
+                "location":scene.get("palette"),"seed":int(job["job_fingerprint"][:8],16),
+                "prompt":job["prompt"],"negative":"duplicate anatomy, watermark, malformed eyes",
+                "references":references,
+                "identity_versions":{b:{"identity_version":project["bodies"][b]["identity_version"],
+                                       "reference_ready":True,"reference_approved":False}
+                                     for b in job["body_ids"]},
+                "review_status":"unreviewed","consistency_verified":False,
+                "source":"private_current_character_project",
+                "project_fingerprint":project["project_fingerprint"]}
     bodies=get_subjects(scene,style)
     location=scene.get("palette","earth")
     if location not in style["locations"]:
@@ -121,10 +140,23 @@ def panel_prompt(scene:dict,style:dict,episode_id:str)->dict:
                    "Use approved multi-angle references with a ComfyUI IP-Adapter custom workflow."}
 
 
-def compile_prompt_pack(episode:dict,style:dict)->dict:
+def compile_prompt_pack(episode:dict,style:dict,*,character_project:Path|None=None,
+                        asset_root:Path|None=None)->dict:
     check_episode(episode,strict=True)
-    validate_episode(episode,ROOT/"assets")
-    entries=[panel_prompt(scene,style,episode["id"]) for scene in episode["scenes"]]
+    validate_episode(episode,asset_root or ROOT/"assets")
+    entries=[]
+    for scene in episode["scenes"]:
+        if character_project is not None and not (scene.get("subjects") or scene.get("continuity",{}).get("body")):
+            from studio.character_art import load_project
+            project=load_project(character_project)
+            entries.append({"episode":episode["id"],"scene":scene["id"],"bodies":[],
+                            "prompt":project["style"]+"\nWork scene: "+scene["shot"]+
+                                     "\nNo additional characters or text.",
+                            "negative":"watermark, text", "references":{},"identity_versions":{},
+                            "seed":int(hashlib.sha256(scene["id"].encode()).hexdigest()[:8],16),
+                            "review_status":"unreviewed","consistency_verified":False})
+        else:
+            entries.append(panel_prompt(scene,style,episode["id"],character_project=character_project))
     return {"schema":1,"episode":episode["id"],"backend":"unexecuted",
             "reference_guidance":"Use approved reference sheets through IP-Adapter/ControlNet workflow "
                                  "for persistent faces and poses, then manually inspect all generated panels.",
@@ -262,10 +294,11 @@ def comfy_render(workflow:dict,base_url:str,out:Path,timeout=240,client=None)->d
 
 
 def run(episode:Path,output:Path,backend="prompts",workflow_file:Path=WORKFLOW,
-        checkpoint=None,base_url=None,width=768,height=1344):
+        checkpoint=None,base_url=None,width=768,height=1344,*,
+        character_project:Path|None=None,asset_root:Path|None=None):
     style=load_style()
     ep=json.loads(episode.read_text(encoding="utf-8"))
-    pack=compile_prompt_pack(ep,style)
+    pack=compile_prompt_pack(ep,style,character_project=character_project,asset_root=asset_root)
     if backend not in ("prompts","comfyui"):
         raise ValueError("Unknown art backend")
     out=output/ep["id"]
@@ -283,6 +316,10 @@ def run(episode:Path,output:Path,backend="prompts",workflow_file:Path=WORKFLOW,
                 raise ValueError("Multi-character identity control needs a bespoke multi-reference workflow")
             if scene["references"] and not template_uses_reference:
                 raise ValueError("Approved character reference configured, but workflow has no __REFERENCE_IMAGE__ conditioning node")
+            if scene["references"]:
+                from studio.character_art import reference_conditioned
+                if not reference_conditioned(workflow):
+                    raise ValueError("Identity reference must reach the active sampler, not an unused LoadImage")
             reference_name=None
             if scene["references"]:
                 info=next(iter(scene["references"].values()))
@@ -310,9 +347,12 @@ def main():
     p.add_argument("--url",default=None)
     p.add_argument("--width",type=int,default=768)
     p.add_argument("--height",type=int,default=1344)
+    p.add_argument("--character-project",type=Path,help="Current private Work reference project, overriding old fixture prose")
+    p.add_argument("--assets",type=Path,help="Actual private Work handoff assets for input validation")
     args=p.parse_args()
     print(run(args.episode,args.output_dir,args.backend,args.workflow,
-              args.checkpoint,args.url,args.width,args.height))
+              args.checkpoint,args.url,args.width,args.height,
+              character_project=args.character_project,asset_root=args.assets))
 
 
 if __name__=="__main__":

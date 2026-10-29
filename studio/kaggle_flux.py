@@ -20,14 +20,19 @@ from pathlib import Path
 from studio.art_director import ROOT,load_style
 
 DEFAULT_MODEL="black-forest-labs/FLUX.2-klein-4B"
-VIEWS={"front","three_quarter","profile","full_body","expression"}
+VIEWS={"front","three_quarter","profile","full_body","expression","back","rear_three_quarter"}
+# Keep the original five view seeds stable when new angles are introduced.
+VIEW_SEED_OFFSET={"expression":0,"front":1,"full_body":2,"profile":3,"three_quarter":4,
+                  "back":5,"rear_three_quarter":6}
 SAFE_ID=re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,32}$")
 VIEWHINT={
     "front":"neutral direct FRONT VIEW, level camera, shoulders squared, face fully visible",
     "three_quarter":"three-quarter 45 degree portrait, distinct facial anatomy unchanged",
     "profile":"strict SIDE PROFILE, same person, consistent facial bone structure",
     "full_body":"full-body standing turnaround, correct hands and proportion",
-    "expression":"cinematic expressive portrait, emotionally restrained, accurate face"
+    "expression":"cinematic expressive portrait, emotionally restrained, accurate face",
+    "back":"strict BACK view, back of head and clothes, no visible face, correct body proportions",
+    "rear_three_quarter":"REAR THREE-QUARTER view, same body, facing away from camera, never horizontally flip"
 }
 
 def sha256(path:Path)->str:
@@ -67,7 +72,7 @@ def character_job(style:dict,body:str,view:str,reference:Path|None=None)->dict:
         "job_kind":"character","body":body,"view":view,
         "prompt":prompt,"negative":style["negative"],
         # Same identity seed across all views is useful but NOT proof of identity.
-        "seed":int(ch["seed_anchor"])+list(sorted(VIEWS)).index(view),
+        "seed":int(ch["seed_anchor"])+VIEW_SEED_OFFSET[view],
         "reference":validate_reference(reference),
         "review_status":"unreviewed","visual_identity_verified":False
     }
@@ -92,6 +97,22 @@ def scene_job(pack:dict,scene_id:str,reference:Path|None=None)->dict:
     }
 
 def plan_job(args)->dict:
+    if getattr(args,"character_project",None):
+        from studio.character_art import get_job,resolve_asset
+        if not getattr(args,"job",None):
+            raise ValueError("--character-project requires --job from that project's jobs.json")
+        root=Path(args.character_project)
+        source=get_job(root,args.job)
+        if len(source["body_ids"])!=1 or source.get("edit_target"):
+            raise ValueError("FLUX worker currently supports one physical identity and no separate edit target")
+        ref=source["references"][0]
+        return {"job_kind":"character","body":source["body_ids"][0],"view":source["view"],
+                "prompt":source["prompt"],"negative":"duplicate anatomy, watermark, malformed eyes",
+                "seed":int(source["job_fingerprint"][:8],16),
+                "reference":validate_reference(resolve_asset(root,ref["file"])),
+                "source_job_fingerprint":source["job_fingerprint"],
+                "reference_mode":"single_primary_identity_reference",
+                "review_status":"unreviewed","visual_identity_verified":False}
     style=load_style()
     reference=Path(args.reference) if args.reference else None
     if args.mode=="character":
@@ -112,6 +133,10 @@ def run_gpu(job:dict,output:Path,*,model_id:str=DEFAULT_MODEL,
         raise ValueError("Use 576x1024 or safe multiples of 64 between 448 and 1344")
     if steps<1 or steps>8:
         raise ValueError("Klein distilled sampling uses 1..8 steps")
+    if job.get("reference"):
+        current=validate_reference(Path(job["reference"]["path"]))
+        if current["sha256"]!=job["reference"].get("sha256"):
+            raise ValueError("Identity reference changed after drawing job compilation")
     try:
         import torch
         from diffusers import Flux2KleinPipeline
@@ -135,6 +160,8 @@ def run_gpu(job:dict,output:Path,*,model_id:str=DEFAULT_MODEL,
             "generator":torch.Generator(device="cpu").manual_seed(job["seed"])
         }
         if job["reference"]:
+            if sha256(Path(job["reference"]["path"]))!=job["reference"]["sha256"]:
+                raise ValueError("Identity reference changed while loading the model")
             kwargs["image"]=load_image(job["reference"]["path"])
         generated=pipe(**kwargs).images[0]
     except torch.cuda.OutOfMemoryError as exc:
@@ -180,6 +207,8 @@ def main():
     p.add_argument("--prompt-pack",type=Path)
     p.add_argument("--scene",help="Scene ID from a Work-approved art prompt pack")
     p.add_argument("--reference",help="Explicit image path to edit/reuse identity; keep rights")
+    p.add_argument("--character-project",type=Path,help="Current private reference project instead of legacy fixture prose")
+    p.add_argument("--job",help="Exact drawing job ID from that project")
     p.add_argument("--output-dir",default="/kaggle/working/two_worlds_art")
     p.add_argument("--width",type=int,default=576)
     p.add_argument("--height",type=int,default=1024)

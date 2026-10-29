@@ -33,6 +33,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
       - name: Test renderer, editorial controls and packaging
         run: python -m unittest discover -s tests -v
+      - name: Check Character Art Studio CLI (no model downloads or private art)
+        run: |
+          python -m studio.character_art --help
       - name: Validate private Work-art joint rigging without private assets
         if: github.event_name == 'pull_request'
         run: |

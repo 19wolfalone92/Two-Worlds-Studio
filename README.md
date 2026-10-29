@@ -9,6 +9,12 @@
 - **No autonomous storywriting; no TikTok publication** in CI.
 
 ## Tested capabilities
+- Reference-first **Character Art Studio**: current private Work appearances,
+  nine drawing task types per physical body, explicit rear-view staging,
+  reference-conditioned backend integration, immutable drawing variants and a
+  Russian side-by-side review gallery. See [drawing workflow](docs/CHARACTER_ART_STUDIO.md).
+  Pixel generation requires an actual image backend; prompt planning alone
+  does not create or verify artwork.
 - CPU-only original placeholder artwork and 2.5D compositing of production PNG layers (background, character, foreground), camera/parallax, haze and special effects.
 - English text captions and optional **preview-only** robotic speech.
 - Optional real ComfyUI image generation against user-operated GPU/approved model; reference-conditioned custom workflow needed for stable faces.

@@ -14,7 +14,8 @@ from studio.premium_assets import resolve_asset, inspect_image
 
 ROOT=Path(__file__).resolve().parent.parent
 REGISTRY=ROOT/"story/identity_registry.json"
-VALID_VIEWS={"front","three_quarter","profile","full_body","expression"}
+VALID_VIEWS={"front","three_quarter","profile","full_body","expression",
+             "back","rear_three_quarter","hands","blink"}
 VALID_RIGHTS={"original","owned","commissioned","licensed"}
 
 def load_registry(path:Path=REGISTRY)->dict:
