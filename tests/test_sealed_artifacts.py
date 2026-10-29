@@ -60,5 +60,12 @@ class SealedArtTests(unittest.TestCase):
         self.assertIn("head.repo.full_name == github.repository",workflow)
         self.assertIn("head.ref == 'feat/from-scratch-character-factory'",workflow)
 
+    def test_worker_installs_drawing_imports_before_request_validation(self):
+        root=Path(__file__).resolve().parent.parent
+        workflow=(root/'.github/workflows/character-factory.yml').read_text()
+        self.assertLess(workflow.index('name: Install official worker tools'),
+                        workflow.index('name: Validate explicit bounded generation'))
+        self.assertIn("always() && env.KERNEL_HANDLE != ''",workflow)
+
 
 if __name__=='__main__':unittest.main()
