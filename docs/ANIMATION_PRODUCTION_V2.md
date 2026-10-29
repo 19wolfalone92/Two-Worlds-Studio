@@ -53,16 +53,18 @@ configured machine. This branch does NOT automatically dispatch GPU
 workloads or spend API quota.
 
 **Important:** the GPU gallery images were generated against a *matte studio
-background*. The auto-rig stage needs one correctly alpha-matted PNG.
-Professionally extract hair, body and transparent seams in a private image
-editor or segmentation worker first. It deliberately rejects opaque images
-rather than treating their background as actor anatomy.
+background*, not transparent. The CLI has an optional `--auto-matte` mode,
+which can isolate a single full-body subject on a nearly uniform background
+with OpenCV. It rejects complex backgrounds, partial figures and ambiguous
+silhouettes; the result always needs hair/cloth-edge review. Without
+`--auto-matte`, feed a professionally prepared transparent PNG. Do not
+interpret a technically generated alpha channel as completed artist cleanup.
 
 ```bash
 python -m studio.animation_pipeline \
     --image /PRIVATE/earth_mira_REAR_RGBA.png \
     --output /PRIVATE/mira_rear_rig_v001 \
-    --body earth_mira --view back --facing mirror
+    --body earth_mira --view back --facing mirror --auto-matte
 ```
 
 Inspect `rig.json` and its 14 PNG parts. In this branch, the result is
