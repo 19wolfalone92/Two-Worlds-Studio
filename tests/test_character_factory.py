@@ -10,7 +10,7 @@ from PIL import Image,ImageDraw
 
 from studio import character_factory as f
 from studio.character_art import write_json,read_json,fingerprint,load_project
-from studio.kaggle_flux import run_gpu
+from studio.kaggle_flux import run_gpu,configure_gpu_memory
 from studio.kaggle_api import build_job
 
 
@@ -197,6 +197,19 @@ class FactoryTests(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 run_gpu({"prompt":"A long enough synthetic drawing request","seed":1,"reference":None},self.image)
             session.assert_not_called()
+
+    def test_small_gpu_uses_lower_memory_offload_without_resizing_the_drawing(self):
+        from types import SimpleNamespace
+        calls=[]
+        pipe=SimpleNamespace(vae=SimpleNamespace(enable_tiling=lambda:calls.append('tiling'),
+                           enable_slicing=lambda:calls.append('slicing')),
+                           enable_sequential_cpu_offload=lambda:calls.append('sequential'),
+                           enable_model_cpu_offload=lambda:calls.append('model'))
+        self.assertEqual(configure_gpu_memory(pipe,15.0),'sequential_cpu_offload')
+        self.assertEqual(calls,['tiling','slicing','sequential'])
+        calls.clear()
+        self.assertEqual(configure_gpu_memory(pipe,40.0),'model_cpu_offload')
+        self.assertEqual(calls,['tiling','slicing','model'])
 
     def test_private_kaggle_job_contains_text_spec_and_factory_but_no_input_art(self):
         out=self.base/"kernel"

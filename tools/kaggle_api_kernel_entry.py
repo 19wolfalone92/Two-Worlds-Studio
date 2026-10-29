@@ -76,10 +76,11 @@ def run_job(config):
         result["voice"] = voice
     return result
 
-def archive_output(config, result):
+def archive_output(config, result, *, success=True):
     manifest = {
         "schema": 1, "run_nonce": config["run_nonce"],
         "source_sha": config["source_sha"], "mode": config["mode"],
+        "success":success,
         "models_reviewed": False, "art_approved": False,
         "voices_approved": False, "result": result,
     }
@@ -91,7 +92,7 @@ def archive_output(config, result):
                 continue
             z.write(file, arcname=file.relative_to(OUTPUT).as_posix())
     return {
-        "run_nonce": config["run_nonce"], "success": True,
+        "run_nonce": config["run_nonce"], "success": success,
         "source_sha": config["source_sha"], "mode": config["mode"],
         "result": result,
         "archive": ARCHIVE.name,
@@ -107,8 +108,19 @@ def main():
         print("TWO WORLDS Kaggle generation succeeded. Outputs are UNREVIEWED.")
     except BaseException as exc:
         receipt = {"run_nonce": config.get("run_nonce"), "success": False,
+                   "source_sha":config.get("source_sha"),"mode":config.get("mode"),
                    "error_type": type(exc).__name__,
                    "message": str(exc)[:600]}
+        # Preserve completed drawings and their ledger on a later GPU failure.
+        # They remain explicit partial results, never a successful batch.
+        if OUTPUT.exists():
+            try:
+                ledger=OUTPUT/"character_factory/ledger.json"
+                count=len(json.loads(ledger.read_text()).get("results",[])) if ledger.is_file() else 0
+                receipt.update(archive_output(config,{"partial":True,"completed_drawings":count},success=False))
+                receipt.update(error_type=type(exc).__name__,message=str(exc)[:600])
+            except Exception:
+                pass
         RECEIPT.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         print("TWO WORLDS Kaggle generation failed (see actual Kaggle logs).")
         raise

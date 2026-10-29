@@ -283,6 +283,7 @@ class FluxBackend:
                 "prompt_sha256":fingerprint({"prompt":job["prompt"]}),
                 "reference_sha256":[r["sha256"] for r in job["references"]],
                 "model":result["model"],"gpu_name":result["gpu_name"],"precision":result["precision"],
+                "offload_mode":result.get("offload_mode"),"gpu_total_gib":result.get("gpu_total_gib"),
                 "worker":"studio.character_factory.FluxBackend"}}
 
 

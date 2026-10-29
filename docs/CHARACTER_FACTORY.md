@@ -54,6 +54,9 @@ python -m studio.character_factory status --project /PRIVATE/NEW_DESIGN_v1
 ```
 
 One lazily loaded `GPUImageSession` is shared by the whole sequential batch.
+GPUs below 20 GiB use sequential CPU offloading and VAE tiling/slicing to keep
+the requested native pixel dimensions. This can run slower; the real device,
+offload mode and dimensions remain recorded instead of claiming a fast path.
 Completed images are kept and validated before resumption. Re-running the
 command generates only missing jobs; an incomplete working image is retained
 for inspection instead of blindly overwriting it. Native output dimensions,

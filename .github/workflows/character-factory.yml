@@ -94,6 +94,8 @@ jobs:
                   if name=='TWO_WORLDS_ARTIFACTS.zip' and not found:continue
                   if len(found)!=1:raise ValueError('Missing/duplicate private result file')
                   z.write(found[0],name)
+              for log in result.rglob('*.log'):
+                  z.write(log,'worker_logs/'+log.name)
           context={'run_nonce':os.environ['RUN_NONCE'],'source_sha':os.environ['SOURCE_REVISION']}
           info=seal(Path('dist/private_result.zip'),Path('.github/factory_requests/recipient_public.pem'),
                     Path('dist/private_return/TW_FACTORY_RESULT.twenc'),context)

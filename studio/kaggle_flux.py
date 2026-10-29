@@ -144,6 +144,23 @@ def validate_gpu_request(job:dict,output:Path,*,width:int,height:int,steps:int)-
         if current["sha256"]!=job["reference"].get("sha256"):
             raise ValueError("Identity reference changed after drawing job compilation")
 
+def configure_gpu_memory(pipe,total_gib:float)->str:
+    """Use leaf-level offloading on small GPUs; retain native drawing pixels.
+
+    Diffusers' documented sequential offload trades speed for memory without
+    silently lowering the image's requested resolution or quantizing weights.
+    """
+    vae=getattr(pipe,"vae",None)
+    if vae is not None:
+        if callable(getattr(vae,"enable_tiling",None)):vae.enable_tiling()
+        if callable(getattr(vae,"enable_slicing",None)):vae.enable_slicing()
+    if total_gib<20:
+        pipe.enable_sequential_cpu_offload()
+        return "sequential_cpu_offload"
+    pipe.enable_model_cpu_offload()
+    return "model_cpu_offload"
+
+
 class GPUImageSession:
     """Load the actual GPU pipeline once, reuse it across dependent drawings."""
     def __init__(self,*,model_id:str=DEFAULT_MODEL):
@@ -159,10 +176,11 @@ class GPUImageSession:
             raise RuntimeError("No CUDA GPU. Enable Kaggle Notebook Settings > Accelerator > GPU.")
         self.torch,self.load_image,self.model_id = torch,load_image,model_id
         self.device_name=torch.cuda.get_device_name(0)
+        self.total_gib=torch.cuda.get_device_properties(0).total_memory/(1024**3)
         self.dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
         try:
             self.pipe=Flux2KleinPipeline.from_pretrained(model_id,torch_dtype=self.dtype)
-            self.pipe.enable_model_cpu_offload()
+            self.memory_mode=configure_gpu_memory(self.pipe,self.total_gib)
             self.pipe.set_progress_bar_config(disable=False)
         except torch.cuda.OutOfMemoryError as exc:
             raise RuntimeError("GPU memory insufficient while loading drawing model") from exc
@@ -179,7 +197,8 @@ class GPUImageSession:
         try:
             generated=self.pipe(**kwargs).images[0]
         except self.torch.cuda.OutOfMemoryError as exc:
-            raise RuntimeError("GPU memory insufficient: use fewer pixels or a fresh GPU worker") from exc
+            raise RuntimeError(f"GPU memory insufficient on {self.device_name} at {width}x{height}, "
+                               f"mode={self.memory_mode}: {str(exc)[:300]}") from exc
         if generated.size!=(width,height):
             raise RuntimeError("Generator returned unexpected native image dimensions")
         output.parent.mkdir(parents=True,exist_ok=True)
@@ -198,6 +217,7 @@ class GPUImageSession:
             staged.unlink(missing_ok=True)
         return {"image":str(output),"sha256":sha256(output),"model":self.model_id,
                 "gpu_name":self.device_name,"precision":str(self.dtype),
+                "offload_mode":self.memory_mode,"gpu_total_gib":round(self.total_gib,2),
                 "width":generated.width,"height":generated.height,
                 "reference":job.get("reference"),"review_status":"unreviewed","identity_verified":False}
 
