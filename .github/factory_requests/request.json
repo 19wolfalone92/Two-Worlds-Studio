@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "enabled": true,
-  "request_nonce": "explicit-user-from-scratch-20261029-v2",
+  "request_nonce": "explicit-user-from-scratch-20261029-v3",
   "max_images": 6,
   "purpose": "User-requested one-off drawing-factory proof; anonymous technical designs, no screenplay or existing art. All generated media is private and returned only in an encrypted container.",
   "design_spec": {

@@ -36,6 +36,7 @@ FILES = (
     "story/identity_registry.json", "audio/kokoro_cast.json",
     "audio/voice_registry.json",
     "studio/character_factory.py", "studio/character_art.py",
+    "studio/character_engine.py",
 )
 
 def package_source(root: Path = ROOT) -> bytes:
