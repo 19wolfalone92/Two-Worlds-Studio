@@ -20,6 +20,7 @@ try:
     from studio.character_engine import CharacterRig
     from studio.facial_actor import PerformanceRig
     from studio.cinematic_lighting import LightStage
+    from studio.deformable_actor import DeformableActor
 except ModuleNotFoundError:
     from premium_assets import resolve_asset, validate_premium_scene
     from actor_motion import animate_actor, validate_motion
@@ -28,6 +29,7 @@ except ModuleNotFoundError:
     from character_engine import CharacterRig
     from facial_actor import PerformanceRig
     from cinematic_lighting import LightStage
+    from deformable_actor import DeformableActor
 
 
 def ease(x:float)->float:
@@ -130,6 +132,8 @@ class CinematicPanel:
                             mask_img.load()
                             blink_erase_mask=mask_img.convert("L")
                 rig=CharacterRig(layer["rig"],assets_root,image.size) if layer.get("rig") else None
+                if layer.get("deform"):
+                    rig=DeformableActor(image,layer["deform"])
                 if layer.get("facial"):
                     if rig is None:
                         raise ValueError("Facial performance requires an articulated rig")
