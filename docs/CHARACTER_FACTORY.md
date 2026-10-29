@@ -9,6 +9,14 @@ Work art is not implicitly loaded or treated as a new design.
 New designs are draft alternatives. They never overwrite a canonical reference
 registry, replace a body in an episode, or grant art/rig/publication approval.
 
+Reference-conditioned angle jobs explicitly request geometric reposing before
+the identity description. A three-quarter task asks for a 45-degree turn of
+the head and entire body, foreshortened shoulders and unequal cheek widths.
+This addresses observed frontal copies in a real GPU batch; it is still a
+prompt instruction, never an automatic visual-angle certificate. Check the
+actual pixels and use the drawing desk's `request_revision` for concrete
+defects without impersonating a human approval.
+
 ## Create a private new-design project
 
 ```json

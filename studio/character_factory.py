@@ -18,6 +18,22 @@ from studio.character_art import (VIEWS, _id, digest, fingerprint, inspect_image
 
 SCHEMA = 1
 TASKS = ("front", "three_quarter", "profile", "back", "expressions", "blink", "hands")
+REFERENCE_POSE = {
+    "three_quarter": (
+        "Turn the reference character's ENTIRE head, shoulders, hips and feet 45 degrees toward image-left. "
+        "Draw a clearly diagonal THREE-QUARTER view: near shoulder broader, far shoulder foreshortened, "
+        "nose pointing diagonally left, far cheek narrower, both eyes visible. "
+        "Replace the frontal pose; do not merely recolour or trace the reference."
+    ),
+    "profile": (
+        "Turn the whole character 90 degrees toward image-left into strict SIDE PROFILE. "
+        "Head and body face the same side; show one eye, the nose silhouette and overlapping shoulders."
+    ),
+    "back": (
+        "Turn the whole character 180 degrees, facing completely AWAY from the camera. "
+        "Show the back of the head, torso, hands and feet; hide the entire face."
+    ),
+}
 
 
 def _validate_spec(spec: dict) -> None:
@@ -168,6 +184,12 @@ def ready_jobs(root: Path, views: tuple[str, ...] = TASKS) -> list[dict]:
                            "from the target description. Do not copy the other body's outfit. ")
             else:
                 prompt += "Use ONLY this body's own newly generated reference; retain the same face, age, hairstyle and costume. "
+            if refs and view in REFERENCE_POSE:
+                # Put the requested geometric change before the identity/style
+                # description: a reference otherwise encourages frontal copies.
+                pose = REFERENCE_POSE[view]
+                prompt = "EDIT THE REFERENCE INTO A NEW CAMERA VIEW. " + pose + "\n" + prompt
+                prompt += "\nFINAL CAMERA REQUIREMENT: " + pose + " "
             if body.get("avoid"):
                 prompt += "AVOID: " + "; ".join(body["avoid"]) + ". "
             sheet = view in {"expressions","blink","hands"}
