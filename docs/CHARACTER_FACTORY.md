@@ -136,6 +136,9 @@ The `character-factory.yml` workflow is a bounded **user-requested** proof:
 only the explicit `feat/from-scratch-character-factory` branch in the same
 repository can invoke it by a PR request-file change; forks and ordinary CI
 do not consume GPU. It can also be manually dispatched. The committed request
+must change in the exact new source commit, not merely remain in the overall
+PR diff. Later review-page or documentation commits therefore skip the GPU
+job instead of repeating an old request. The committed request
 contains anonymous technical character descriptions and a public recipient
 key, not private production art or an authentication secret. The maximum is
 six drawings. No schedule or publishing action exists.

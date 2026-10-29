@@ -15,12 +15,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  generate-requested-private-characters:
-    # One explicit user-requested branch. Ordinary CI/forks never consume GPU.
+  check-explicit-request:
+    # PR path filters examine the whole PR diff, so also check the exact source
+    # commit. Later UI/docs fixes must not resubmit the same GPU request.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.head.ref == 'feat/from-scratch-character-factory')
+    runs-on: ubuntu-latest
+    outputs:
+      requested: ${{ steps.request.outputs.requested }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+      - id: request
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python - <<'PY'
+          import os,subprocess
+          requested=os.environ['EVENT_NAME']=='workflow_dispatch'
+          if not requested:
+              changed=subprocess.run(['git','diff','--name-only','HEAD^','HEAD','--',
+                  '.github/factory_requests/request.json'],check=True,text=True,capture_output=True)
+              requested='.github/factory_requests/request.json' in changed.stdout.splitlines()
+          with open(os.environ['GITHUB_OUTPUT'],'a') as stream:
+              stream.write('requested='+str(requested).lower()+'\n')
+          print('Explicit new generation request:',requested)
+          PY
+  generate-requested-private-characters:
+    needs: check-explicit-request
+    if: needs.check-explicit-request.outputs.requested == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 85
     env:
