@@ -93,6 +93,17 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
             raise ValueError("Only character layers support articulated rig")
         from studio.character_engine import validate_rig
         validate_rig(layer["rig"],root,(result["width"],result["height"]),publish=publish)
+    if "facial" in layer:
+        if layer["role"]!="character" or "rig" not in layer or "motion" in layer:
+            raise ValueError("Facial sprites require an articulated character rig")
+        from studio.facial_actor import PerformanceRig
+        from studio.character_engine import CharacterRig
+        if publish:
+            raise ValueError("Facial sprites require separate human artistic approval")
+        # Validate exact source images, head alignment schema, and view at
+        # scene construction; no implicit green-light from source hashes.
+        if not isinstance(layer["facial"],dict):
+            raise ValueError("Facial performance must be a structured object")
     warnings=[]
     if result["width"]<min_width or result["height"]<min_height:
         warnings.append("Artwork resolution below target for chosen output")
@@ -161,6 +172,8 @@ def validate_premium_scene(scene:dict, root:Path, *, publish:bool=False,
         z=state.get("zoom",1.0)
         if isinstance(z,bool) or not isinstance(z,(int,float)) or not 1<=z<=1.4:
             raise ValueError("Camera zoom must be within 1..1.4")
+    from studio.cinematic_lighting import validate_lights
+    validate_lights(config.get("lights",[]))
     if config.get("grain",0.0) not in (0,0.0,None):
         g=config["grain"]
         if isinstance(g,bool) or not isinstance(g,(int,float)) or not 0<=g<=0.25:
