@@ -32,6 +32,23 @@ VIEWS = {
     "hands": "Six equal panels in a 3-column, 2-row sheet showing this character's hands and costume cuffs: relaxed palm, relaxed back of hand, open palm toward camera, palm side view, gentle grip, fingers touching a flat glass plane. Anatomically correct fingers, knuckles, tendons and thumb attachment; hands belong to this same body.",
     "rig_parts": "A separated RGBA puppet-parts plate: head with back hair, torso with hidden shoulder/hip overlaps, left/right upper arms, forearms, hands, upper legs, lower legs and feet. Draw complete joint overlaps, consistent scale and the requested BACK view. Place pieces in separate non-overlapping cells; TRUE transparent background. This plate still requires artist alignment, pivots, hierarchy, occlusion and motion tracks before use in CharacterRig. Never call a plate a finished rig.",
 }
+REFERENCE_POSE = {
+    "three_quarter": (
+        "Turn the reference character's ENTIRE head, shoulders, hips and feet 45 degrees toward image-left. "
+        "Draw a clearly diagonal THREE-QUARTER view: near shoulder broader, far shoulder foreshortened, "
+        "nose pointing diagonally left, far cheek narrower, both eyes visible. "
+        "Replace the frontal pose; do not merely recolour or trace the reference."
+    ),
+    "profile": (
+        "Turn the whole character 90 degrees toward image-left into strict SIDE PROFILE. "
+        "Head and body face the same side; show one eye, the nose silhouette and overlapping shoulders."
+    ),
+    "back": (
+        "Turn the whole character 180 degrees, facing completely AWAY from the camera. "
+        "Show the back of the head, torso, hands and feet; hide the entire face."
+    ),
+}
+
 CRITERIA = ("identity", "anatomy", "asymmetry", "wardrobe", "pose", "eyes", "style")
 
 
@@ -184,6 +201,10 @@ def _job(project: dict, body_ids: list[str], view: str, direction: str,
               "An exchanged consciousness changes acting, never the body's face or outfit. "
               "No typography, lettering, watermark, labels or extra characters. "
               "Maintain clear shapes, consistent material texture and believable anatomy. ")
+    if references and view in REFERENCE_POSE:
+        pose = REFERENCE_POSE[view]
+        prompt = "EDIT THE REFERENCE INTO A NEW CAMERA VIEW. " + pose + "\n" + prompt
+        prompt += "\nFINAL CAMERA REQUIREMENT: " + pose + " "
     if view in {"front", "three_quarter", "profile", "back", "rear_three_quarter"}:
         prompt += "Neutral studio background, whole figure inside canvas with 5% margin."
     sheet = view in {"expressions", "blink", "hands"}

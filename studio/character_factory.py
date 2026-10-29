@@ -13,27 +13,12 @@ from pathlib import Path
 
 from PIL import Image
 
-from studio.character_art import (VIEWS, _id, digest, fingerprint, inspect_image,
+from studio.character_art import (VIEWS, REFERENCE_POSE, _id, digest, fingerprint, inspect_image,
                                   read_json, resolve_asset, write_json)
 
 SCHEMA = 1
 TASKS = ("front", "three_quarter", "profile", "back", "expressions", "blink", "hands")
-REFERENCE_POSE = {
-    "three_quarter": (
-        "Turn the reference character's ENTIRE head, shoulders, hips and feet 45 degrees toward image-left. "
-        "Draw a clearly diagonal THREE-QUARTER view: near shoulder broader, far shoulder foreshortened, "
-        "nose pointing diagonally left, far cheek narrower, both eyes visible. "
-        "Replace the frontal pose; do not merely recolour or trace the reference."
-    ),
-    "profile": (
-        "Turn the whole character 90 degrees toward image-left into strict SIDE PROFILE. "
-        "Head and body face the same side; show one eye, the nose silhouette and overlapping shoulders."
-    ),
-    "back": (
-        "Turn the whole character 180 degrees, facing completely AWAY from the camera. "
-        "Show the back of the head, torso, hands and feet; hide the entire face."
-    ),
-}
+
 
 
 def _validate_spec(spec: dict) -> None:

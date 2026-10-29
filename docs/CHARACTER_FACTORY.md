@@ -10,7 +10,8 @@ New designs are draft alternatives. They never overwrite a canonical reference
 registry, replace a body in an episode, or grant art/rig/publication approval.
 
 Reference-conditioned angle jobs explicitly request geometric reposing before
-the identity description. A three-quarter task asks for a 45-degree turn of
+the identity description. The factory and the existing drawing desk share
+these camera instructions. A three-quarter task asks for a 45-degree turn of
 the head and entire body, foreshortened shoulders and unequal cheek widths.
 This addresses observed frontal copies in a real GPU batch; it is still a
 prompt instruction, never an automatic visual-angle certificate. Check the
