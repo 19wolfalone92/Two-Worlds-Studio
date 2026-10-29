@@ -93,6 +93,11 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
             raise ValueError("Only character layers support articulated rig")
         from studio.character_engine import validate_rig
         validate_rig(layer["rig"],root,(result["width"],result["height"]),publish=publish)
+    if "deform" in layer:
+        if layer["role"]!="character" or "rig" in layer or "motion" in layer or "facial" in layer:
+            raise ValueError("Continuous deformation is exclusive to legacy or rigged motion")
+        from studio.deformable_actor import validate_deform
+        validate_deform(layer["deform"])
     if "facial" in layer:
         if layer["role"]!="character" or "rig" not in layer or "motion" in layer:
             raise ValueError("Facial sprites require an articulated character rig")
