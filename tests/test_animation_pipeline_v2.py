@@ -132,6 +132,22 @@ class AnimationProductionV2Tests(unittest.TestCase):
             validate_deform(bad)
 
     @unittest.skipUnless(cv2 is not None,'Optional OpenCV not installed')
+    def test_auto_matte_converts_flat_gpu_background_to_unreviewed_rgba(self):
+        from studio.auto_matte import matte_plain_background
+        with Image.open(self.image) as im:
+            rgba=im.convert('RGBA')
+        flat=Image.new('RGBA',self.size,(211,210,208,255))
+        flat.alpha_composite(rgba)
+        flat.convert('RGB').save(self.root/'factory_rgb.png')
+        result=matte_plain_background(self.root/'factory_rgb.png',self.root/'matte.png')
+        self.assertFalse(result['owner_approved'])
+        with Image.open(self.root/'matte.png') as matted:
+            self.assertEqual(matted.mode,'RGBA')
+            self.assertEqual(matted.getpixel((0,0))[3],0)
+        with self.assertRaises(FileExistsError):
+            matte_plain_background(self.root/'factory_rgb.png',self.root/'matte.png')
+
+    @unittest.skipUnless(cv2 is not None,'Optional OpenCV not installed')
     def test_cinematic_integration_with_mesh_and_lights(self):
         scene={'id':'S01','duration':2,
                'cinematic':{'grain':0,'vignette':0,
