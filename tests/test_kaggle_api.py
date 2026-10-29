@@ -4,6 +4,8 @@ import json
 import tempfile
 import unittest
 import zipfile
+import io
+from PIL import Image
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -85,9 +87,15 @@ class KaggleApiTests(unittest.TestCase):
             (d/"two_worlds_job_receipt.json").write_text(
                 json.dumps({"run_nonce":"gh-104-1","success":True}))
             archive=d/"TWO_WORLDS_ARTIFACTS.zip"
+            pixels=io.BytesIO()
+            Image.new("RGB",(64,64),(60,100,160)).save(pixels,format="PNG")
             with zipfile.ZipFile(archive,"w") as z:
-                z.writestr("portrait.png",b"not valid image bytes for test")
+                z.writestr("portrait.png",pixels.getvalue())
             self.assertTrue(verify_outputs(d,"gh-104-1")["success"])
+            with zipfile.ZipFile(archive,"w") as z:
+                z.writestr("portrait.png",b"not valid image bytes")
+            with self.assertRaisesRegex(ValueError,"actual generated PNG"):
+                verify_outputs(d,"gh-104-1")
             with self.assertRaisesRegex(ValueError,"another run"):
                 verify_outputs(d,"gh-104-2")
             with zipfile.ZipFile(archive,"w") as z:

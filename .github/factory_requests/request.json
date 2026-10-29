@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "enabled": true,
+  "request_nonce": "explicit-user-from-scratch-20261029-v1",
+  "max_images": 6,
+  "purpose": "User-requested one-off drawing-factory proof; anonymous technical designs, no screenplay or existing art. All generated media is private and returned only in an encrypted container.",
+  "design_spec": {
+    "schema": 1,
+    "style": "Original hand-painted 2D adult animation character design. Confident drawn edges, expressive human faces, believable anatomy, detailed woven cloth and weathered metal, restrained cinematic colours. No photograph or plastic 3D style. Neutral matte studio background, no text, no franchise imitation.",
+    "bodies": {
+      "actor_earth": {
+        "identity_version": "FACTORY_EARTH_DRAFT_v001",
+        "identity_group": "factory_physical_doubles",
+        "description": "Invent an original adult woman around 25, light olive skin, grey-green almond eyes, softly angular oval face, narrow straight nose, natural dark brows, slender practical build, quietly observant expression.",
+        "anchors": {
+          "hair": "short dark chestnut bob, plain copper barrette on anatomical right",
+          "wardrobe": "denim-blue knitted crew-neck sweater with rolled sleeves, charcoal relaxed straight trousers, worn pale canvas sneakers",
+          "identity": "original facial design; no celebrity or franchise likeness"
+        },
+        "avoid": [
+          "huge doll eyes",
+          "plastic skin",
+          "text",
+          "cropped feet",
+          "extra fingers"
+        ]
+      },
+      "actor_noctaris": {
+        "identity_version": "FACTORY_FANTASY_DRAFT_v001",
+        "identity_group": "factory_physical_doubles",
+        "description": "Adult female physical double of the freshly generated Earth actor, same facial bone structure and age, trained athletic body, cautious alert expression.",
+        "anchors": {
+          "hair": "dark chestnut hair in a long practical braid with simple metal bands, no barrette",
+          "wardrobe": "functional graphite articulated armour over quilted cloth, leather straps and belt, weathered burgundy scarf and cloak, practical boots, no spikes",
+          "identity": "exact same newly generated face as the physical double, distinct hair and costume"
+        },
+        "avoid": [
+          "blue sweater",
+          "short bob",
+          "copper barrette",
+          "text",
+          "extra limbs",
+          "cropped feet"
+        ]
+      }
+    }
+  }
+}
