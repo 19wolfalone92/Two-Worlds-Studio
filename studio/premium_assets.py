@@ -99,16 +99,28 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
         from studio.deformable_actor import validate_deform
         validate_deform(layer["deform"])
     if "facial" in layer:
-        if layer["role"]!="character" or "rig" not in layer or "motion" in layer:
+        if layer["role"]!="character" or "rig" not in layer or "motion" in layer or "deform" in layer:
             raise ValueError("Facial sprites require an articulated character rig")
-        from studio.facial_actor import PerformanceRig
-        from studio.character_engine import CharacterRig
-        if publish:
-            raise ValueError("Facial sprites require separate human artistic approval")
-        # Validate exact source images, head alignment schema, and view at
-        # scene construction; no implicit green-light from source hashes.
-        if not isinstance(layer["facial"],dict):
+        face=layer["facial"]
+        if not isinstance(face,dict):
             raise ValueError("Facial performance must be a structured object")
+        if publish and (face.get("review_status")!="approved" or
+                        face.get("rights") not in LICENSES or
+                        len(str(face.get("rights_note","")).strip())<8):
+            raise ValueError("Facial performance needs explicit artist approval and rights")
+        if not (face.get("eyes") or face.get("mouth")):
+            raise ValueError("Facial performance requires real eye or lip plates")
+        for group in ("eyes","mouth"):
+            if not isinstance(face.get(group,{}),dict):
+                raise ValueError("Facial plate groups must be dictionaries")
+            for plate in face.get(group,{}).values():
+                if not isinstance(plate,dict):
+                    raise ValueError("Facial plate must be structured")
+                plate_path=resolve_asset(root,plate.get("path"))
+                art=inspect_image(plate_path)
+                if (plate.get("sha256")!=art["sha256"] or not art["alpha"] or
+                    (art["width"],art["height"])!=(result["width"],result["height"])):
+                    raise ValueError("Facial plate dimensions/alpha/SHA-256 must match actor")
     warnings=[]
     if result["width"]<min_width or result["height"]<min_height:
         warnings.append("Artwork resolution below target for chosen output")
