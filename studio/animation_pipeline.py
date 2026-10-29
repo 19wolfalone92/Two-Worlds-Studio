@@ -214,6 +214,9 @@ def main():
             matte_report=matte_plain_background(opts.image,source)
         result=prepare_auto_rig(source,opts.output,body_id=opts.body,
                                 camera_view=opts.view,facing=opts.facing)
+        if matte_report:
+            # Keep the actual matte pixels for human edge-quality review.
+            (opts.output/'source_matte_UNREVIEWED.png').write_bytes(source.read_bytes())
     if matte_report:
         (opts.output/'matte_provenance.json').write_text(
             json.dumps(matte_report,indent=2)+'\\n',encoding='utf-8')
