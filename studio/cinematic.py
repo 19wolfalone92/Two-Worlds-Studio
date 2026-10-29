@@ -18,12 +18,18 @@ try:
     from studio.audio_master import audio_asset
     from studio.lipsync import voice_envelope, mouth_open
     from studio.character_engine import CharacterRig
+    from studio.facial_actor import PerformanceRig
+    from studio.cinematic_lighting import LightStage
+    from studio.deformable_actor import DeformableActor
 except ModuleNotFoundError:
     from premium_assets import resolve_asset, validate_premium_scene
     from actor_motion import animate_actor, validate_motion
     from audio_master import audio_asset
     from lipsync import voice_envelope, mouth_open
     from character_engine import CharacterRig
+    from facial_actor import PerformanceRig
+    from cinematic_lighting import LightStage
+    from deformable_actor import DeformableActor
 
 
 def ease(x:float)->float:
@@ -96,7 +102,8 @@ class CinematicPanel:
         self.voice_delay_ms=0
         self.voice_step_ms=50
         voice=scene.get("voice")
-        if voice and any(x.get("motion",{}).get("mouth") for x in scene["cinematic"]["layers"]):
+        if voice and any(x.get("motion",{}).get("mouth") or x.get("facial",{}).get("mouth")
+                         for x in scene["cinematic"]["layers"]):
             clip=audio_asset(assets_root,voice.get("path"))
             self.voice_levels=voice_envelope(clip,step_ms=self.voice_step_ms)
             self.voice_delay_ms=int(voice.get("offset_ms",100))
@@ -125,6 +132,14 @@ class CinematicPanel:
                             mask_img.load()
                             blink_erase_mask=mask_img.convert("L")
                 rig=CharacterRig(layer["rig"],assets_root,image.size) if layer.get("rig") else None
+                if layer.get("deform"):
+                    rig=DeformableActor(image,layer["deform"])
+                if layer.get("facial"):
+                    if rig is None:
+                        raise ValueError("Facial performance requires an articulated rig")
+                    rig=PerformanceRig(rig,layer["facial"],assets_root,
+                        duration=float(scene["duration"]),voice_levels=self.voice_levels,
+                        voice_step_ms=self.voice_step_ms,voice_delay_ms=self.voice_delay_ms)
                 self.layers.append((layer,image.convert("RGBA"),blink_overlay,blink_erase_mask,mouth_overlay,rig))
         self.grain=float(scene["cinematic"].get("grain",0.0) or 0.0)
         self.vignette=float(scene["cinematic"].get("vignette",0.14) or 0.0)
@@ -133,6 +148,7 @@ class CinematicPanel:
         if not 0<=self.grain<=0.25:
             raise ValueError("grain must be 0..0.25")
         self.mask=self._vignette_mask()
+        self.light_stage=LightStage(scene["cinematic"].get("lights",[]),(width,height))
         # Fixed sequence prevents stochastic temporal shimmer (no random noise each frame).
         rng=np.random.default_rng(32018)
         self.noise=(rng.standard_normal((height,width))*5).astype(np.float32) if self.grain else None
@@ -169,7 +185,7 @@ class CinematicPanel:
                            role=meta["role"])
             canvas=_blend(canvas,current,meta.get("blend","over"),
                           float(meta.get("opacity",1)))
-        image=canvas.convert("RGB")
+        image=self.light_stage.frame(canvas.convert("RGB"),t)
         if self.vignette>0:
             black=Image.new("RGB",image.size,(0,0,0))
             image=Image.composite(image,black,self.mask)

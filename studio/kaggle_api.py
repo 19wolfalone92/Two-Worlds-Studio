@@ -37,6 +37,9 @@ FILES = (
     "audio/voice_registry.json",
     "studio/character_factory.py", "studio/character_art.py",
     "studio/character_engine.py",
+    "studio/animation_pipeline.py", "studio/auto_matte.py",
+    "studio/facial_actor.py", "studio/deformable_actor.py",
+    "studio/cinematic_lighting.py",
 )
 
 def package_source(root: Path = ROOT) -> bytes:

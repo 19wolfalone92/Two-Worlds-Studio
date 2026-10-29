@@ -41,6 +41,7 @@ jobs:
         run: |
           python -m pip install -r requirements-cinematic.txt
           python -m unittest discover -s tests -p 'test_private_mirror_benchmark.py' -v
+          python -m unittest discover -s tests -p 'test_animation_pipeline_v2.py' -v
       - name: Verify premium visual asset pipeline and reference prompts (no GPU)
         run: |
           python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --output-dir dist/art

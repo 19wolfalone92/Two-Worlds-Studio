@@ -93,6 +93,34 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
             raise ValueError("Only character layers support articulated rig")
         from studio.character_engine import validate_rig
         validate_rig(layer["rig"],root,(result["width"],result["height"]),publish=publish)
+    if "deform" in layer:
+        if layer["role"]!="character" or "rig" in layer or "motion" in layer or "facial" in layer:
+            raise ValueError("Continuous deformation is exclusive to legacy or rigged motion")
+        from studio.deformable_actor import validate_deform
+        validate_deform(layer["deform"])
+    if "facial" in layer:
+        if layer["role"]!="character" or "rig" not in layer or "motion" in layer or "deform" in layer:
+            raise ValueError("Facial sprites require an articulated character rig")
+        face=layer["facial"]
+        if not isinstance(face,dict):
+            raise ValueError("Facial performance must be a structured object")
+        if publish and (face.get("review_status")!="approved" or
+                        face.get("rights") not in LICENSES or
+                        len(str(face.get("rights_note","")).strip())<8):
+            raise ValueError("Facial performance needs explicit artist approval and rights")
+        if not (face.get("eyes") or face.get("mouth")):
+            raise ValueError("Facial performance requires real eye or lip plates")
+        for group in ("eyes","mouth"):
+            if not isinstance(face.get(group,{}),dict):
+                raise ValueError("Facial plate groups must be dictionaries")
+            for plate in face.get(group,{}).values():
+                if not isinstance(plate,dict):
+                    raise ValueError("Facial plate must be structured")
+                plate_path=resolve_asset(root,plate.get("path"))
+                art=inspect_image(plate_path)
+                if (plate.get("sha256")!=art["sha256"] or not art["alpha"] or
+                    (art["width"],art["height"])!=(result["width"],result["height"])):
+                    raise ValueError("Facial plate dimensions/alpha/SHA-256 must match actor")
     warnings=[]
     if result["width"]<min_width or result["height"]<min_height:
         warnings.append("Artwork resolution below target for chosen output")
@@ -161,6 +189,8 @@ def validate_premium_scene(scene:dict, root:Path, *, publish:bool=False,
         z=state.get("zoom",1.0)
         if isinstance(z,bool) or not isinstance(z,(int,float)) or not 1<=z<=1.4:
             raise ValueError("Camera zoom must be within 1..1.4")
+    from studio.cinematic_lighting import validate_lights
+    validate_lights(config.get("lights",[]))
     if config.get("grain",0.0) not in (0,0.0,None):
         g=config["grain"]
         if isinstance(g,bool) or not isinstance(g,(int,float)) or not 0<=g<=0.25:
