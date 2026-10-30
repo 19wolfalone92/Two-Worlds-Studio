@@ -130,7 +130,7 @@ class ShortsFactoryTests(unittest.TestCase):
         self.assertTrue(result["qa"]["full_decode_pass"])
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
                         "-i", "testsrc2=size=192x336:rate=12",
-                        "-t", ".25", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        "-t", "0.25", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
                         str(path)], check=True)
         with self.assertRaisesRegex(Blocked, "shorter than Russian narration"):
             validate_project(self.manifest, smoke=True)
