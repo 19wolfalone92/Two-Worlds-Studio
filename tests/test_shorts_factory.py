@@ -103,5 +103,17 @@ class ShortsFactoryTests(unittest.TestCase):
             run(self.manifest, self.root / "out", smoke=True)
 
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg absent")
+    def test_voice_triggers_music_ducking_and_output_stays_unapproved(self):
+        shutil.copyfile(self.root / "audio/1.wav", self.root / "audio/music.wav")
+        for scene in self.doc["scenes"]:
+            scene["music"] = "audio/music.wav"
+        self.save()
+        result = run(self.manifest, self.root / "mixed", smoke=True)
+        self.assertTrue(result["qa"]["music_for_all_scenes"])
+        self.assertFalse(result["qa"]["approved_for_publication"])
+        self.assertEqual(result["status"], "REVIEW_REQUIRED")
+
+
 if __name__ == "__main__":
     unittest.main()
