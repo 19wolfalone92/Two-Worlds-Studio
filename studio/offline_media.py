@@ -132,9 +132,8 @@ def real_voice(text: str, dest: Path, model_dir: Path, *, speaker: str = "Serena
         model = qwen_model(str(local_model(model_dir, "voice")), device)
     try:
         import numpy as np
-        import soundfile as sf
     except ImportError as exc:
-        raise OfflineBlocked("numpy and soundfile are required for voice synthesis") from exc
+        raise OfflineBlocked("numpy is required for voice synthesis") from exc
     samples = []
     rate = None
     timeline = []
@@ -176,9 +175,15 @@ def real_voice(text: str, dest: Path, model_dir: Path, *, speaker: str = "Serena
                                      delete=False) as temp:
         tmp = Path(temp.name)
     try:
-        sf.write(str(tmp), output.clip(-1, 1), rate, subtype="PCM_16")
-        with sf.SoundFile(str(tmp)) as check:
-            if check.frames != len(output) or check.samplerate != rate:
+        pcm = (output.clip(-1, 1) * 32767).astype("<i2").tobytes()
+        with wave.open(str(tmp), "wb") as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(rate)
+            audio.writeframes(pcm)
+        with wave.open(str(tmp), "rb") as check:
+            if (check.getnframes() != len(output) or check.getframerate() != rate
+                    or check.getnchannels() != 1):
                 raise OfflineBlocked("Voice WAV integrity check failed")
         os.link(tmp, dest)  # refuse overwrites even on races
     finally:
@@ -223,12 +228,16 @@ def real_image(prompt: str, dest: Path, model_dir: Path, *, seed: int, width: in
         raise FileExistsError(dest)
     if pipe is None:
         pipe = flux_model(str(local_model(model_dir, "image")))
+    from PIL import Image, ImageStat
     try:
         import torch
-        from PIL import Image, ImageStat
     except ImportError as exc:
-        raise OfflineBlocked("Torch and Pillow required for offline images") from exc
-    g = torch.Generator(device="cpu").manual_seed(seed)
+        if pipe is None:
+            raise OfflineBlocked("Torch is required for real GPU image inference") from exc
+        # A pre-supplied pipeline may be a deterministic CPU-only test double;
+        # real Flux GPU loading always imports torch at pipeline initialization.
+        torch = None
+    g = torch.Generator(device="cpu").manual_seed(seed) if torch else None
     kw = {"prompt": prompt, "width": width, "height": height,
           "num_inference_steps": 4, "guidance_scale": 1.0, "generator": g}
     provenance = []
