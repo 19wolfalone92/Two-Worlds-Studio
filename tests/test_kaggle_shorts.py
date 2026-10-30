@@ -103,8 +103,23 @@ class KaggleShortsTests(unittest.TestCase):
         self.doc['script_sha256']=hashlib.sha256((self.story/'story.txt').read_bytes()).hexdigest()
         (self.story/'project.json').write_text(json.dumps(self.doc,ensure_ascii=False),encoding='utf-8')
         self._zip(self.base/'revised.zip')
-        with self.assertRaisesRegex(KaggleBlocked,'another story|revision'):
+        with self.assertRaisesRegex(KaggleBlocked,'another story|revision|fingerprint'):
             prepare_input(self.base/'revised.zip',self.base/'new','13',recovery=self.base/'prev.zip')
+
+    def test_recovery_tampering_fails_sha256(self):
+        original = self.base / 'source.zip'; self._zip(original)
+        work = prepare_input(original, self.base / 'forged_work', '13')
+        good = self.base / 'good.zip'
+        export_private_assets(work, good, {'status': 'PREFLIGHT_OK'})
+        forged = self.base / 'forged.zip'
+        with zipfile.ZipFile(good) as src, zipfile.ZipFile(forged, 'w') as out:
+            for entry in src.infolist():
+                data = src.read(entry.filename)
+                if entry.filename == 'production_queue/13/story.txt':
+                    data = b'ALTERNATE FAKE STORY'
+                out.writestr(entry, data)
+        with self.assertRaisesRegex(KaggleBlocked, 'SHA-256'):
+            prepare_input(original, self.base / 'forged_recover', '13', recovery=forged)
 
     def test_zip_slip_is_rejected(self):
         malicious=self.base/'bad.zip'
