@@ -136,5 +136,23 @@ class ShortsFactoryTests(unittest.TestCase):
             validate_project(self.manifest, smoke=True)
 
 
+    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg absent")
+    def test_burned_subtitles_visible_in_lower_safe_zone(self):
+        result = run(self.manifest, self.root / "captioned", smoke=True)
+        frame = self.root / "caption-frame.png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "0.30",
+                        "-i", result["files"][0], "-frames:v", "1",
+                        str(frame)], check=True)
+        with Image.open(frame) as im:
+            rgb = im.convert("RGB")
+            w, h = rgb.size
+            whites_lower = 0
+            for y in range(int(h * .52), int(h * .88)):
+                for x in range(w):
+                    r, g, b = rgb.getpixel((x, y))
+                    whites_lower += (r > 225 and g > 225 and b > 225)
+            self.assertGreater(whites_lower, 20, "No subtitle in lower safe zone")
+
+
 if __name__ == "__main__":
     unittest.main()
