@@ -152,7 +152,7 @@ def stamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"
 
 
-def write_srt(entries: list[dict], dest: Path) -> None:
+def write_srt(entries: list[dict], dest: Path, fps: int) -> None:
     lines = []
     offset = 0.0
     for scene in entries:
@@ -160,7 +160,7 @@ def write_srt(entries: list[dict], dest: Path) -> None:
             lines += [str(len(lines) // 4 + 1),
                       f'{stamp(offset + cue["start"])} --> {stamp(offset + cue["end"])}',
                       cue["text"].strip().replace("-->", "→").replace("\n", " "), ""]
-        offset += scene["seconds"]
+        offset += math.ceil(scene["seconds"] * fps) / fps
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -208,8 +208,12 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int) -> None:
         "[1:a]aresample=48000,aformat=channel_layouts=stereo,apad[voice]"
     )
     if with_music:
-        filt += (";[2:a]aresample=48000,aformat=channel_layouts=stereo,"
-                 "volume=0.13[bed];[voice][bed]amix=inputs=2:duration=first:"
+        filt += (";[voice]asplit=2[mainvoice][keyvoice];"
+                 "[2:a]aresample=48000,aformat=channel_layouts=stereo,"
+                 "volume=0.22[bed];"
+                 "[bed][keyvoice]sidechaincompress=threshold=0.025:ratio=8:"
+                 "attack=30:release=350[ducked];"
+                 "[mainvoice][ducked]amix=inputs=2:duration=first:"
                  "normalize=0,alimiter=limit=0.92[a]")
     else:
         filt += ";[voice]alimiter=limit=0.92[a]"
@@ -278,7 +282,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
             encoding="utf-8")
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0",
               "-i", str(playlist), "-c", "copy", str(staging / "joined.mp4")])
-        write_srt(item["entries"], staging / "subtitles.srt")
+        write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
         srt = (str(staging / "subtitles.srt").replace("\\", "\\\\")
                .replace(":", "\\:").replace("'", "\\'"))
         style = "FontName=DejaVu Sans,FontSize=17,Outline=2,Shadow=0,Alignment=2,MarginV=280"
