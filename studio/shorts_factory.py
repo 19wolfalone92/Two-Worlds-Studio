@@ -22,6 +22,7 @@ VERSION = "1.0.0"
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_AUDIO = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
+ALLOWED_VIDEO = {".mp4", ".mov", ".webm"}
 
 
 class Blocked(ValueError):
@@ -70,6 +71,16 @@ def duration(path: Path) -> float:
     return length
 
 
+def video_duration(path: Path) -> float:
+    info = probe(path)
+    if not any(stream.get("codec_type") == "video" for stream in info.get("streams", [])):
+        raise Blocked(f"Motion source has no video stream: {path.name}")
+    length = float(info.get("format", {}).get("duration") or 0)
+    if not math.isfinite(length) or length <= .1:
+        raise Blocked(f"Invalid motion video length: {path.name}")
+    return length
+
+
 def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
     manifest = Path(manifest).resolve()
     base = manifest.parent
@@ -113,6 +124,9 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
         except Exception as exc:
             raise Blocked(f"Broken scene image {image.name}") from exc
         length = duration(voice)
+        motion = asset(base, scene["motion_video"], ALLOWED_VIDEO) if scene.get("motion_video") else None
+        if motion and video_duration(motion) + .05 < length:
+            raise Blocked(f'Scene {scene["id"]}: motion video shorter than Russian narration')
         music = asset(base, scene["music"], ALLOWED_AUDIO) if scene.get("music") else None
         if music:
             duration(music)
@@ -132,7 +146,7 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
                 raise Blocked(f'Invalid real subtitle timestamp in scene {scene["id"]}')
             previous = end
         entries.append({"id": scene["id"], "image": image, "voice": voice,
-                        "music": music, "seconds": length, "cues": cues})
+                        "music": music, "motion_video": motion, "seconds": length, "cues": cues})
     return {"id": doc["id"], "title": title, "base": base, "script": script,
             "digest": digest, "width": width, "height": height,
             "fps": fps, "entries": entries, "smoke": smoke}
@@ -193,20 +207,26 @@ def cover(image: Path, title: str, output: Path, w: int, h: int) -> None:
 def render_scene(scene: dict, output: Path, w: int, h: int, fps: int) -> None:
     # Smooth photographic push-in, not an artificial skeleton/cutout animation.
     frames = math.ceil(scene["seconds"] * fps)
-    args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-loop", "1", "-framerate", str(fps), "-i", str(scene["image"]),
-            "-i", str(scene["voice"])]
+    args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
+    if scene["motion_video"]:
+        args += ["-i", str(scene["motion_video"])]
+    else:
+        args += ["-loop", "1", "-framerate", str(fps), "-i", str(scene["image"])]
+    args += ["-i", str(scene["voice"])]
     with_music = scene["music"] is not None
     if with_music:
         args += ["-stream_loop", "-1", "-i", str(scene["music"])]
-    scale_w, scale_h = int(w * 1.17) // 2 * 2, int(h * 1.17) // 2 * 2
-    filt = (
-        f"[0:v]scale={scale_w}:{scale_h}:force_original_aspect_ratio=increase,"
-        f"crop={scale_w}:{scale_h},"
-        f"zoompan=z='min(zoom+0.0007,1.09)':x='(iw-iw/zoom)/2':"
-        f"y='(ih-ih/zoom)/2':d=1:s={w}x{h}:fps={fps},format=yuv420p[v];"
-        "[1:a]aresample=48000,aformat=channel_layouts=stereo,apad[voice]"
-    )
+    if scene["motion_video"]:
+        motion_filter = (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
+                         f"crop={w}:{h},fps={fps},format=yuv420p[v]")
+    else:
+        sw, sh = int(w * 1.17) // 2 * 2, int(h * 1.17) // 2 * 2
+        motion_filter = (f"[0:v]scale={sw}:{sh}:force_original_aspect_ratio=increase,"
+                         f"crop={sw}:{sh},"
+                         f"zoompan=z='min(zoom+0.0007,1.09)':x='(iw-iw/zoom)/2':"
+                         f"y='(ih-ih/zoom)/2':d=1:s={w}x{h}:fps={fps},"
+                         "format=yuv420p[v]")
+    filt = motion_filter + ";[1:a]aresample=48000,aformat=channel_layouts=stereo,apad[voice]"
     if with_music:
         filt += (";[voice]asplit=2[mainvoice][keyvoice];"
                  "[2:a]aresample=48000,aformat=channel_layouts=stereo,"
@@ -262,7 +282,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         raise Blocked(f"Output exists; refuse silent overwrite: {target}")
     assets = {str(p.relative_to(item["base"])): sha(p)
               for scene in item["entries"]
-              for p in (scene["image"], scene["voice"], scene["music"]) if p}
+              for p in (scene["image"], scene["voice"], scene["music"], scene["motion_video"]) if p}
     if dry_run:
         return {"status": "ASSETS_READY", "dry_run": True,
                 "story": item["id"], "scenes": len(item["entries"]),
@@ -296,6 +316,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
               item["width"], item["height"])
         report = qa(staging / "final.mp4", item["width"], item["height"], item["fps"])
         report["smoke_only"] = smoke
+        report["real_motion_video_scenes"] = sum(bool(s["motion_video"]) for s in item["entries"])
         report["music_for_all_scenes"] = all(s["music"] for s in item["entries"])
         (staging / "qa_report.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
