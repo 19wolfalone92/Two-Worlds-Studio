@@ -305,7 +305,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
         srt = (str(staging / "subtitles.srt").replace("\\", "\\\\")
                .replace(":", "\\:").replace("'", "\\'"))
-        style = "FontName=DejaVu Sans,FontSize=17,Outline=2,Shadow=0,Alignment=2,MarginV=280"
+        style = "FontName=DejaVu Sans,FontSize=17,Outline=2,Shadow=0,Alignment=2,MarginV=52"
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y",
               "-i", str(staging / "joined.mp4"),
               "-vf", f"subtitles='{srt}':force_style='{style}'",
