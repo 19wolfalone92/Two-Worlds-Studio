@@ -17,7 +17,7 @@ import tempfile
 from pathlib import Path
 
 from .offline_media import (OfflineBlocked, accelerator_status, digest, local_model,
-                            real_image, real_voice, tone_score)
+                            real_image, real_voice, tone_score, release_gpu_models)
 from .shorts_factory import run as render_video, validate_project
 
 MOOD_FROM_CUE = {
@@ -124,31 +124,43 @@ def run_story(project_dir: Path, out: Path, model_root: Path, *, images: bool,
             voice_ready = True
         except OfflineBlocked as exc:
             failures.append({"component": "voices", "reason": str(exc)})
+    # Stage barriers: FLUX and Qwen are never kept resident on GPU together.
+    # Successful scene files persist to disk, so a crash resumes at next missing file.
+    try:
+        for scene, shot in zip(project["scenes"], shots):
+            sid = scene["id"]
+            image_path = safe_child(root, scene["image"], ".png")
+            if images and image_ready and not image_path.exists():
+                try:
+                    seed = int(hashlib.sha256((project["id"] + str(sid)).encode()).hexdigest()[:8], 16)
+                    prompt = shot.get("visual_prompt_ru") or ""
+                    references = [safe_child(root, ref, ".png")
+                                  for ref in shot.get("reference_images", [])]
+                    image_engine(prompt, image_path, model_root, seed=seed,
+                                 references=references)
+                    made["image"] += 1
+                except Exception as exc:
+                    failures.append({"scene": sid, "component": "image", "reason": str(exc)[:240]})
+    finally:
+        release_gpu_models()
+    try:
+        for scene, shot in zip(project["scenes"], shots):
+            sid = scene["id"]
+            voice_path = safe_child(root, scene["voice"], ".wav")
+            if voices and voice_ready and not voice_path.exists():
+                try:
+                    result = voice_engine(shot["exact_source_text"], voice_path, model_root,
+                                          speaker=speaker, style=mood_of(shot), device=device)
+                    scene["subtitles"] = result["subtitles"]
+                    atomic_json(spec_path, project)
+                    made["voice"] += 1
+                except Exception as exc:
+                    failures.append({"scene": sid, "component": "voice", "reason": str(exc)[:240]})
+    finally:
+        release_gpu_models()
     for scene, shot in zip(project["scenes"], shots):
         sid = scene["id"]
-        image_path = safe_child(root, scene["image"], ".png")
         voice_path = safe_child(root, scene["voice"], ".wav")
-        source_text = shot["exact_source_text"]
-        if images and image_ready and not image_path.exists():
-            try:
-                seed = int(hashlib.sha256((project["id"] + str(sid)).encode()).hexdigest()[:8], 16)
-                prompt = shot.get("visual_prompt_ru") or ""
-                references = [safe_child(root, ref, ".png")
-                              for ref in shot.get("reference_images", [])]
-                image_engine(prompt, image_path, model_root, seed=seed,
-                             references=references)
-                made["image"] += 1
-            except Exception as exc:
-                failures.append({"scene": sid, "component": "image", "reason": str(exc)[:240]})
-        if voices and voice_ready and not voice_path.exists():
-            try:
-                result = voice_engine(source_text, voice_path, model_root,
-                                      speaker=speaker, style=mood_of(shot), device=device)
-                scene["subtitles"] = result["subtitles"]
-                atomic_json(spec_path, project)
-                made["voice"] += 1
-            except Exception as exc:
-                failures.append({"scene": sid, "component": "voice", "reason": str(exc)[:240]})
         if music and voice_path.is_file():
             target = safe_child(root, scene.get("music", f"music/scene_{sid:02d}.wav"), ".wav")
             if not target.exists():
