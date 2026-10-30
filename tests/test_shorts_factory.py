@@ -3,6 +3,7 @@ import hashlib
 import json
 import math
 import shutil
+import subprocess
 import struct
 import tempfile
 import unittest
@@ -113,6 +114,26 @@ class ShortsFactoryTests(unittest.TestCase):
         self.assertTrue(result["qa"]["music_for_all_scenes"])
         self.assertFalse(result["qa"]["approved_for_publication"])
         self.assertEqual(result["status"], "REVIEW_REQUIRED")
+
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg absent")
+    def test_real_motion_video_and_short_clip_rejection(self):
+        path = self.root / "motion.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+                        "-i", "testsrc2=size=192x336:rate=12",
+                        "-t", "1", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        str(path)], check=True)
+        self.doc["scenes"][0]["motion_video"] = "motion.mp4"
+        self.save()
+        result = run(self.manifest, self.root / "motion_out", smoke=True)
+        self.assertEqual(result["qa"]["real_motion_video_scenes"], 1)
+        self.assertTrue(result["qa"]["full_decode_pass"])
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+                        "-i", "testsrc2=size=192x336:rate=12",
+                        "-t", ".25", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                        str(path)], check=True)
+        with self.assertRaisesRegex(Blocked, "shorter than Russian narration"):
+            validate_project(self.manifest, smoke=True)
 
 
 if __name__ == "__main__":
