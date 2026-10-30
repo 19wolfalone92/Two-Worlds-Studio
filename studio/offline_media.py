@@ -321,3 +321,17 @@ def tone_score(dest: Path, seconds: float, mood: str = "sad", seed: int = 0,
     return {"path": str(dest), "sha256": digest(dest), "seconds": n/sample_rate,
             "source": "original_procedural_score", "mood": mood,
             "artistic_review": "pending"}
+
+
+def release_gpu_models() -> None:
+    """Release model caches between visual and voice phases to avoid simultaneous OOM."""
+    import gc
+    flux_model.cache_clear()
+    qwen_model.cache_clear()
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
