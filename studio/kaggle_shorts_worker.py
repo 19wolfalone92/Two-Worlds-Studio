@@ -122,8 +122,24 @@ def _import_recovery(recovery: Path, root: Path, story: str) -> None:
         if len(directories) != 1:
             raise KaggleBlocked("Recovery project missing or ambiguous")
         previous = directories[0].parent
+        audit_path = temp / "run_manifest.json"
+        if not audit_path.is_file():
+            raise KaggleBlocked("Missing SHA-256 recovery manifest")
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        if audit.get("story") != story or not isinstance(audit.get("generated_media"), list):
+            raise KaggleBlocked("Recovery manifest belongs to another story")
+        for entry in audit["generated_media"]:
+            rel = Path(entry.get("path", ""))
+            if rel.is_absolute() or ".." in rel.parts:
+                raise KaggleBlocked("Unsafe recovery inventory")
+            file = (temp / rel).resolve()
+            if (temp.resolve() not in file.parents or not file.is_file() or
+                    digest(file) != entry.get("sha256")):
+                raise KaggleBlocked("Recovery ZIP content differs from SHA-256 manifest")
         prior_doc = json.loads((previous / "project.json").read_text(encoding="utf-8"))
         doc = json.loads((root / "project.json").read_text(encoding="utf-8"))
+        if audit.get("script_sha256") != doc.get("script_sha256"):
+            raise KaggleBlocked("Recovery story fingerprint does not match locked original")
         if (prior_doc.get("script_sha256") != doc.get("script_sha256")
                 or prior_doc.get("id") != doc.get("id")):
             raise KaggleBlocked("Recovery belongs to another story or script revision")
