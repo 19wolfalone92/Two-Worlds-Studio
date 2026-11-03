@@ -63,6 +63,29 @@ jobs:
           else
             python -m studio.production --episode "${REQUESTED_EPISODE:-episodes/E01_THE_REFLECTION.json}" --output-dir dist --width 360 --height 640 --fps 10 --voiceover
           fi
+      - name: Render downloadable hybrid assembly proof (procedural test art only)
+        shell: bash
+        run: |
+          mkdir -p dist/hybrid_proof
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          from PIL import Image, ImageDraw
+          root = Path("dist/hybrid_proof")
+          for i, color in enumerate(("#1e3153", "#4e2e48")):
+              im = Image.new("RGB", (360, 640), color)
+              draw = ImageDraw.Draw(im)
+              draw.ellipse((60, 190+i*40, 290, 430+i*40), outline="#eec9a6", width=12)
+              im.save(root/f"frame_{i}.png")
+          manifest = {"schema":1, "width":360,"height":640,"fps":12,
+                      "shots":[{"image":"frame_0.png","duration":1.5,"camera":"push_in",
+                                "caption":"Procedural engineering proof, not production art"},
+                               {"image":"frame_1.png","duration":1.5,"camera":"pan_left",
+                                "caption":"Hybrid assembly: real MP4 + SRT"}]}
+          (root/"manifest.json").write_text(json.dumps(manifest, indent=2))
+          PY
+          python -m studio.hybrid_master --manifest dist/hybrid_proof/manifest.json \
+            --output dist/hybrid_proof/assembly_proof.mp4
       - name: Archive review package — NOT PUBLICATION
         uses: actions/upload-artifact@v4
         with:
