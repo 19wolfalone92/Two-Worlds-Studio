@@ -8,6 +8,13 @@
 - **Human reviewer:** signs off designs, rights, screenplay, and publication. The studio never silently approves its own output.
 - **No autonomous storywriting; no TikTok publication** in CI.
 
+
+## New: CPU hybrid STORY GLITCH mastering
+
+`studio.hybrid_master` now assembles original 9:16 stills (slow camera motion) and optional pre-generated 3–5 s animation clips into one H.264/AAC vertical MP4. It aligns supplied per-shot voice tracks, mixes optional music, writes UTF-8 SRT and SHA-256/QA receipts, rejects overlong speech and requires explicit review flags for master exports. This editor runs **without GPU or API quotas**, but **does not generate imagery, motion, voices or scripts** itself and never publishes. Tested with real FFmpeg clips in `tests/test_hybrid_master.py`.
+
+Usage, manifest JSON schema and honest resource limits: [docs/HYBRID_VIDEO_STUDIO.md](docs/HYBRID_VIDEO_STUDIO.md).
+
 ## Tested capabilities
 - CPU-only original placeholder artwork and 2.5D compositing of production PNG layers (background, character, foreground), camera/parallax, haze and special effects.
 - English text captions and optional **preview-only** robotic speech.
