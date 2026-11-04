@@ -141,14 +141,22 @@ def produce():
         args = ['kaggle', 'kernels', 'push', '-p', str(kernel_dir), '--timeout', '3600']
         if phase in {'image', 'voice'}:
             args += ['--accelerator', 'NvidiaTeslaT4']
-        command(args)
+        pushed = command(args)
+        (result_dir / 'submission_response.txt').write_text(pushed)
+        import re
+        urls = re.findall(r'https://www\.kaggle\.com/code/(wolf19loner92/[a-z0-9-]+)', pushed)
+        if urls:
+            prepared['kernel'] = urls[-1]
+            summary['kernel'] = prepared['kernel']
         summary['submitted'] = True
         try:
             summary['kernel_status'] = poll_kernel(prepared['kernel'], timeout_seconds=3500,
                                                    interval_seconds=45)
         except Exception as exc:
             summary['kernel_error'] = type(exc).__name__ + ': ' + str(exc)
-        command(['kaggle', 'kernels', 'output', prepared['kernel'], '-p', str(result_dir), '--force'])
+        command(['kaggle', 'kernels', 'output', prepared['kernel'], '-p', str(result_dir),
+                 '--force', '--file-pattern', r'(TwoWorlds_PRIVATE_.*\.zip|two_worlds_kaggle_receipt\.json)$'],
+                timeout=300)
         summary['downloaded_files'] = len([p for p in result_dir.rglob('*') if p.is_file()])
     except Exception as exc:
         summary['error_type'] = type(exc).__name__

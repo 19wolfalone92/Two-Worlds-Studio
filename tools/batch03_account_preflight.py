@@ -30,6 +30,18 @@ def main():
             print(name + ': TIMEOUT', flush=True)
     results['gpu_allocated'] = False
     results['used_paid_services'] = False
+    # Discover the real URL suffix returned by Kaggle, never resubmit a possibly
+    # running GPU job merely because its requested slug differs from the title.
+    import csv, io
+    kernels = results.get('kernels', {})
+    if kernels.get('returncode') == 0:
+        candidates = [r['ref'] for r in csv.DictReader(io.StringIO(kernels['stdout']))
+                      if 'batch03' in r.get('ref', '') or 'russian-short' in r.get('ref', '')]
+        for handle in candidates[:5]:
+            proc = subprocess.run(['kaggle', 'kernels', 'status', handle],
+                                  capture_output=True, text=True, timeout=90)
+            results['status:' + handle] = {'returncode': proc.returncode,
+                                           'stdout': proc.stdout, 'stderr': proc.stderr}
     private = out / 'diagnostics.json'
     private.write_text(json.dumps(results, indent=2))
     context = {'purpose': 'batch03-account-preflight', 'request': '20261104-v1'}
