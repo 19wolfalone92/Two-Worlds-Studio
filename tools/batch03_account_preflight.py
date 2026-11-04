@@ -35,11 +35,17 @@ def main():
     # Discover the real URL suffix returned by Kaggle, never resubmit a possibly
     # running GPU job merely because its requested slug differs from the title.
     import csv, io
+    import re
     kernels = results.get('kernels', {})
     if kernels.get('returncode') == 0:
         candidates = [r['ref'] for r in csv.DictReader(io.StringIO(kernels['stdout']))
                       if 'batch03' in r.get('ref', '') or 'russian-story' in r.get('ref', '')]
-        for handle in candidates[:5]:
+        requested=json.loads(Path('.github/batch03_requests/request.json').read_text()).get('kernels',[])
+        if not isinstance(requested,list) or len(requested)>5 or any(
+                not isinstance(h,str) or not re.fullmatch(r'wolf19loner92/tw-batch03-[a-z0-9-]+',h)
+                for h in requested):
+            raise ValueError('Invalid explicit read-only kernel diagnostic request')
+        for handle in list(dict.fromkeys(requested+candidates[:5])):
             proc = subprocess.run(['kaggle', 'kernels', 'status', handle],
                                   capture_output=True, text=True, timeout=90)
             results['status:' + handle] = {'returncode': proc.returncode,

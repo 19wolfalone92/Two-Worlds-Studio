@@ -1,7 +1,12 @@
 {
   "schema": 1,
-  "request": "20261104-v4-available-models",
+  "request": "20261104-v5-running-production",
   "phase": "account_preflight",
   "free_resources_only": true,
-  "gpu_requested": false
+  "gpu_requested": false,
+  "kernels": [
+    "wolf19loner92/tw-batch03-voice-six-20261104-02",
+    "wolf19loner92/tw-batch03-image-cast-20261104-01",
+    "wolf19loner92/tw-batch03-motion-cpu-cache-20261104-01"
+  ]
 }
