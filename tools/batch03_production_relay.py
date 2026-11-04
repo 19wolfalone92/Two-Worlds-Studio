@@ -21,11 +21,17 @@ from pathlib import Path
 from studio.sealed_artifacts import generate_keys, seal, unseal
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMP = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'tw-batch03-relay'
+REQUEST_DIR = os.environ.get('TW_REQUEST_DIR', '.github/batch03_requests')
+RELAY_BRANCH = os.environ.get('TW_RELAY_BRANCH', 'integration/story-glitch-batch03-20261104')
+if REQUEST_DIR not in {'.github/batch03_requests', '.github/shortform04_requests'}:
+    raise ValueError('Unsupported private request directory')
+if RELAY_BRANCH not in {'integration/story-glitch-batch03-20261104', 'production/story-glitch-batch04-20261105'}:
+    raise ValueError('Unsupported production branch')
+TEMP = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / ('tw-shortform04-relay' if 'shortform04' in REQUEST_DIR else 'tw-batch03-relay')
 
 
 def request():
-    doc = json.loads((ROOT / '.github/batch03_requests/production.json').read_text())
+    doc = json.loads((ROOT / REQUEST_DIR / 'production.json').read_text())
     if (doc.get('schema') != 1 or doc.get('free_resources_only') is not True
             or doc.get('story') not in [str(i) for i in range(13, 19)]
             or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'voice_qa', 'motion_prepare', 'motion_batch', 'preflight', 'recover'}
@@ -84,8 +90,8 @@ def command(args, *, timeout=180):
 def receive(conf):
     name = 'input_' + conf['nonce'] + '.twenc.b64'
     endpoint = ('https://api.github.com/repos/19wolfalone92/Two-Worlds-Studio/contents/'
-                '.github/batch03_requests/' + name + '?ref=' +
-                urllib.parse.quote('integration/story-glitch-batch03-20261104', safe=''))
+                REQUEST_DIR + '/' + name + '?ref=' +
+                urllib.parse.quote(RELAY_BRANCH, safe=''))
     deadline = time.monotonic() + 900
     while time.monotonic() < deadline:
         req = urllib.request.Request(endpoint, headers={
