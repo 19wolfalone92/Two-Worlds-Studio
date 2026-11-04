@@ -4,8 +4,8 @@
   "count": 8,
   "first_scene": 1,
   "free_resources_only": true,
-  "nonce": "b04-image-20261105-v2",
-  "phase": "image_batch",
+  "nonce": "b04-status-20261105-01",
+  "phase": "status",
   "dataset_slug": "two-worlds-private-batch03-b04-20261105-v2",
   "source_sha256": "d105b6bf83563b9e200a65886b930f2cfd888aebf9a78464cb492be1a18caf33",
   "model_kernel": "wolf19loner92/tw-batch03-image-20261104-repair01",
@@ -18,5 +18,9 @@
     18
   ],
   "width": 864,
-  "height": 1536
+  "height": 1536,
+  "kernels": [
+    "wolf19loner92/tw-batch03-b04-voice-20261105-v2",
+    "wolf19loner92/tw-batch03-b04-image-20261105-v2"
+  ]
 }

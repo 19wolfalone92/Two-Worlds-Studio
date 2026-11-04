@@ -34,7 +34,7 @@ def request():
     doc = json.loads((ROOT / REQUEST_DIR / 'production.json').read_text())
     if (doc.get('schema') != 1 or doc.get('free_resources_only') is not True
             or doc.get('story') not in [str(i) for i in range(13, 19)]
-            or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'voice_qa', 'motion_prepare', 'motion_batch', 'preflight', 'recover'}
+            or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'voice_qa', 'motion_prepare', 'motion_batch', 'preflight', 'recover', 'status'}
             or not 1 <= doc.get('count', 0) <= 8):
         raise ValueError('Invalid explicitly bounded production request')
     import re
@@ -60,6 +60,11 @@ def request():
     if doc['phase'] == 'recover' and not re.fullmatch(
             r'wolf19loner92/(tw-batch03-[a-z0-9-]+|two-worlds-russian-(short|story)-gpu)', doc.get('kernel', '')):
         raise ValueError('Only this production kernel may be recovered')
+    if doc['phase'] == 'status' and (not isinstance(doc.get('kernels'), list)
+            or not 1 <= len(doc['kernels']) <= 4
+            or any(not re.fullmatch(r'wolf19loner92/tw-batch03-[a-z0-9-]+', k)
+                   for k in doc['kernels'])):
+        raise ValueError('Only bounded existing production status queries are permitted')
     return doc
 
 
@@ -149,7 +154,13 @@ def produce():
     result_dir = TEMP / 'result'
     result_dir.mkdir(parents=True, exist_ok=True)
     try:
-        command(['kaggle', 'quota'])
+        quota = command(['kaggle', 'quota'])
+        if conf['phase'] == 'status':
+            summary['quota'] = quota
+            summary['kernel_statuses'] = {k: command(['kaggle', 'kernels', 'status', k])
+                                          for k in conf['kernels']}
+            summary['gpu_requested'] = False
+            return
         dataset = 'wolf19loner92/' + conf['dataset_slug']
         if conf['phase'] == 'recover':
             from studio.kaggle_api import poll_kernel
