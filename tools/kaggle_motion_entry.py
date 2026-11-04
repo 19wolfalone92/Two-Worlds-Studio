@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import traceback
 import zipfile
 from pathlib import Path
@@ -56,6 +57,22 @@ def worker(config):
                 gc.collect();torch.cuda.empty_cache()
         _json(status,state)
     return 0
+
+
+def save_motion_archives(stories):
+    """Checkpoint only fully exported takes with atomic matching receipts."""
+    for story in stories:
+        folder=OUT/f'motion_outputs/{story}/motion'
+        ready=[p for p in folder.glob('*.receipt.json')
+               if p.with_name(p.name.replace('.receipt.json','.mp4')).is_file()]
+        if not ready:continue
+        target=OUT/f'TwoWorlds_PRIVATE_{story}_motion.zip'
+        temp=target.with_suffix('.building')
+        with zipfile.ZipFile(temp,'w',zipfile.ZIP_STORED) as z:
+            for receipt in ready:
+                video=receipt.with_name(receipt.name.replace('.receipt.json','.mp4'))
+                for path in [video,receipt]:z.write(path,f'production_queue/{story}/motion/{path.name}')
+        temp.replace(target)
 
 
 def main():
@@ -131,18 +148,23 @@ def main():
         jobs.append(subprocess.Popen([sys.executable,'-u',__file__,'--worker',str(path)],env=env))
     state['independent_gpu_workers']=devices
     _json(OUT/'batch_motion_status.json',state)
+    while any(job.poll() is None for job in jobs):
+        partial={'made':[],'errors':[]}
+        for card in range(devices):
+            path=OUT/f'motion_worker_{card}.json'
+            if path.exists():
+                data=json.loads(path.read_text());partial['made']+=data['made'];partial['errors']+=data['errors']
+        _json(OUT/'batch_motion_status.json',{**state,'made':partial['made'],
+              'errors':state['errors']+partial['errors']})
+        save_motion_archives(conf['stories'])
+        time.sleep(30)
     for card,job in enumerate(jobs):
         code=job.wait()
         status=OUT/f'motion_worker_{card}.json'
         if status.exists():
             result=json.loads(status.read_text());state['made']+=result['made'];state['errors']+=result['errors']
         if code:state['errors'].append({'worker':card,'type':'WORKER_EXIT','code':code})
-    for story in conf['stories']:
-        folder=OUT/f'motion_outputs/{story}'
-        if folder.exists():
-            with zipfile.ZipFile(OUT/f'TwoWorlds_PRIVATE_{story}_motion.zip','w',zipfile.ZIP_STORED) as z:
-                for f in folder.rglob('*'):
-                    if f.is_file():z.write(f,f'production_queue/{story}/'+str(f.relative_to(folder)))
+    save_motion_archives(conf['stories'])
     state['success']=len(state['errors'])==0 and len(state['made'])==len(conf['stories'])*conf['count']*conf.get('variants',1)
     _json(OUT/'batch_motion_status.json',state)
 
