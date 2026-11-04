@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: tw-private-batch03-${{ github.sha }}
+  group: tw-private-batch03
   cancel-in-progress: false
 jobs:
   production:
@@ -14,7 +14,7 @@ jobs:
       github.repository == '19wolfalone92/Two-Worlds-Studio' &&
       github.ref == 'refs/heads/integration/story-glitch-batch03-20261104'
     runs-on: ubuntu-latest
-    timeout-minutes: 85
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
