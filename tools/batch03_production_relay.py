@@ -228,6 +228,9 @@ def produce():
                           'dataset_slug':conf['dataset_slug'],
                           'model_root':'/kaggle/input/'+cached.split('/')[1]+'/private_models',
                           'model_kernel_slug':cached.split('/')[1]}
+            if 'tasks' in conf:
+                from tools.kaggle_voice_batch_entry import voice_tasks
+                batch_conf['tasks'] = voice_tasks(conf)
             template = (ROOT/'tools/kaggle_voice_batch_entry.py').read_text()
             rendered = template.replace('__TW_VOICE_BATCH_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
             rendered = rendered.replace('__TW_VOICE_BATCH_SOURCE__',base64.b64encode(build_source(ROOT)).decode())

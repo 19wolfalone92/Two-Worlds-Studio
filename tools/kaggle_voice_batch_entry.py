@@ -38,8 +38,25 @@ def find_recovery(input_root: Path, story: int, model_kernel_slug: str) -> list[
             if model_kernel_slug not in p.parts]
 
 
+def voice_tasks(conf: dict) -> list[dict]:
+    tasks = conf.get('tasks', [{'story': n, 'first_scene': 1, 'count': 8}
+                               for n in range(13, 19)])
+    if (not isinstance(tasks, list) or not 1 <= len(tasks) <= 6
+            or any(not isinstance(t, dict) or type(t.get('story')) is not int
+                   or t['story'] not in range(13, 19)
+                   or type(t.get('first_scene')) is not int
+                   or type(t.get('count')) is not int
+                   or not 1 <= t['first_scene'] <= 8
+                   or not 1 <= t['count'] <= 8
+                   or t['first_scene'] + t['count'] > 9 for t in tasks)
+            or len({t['story'] for t in tasks}) != len(tasks)):
+        raise ValueError('Invalid bounded per-story voice tasks')
+    return tasks
+
+
 def main():
     conf = json.loads(base64.b64decode(CONFIG_B64))
+    tasks = voice_tasks(conf)
     BASE.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(base64.b64decode(SOURCE_B64))) as z:
         for item in z.infolist():
@@ -65,7 +82,7 @@ def main():
             raise FileNotFoundError('Previously validated Qwen model cache is missing')
         model_root = found[0]
     # Each process loads one model on its own card. No device has 32GB VRAM.
-    assignments = [list(range(13,19))[i::min(gpu_count,2)] for i in range(min(gpu_count,2))]
+    assignments = [tasks[i::min(gpu_count,2)] for i in range(min(gpu_count,2))]
     state = {'schema':1, 'status':'RUNNING', 'gpu_names':gpu_names, 'memory_pooled':False,
              'stories':{}, 'paid_services':False, 'published':False}
     started = time.monotonic()
@@ -77,14 +94,16 @@ def main():
     def launch(gpu):
         if not assignments[gpu]:
             return
-        story = assignments[gpu].pop(0)
+        task = assignments[gpu].pop(0)
+        story = task['story']
         out = OUT/f'story_{story}'
         out.mkdir(exist_ok=True)
         recovery = find_recovery(Path('/kaggle/input'),story,conf['model_kernel_slug'])
         args = [sys.executable,'-m','studio.kaggle_shorts_worker',
                 '--source',str(source),'--story',str(story),'--phase','voice',
                 '--models',str(model_root),'--work',str(OUT/'private_projects'/str(story)),
-                '--out',str(out),'--start','1','--count','8','--gpu-id',str(gpu),
+                '--out',str(out),'--start',str(task['first_scene']),
+                '--count',str(task['count']),'--gpu-id',str(gpu),
                 '--time-budget','4800','--speaker','Ryan' if story == 16 else 'Serena']
         if len(recovery)==1:
             args += ['--recovery',str(recovery[0])]
@@ -120,7 +139,7 @@ def main():
             raise TimeoutError('Batch reached its explicit 150-minute compute deadline')
         time.sleep(5)
     state['status'] = ('COMPLETE' if all(v['status']=='COMPLETE' for v in state['stories'].values())
-                       and len(state['stories'])==6 else 'PARTIAL')
+                       and len(state['stories'])==len(tasks) else 'PARTIAL')
     checkpoint()
 
 
