@@ -29,7 +29,7 @@ STORIES = {str(i) for i in range(13, 19)}
 PHASES = {"preflight", "image", "voice", "music", "render"}
 MAX_ARCHIVE = 180 * 1024 * 1024
 MAX_EXPANDED = 800 * 1024 * 1024
-ALLOWED_PROJECT_PATHS = {"project.json", "story.txt", "shot_plan.json", "visual_identity.json", "image_director.json", "local_factory_receipt.json"}
+ALLOWED_PROJECT_PATHS = {"project.json", "story.txt", "shot_plan.json", "visual_identity.json", "image_director.json", "image_repairs.json", "local_factory_receipt.json"}
 
 
 class KaggleBlocked(RuntimeError):

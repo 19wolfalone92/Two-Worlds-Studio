@@ -38,8 +38,9 @@ def resolve_source(hint: Path, slug: str, input_root: Path = INPUT) -> Path:
     raise FileNotFoundError('Private source missing or ambiguous')
 
 
-def scene_prompt(director: dict, shot: dict) -> tuple[str, list[str]]:
-    cast = director['scene_cast'][str(shot['scene'])]
+def scene_prompt(director: dict, shot: dict, repair: dict | None = None) -> tuple[str, list[str]]:
+    repair=repair or {}
+    cast = repair.get('cast',director['scene_cast'][str(shot['scene'])])
     if len(cast) > 4 or any(p not in director['people'] for p in cast):
         raise ValueError('Unknown character or too many identity references')
     descriptions = ' '.join(
@@ -53,7 +54,7 @@ def scene_prompt(director: dict, shot: dict) -> tuple[str, list[str]]:
         'physically credible anatomy and hands, motivated practical lighting, '
         'real skin texture, coherent reflections and shadows, restrained film grain, '
         'professional 35mm cinematography, not an illustration or collage. '
-        + descriptions + ' Scene: ' + shot['visual_prompt_ru'] + ' '
+        + descriptions + ' Scene: ' + repair.get('staging',shot['visual_prompt_ru']) + ' '
         + director.get('scene_notes', {}).get(str(shot['scene']), '')
         + ' Color and lighting continuity: ' + director['palette'] + '. '
         + ('Only the listed characters may be in the frame. ' if cast else
@@ -144,6 +145,8 @@ def main():
                     if conf['model_kernel_slug'] not in p.parts]
         prepare_input(source,work,story,recovery=recovery[0] if len(recovery)==1 else None)
         director = json.loads((work/'image_director.json').read_text())
+        repairs_path=work/'image_repairs.json'
+        repairs=json.loads(repairs_path.read_text()).get('scenes',{}) if repairs_path.exists() else {}
         shots = json.loads((work/'shot_plan.json').read_text())
         item = {'status':'RUNNING','made':[],'skipped':[],'references':{},'errors':[]}
         state['stories'][story] = item
@@ -182,13 +185,19 @@ def main():
                     item['errors'].append({'type':'TIME_BUDGET_REACHED'})
                     break
                 target = work/f"images/scene_{shot['scene']:02d}.png"
+                repair=repairs.get(str(shot['scene']),{})
+                if target.is_file() and repair and digest(target)==repair.get('rejected_sha256'):
+                    # Keep the rejected original in a separate private checkpoint.
+                    rejected=OUT/f"rejected_images/{story}/{target.name}"
+                    rejected.parent.mkdir(parents=True,exist_ok=True)
+                    target.rename(rejected)
                 if target.is_file():
                     item['skipped'].append(shot['scene'])
                     continue
-                prompt,cast = scene_prompt(director,shot)
+                prompt,cast = scene_prompt(director,shot,repair)
                 try:
                     info = real_image(prompt,target,model_root,pipe=pipe,
-                        seed=int(story)*10000+shot['scene'],width=width,height=height,
+                        seed=int(story)*10000+shot['scene']+int(repair.get('seed_offset',0)),width=width,height=height,
                         references=[refs/(key+'.png') for key in cast])
                     info['scene'] = shot['scene']
                     item['made'].append(info)

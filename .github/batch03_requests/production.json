@@ -1,21 +1,11 @@
 {
   "schema": 1,
-  "nonce": "motion-main-a-20261104-01",
-  "phase": "motion_batch",
-  "story": "14",
-  "count": 8,
+  "nonce": "seed-repair-v4-20261104-01",
+  "phase": "seed_only",
+  "story": "13",
+  "count": 1,
   "first_scene": 1,
-  "stories": [
-    14,
-    15
-  ],
-  "variants": 3,
-  "frames": 81,
-  "width": 512,
-  "height": 896,
   "free_resources_only": true,
-  "dataset_slug": "two-worlds-private-batch03-20261104-motion-v3",
-  "source_sha256": "d6662417e8b5ac0b9df653e7ec1f47d8f1efd4d2331d83fd6d23a5d71cc2cd14",
-  "model_kernel": "wolf19loner92/tw-batch03-motion-cpu-cache-20261104-01",
-  "image_kernel": "wolf19loner92/tw-batch03-image-six-20261104-01"
+  "dataset_slug": "two-worlds-private-batch03-20261104-repair-v4",
+  "source_sha256": "556fd48bf479476c82c9b79278b799da78a509f44734b9f45a06b7eea0a7e788"
 }
