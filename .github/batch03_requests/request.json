@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "request": "20261104-v7-live-production-check",
+  "request": "20261104-v8-private-media-inventory-safe",
   "phase": "account_preflight",
   "free_resources_only": true,
   "gpu_requested": false,
