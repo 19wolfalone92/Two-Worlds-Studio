@@ -159,6 +159,17 @@ def produce():
             summary['quota'] = quota
             summary['kernel_statuses'] = {k: command(['kaggle', 'kernels', 'status', k])
                                           for k in conf['kernels']}
+            if conf.get('query_progress') is True:
+                summary['progress_queries'] = {}
+                for index, kernel in enumerate(conf['kernels']):
+                    try:
+                        command(['kaggle', 'kernels', 'output', kernel,
+                                 '-p', str(result_dir / f'progress_{index}'), '--force',
+                                 '--file-pattern', r'(batch_(image|voice)_status\.json|TwoWorlds_PRIVATE_.*\.zip)$'],
+                                timeout=180)
+                        summary['progress_queries'][kernel] = 'AVAILABLE'
+                    except Exception as exc:
+                        summary['progress_queries'][kernel] = type(exc).__name__
             summary['gpu_requested'] = False
             return
         dataset = 'wolf19loner92/' + conf['dataset_slug']
