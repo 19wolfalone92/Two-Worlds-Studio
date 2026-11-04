@@ -93,7 +93,8 @@ def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | Non
     else:filters.append('[voice]alimiter=limit=0.92[a]')
     frames=math.ceil(scene['seconds']*fps)
     args+=['-filter_complex',';'.join(filters),'-map','[v]','-map','[a]',
-        '-frames:v',str(frames),'-t',f'{frames/fps:.9f}','-c:v','libx264','-preset','fast',
+        '-frames:v',str(frames),'-t',f'{frames/fps:.9f}','-c:v','libx264','-preset','veryfast',
+        '-progress',str(output.with_suffix('.progress.txt')),'-stats_period','5',
         '-crf','18','-threads','3','-pix_fmt','yuv420p','-r',str(fps),'-c:a','aac',
         '-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
         '-b:a','192k','-ar','48000','-ac','2','-movflags','+faststart',str(output)]
