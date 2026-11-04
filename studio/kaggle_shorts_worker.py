@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 from typing import Callable
 
-from .offline_media import (accelerator_status, real_image, real_voice, tone_score,
+from .offline_media import (accelerator_status, real_image, real_voice, tone_score, configure_image_memory,
                             release_gpu_models, digest)
 from .autonomous_factory import atomic_json, inventory, mood_of
 from .shorts_factory import run as render_story
@@ -29,7 +29,7 @@ STORIES = {str(i) for i in range(13, 19)}
 PHASES = {"preflight", "image", "voice", "music", "render"}
 MAX_ARCHIVE = 180 * 1024 * 1024
 MAX_EXPANDED = 800 * 1024 * 1024
-ALLOWED_PROJECT_PATHS = {"project.json", "story.txt", "shot_plan.json", "local_factory_receipt.json"}
+ALLOWED_PROJECT_PATHS = {"project.json", "story.txt", "shot_plan.json", "visual_identity.json", "local_factory_receipt.json"}
 
 
 class KaggleBlocked(RuntimeError):
@@ -266,7 +266,8 @@ def run_job(workdir: Path, out: Path, model_root: Path, *, story: str, phase: st
                 model = Flux2KleinPipeline.from_pretrained(
                     str(model_path), torch_dtype=torch.float16,
                     local_files_only=True)
-                model.enable_model_cpu_offload()
+                status['memory_mode'] = configure_image_memory(
+                    model, torch.cuda.get_device_properties(0).total_memory / 1024**3)
             try:
                 for scene in selected:
                     if clock() - started > time_budget_s:
@@ -281,7 +282,22 @@ def run_job(workdir: Path, out: Path, model_root: Path, *, story: str, phase: st
                         args = dict(seed=seed, width=image_size[0], height=image_size[1])
                         if model is not None:
                             args["pipe"] = model
-                        result = backend(shot["visual_prompt_ru"], target, model_root, **args)
+                        prompt = shot['visual_prompt_ru']
+                        identity_file = root / 'visual_identity.json'
+                        if identity_file.is_file():
+                            cast = json.loads(identity_file.read_text(encoding='utf-8'))['cast']
+                            prompt = ('Photorealistic cinematic still, natural human anatomy and skin. '
+                                      'Continuity guide: ' + cast +
+                                      ' Draw ONLY people present in the following shot. '
+                                      'Keep the reference character appearance, change composition as requested. '
+                                      'Shot: ' + prompt)
+                        references = [root / rel for rel in shot.get('reference_images', [])]
+                        anchor = root / scenes[0]['image']
+                        if scene['id'] != scenes[0]['id'] and anchor.is_file() and anchor not in references:
+                            references.insert(0, anchor)
+                        if references:
+                            args['references'] = references[:4]
+                        result = backend(prompt, target, model_root, **args)
                         if not target.is_file():
                             raise KaggleBlocked("Image generator reported success without a real file")
                         status["made"].append({"scene": scene["id"], "image_sha256": digest(target),

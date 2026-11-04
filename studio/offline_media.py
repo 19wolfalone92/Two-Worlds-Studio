@@ -48,7 +48,8 @@ def local_model(root: Path, kind: str) -> Path:
     if kind not in MODEL_NAMES:
         raise ValueError("Unsupported model kind")
     p = Path(root).expanduser().resolve() / kind
-    if not p.is_dir() or not (p / "config.json").is_file():
+    configs = ('config.json', 'model_index.json') if kind == 'image' else ('config.json',)
+    if not p.is_dir() or not any((p / name).is_file() for name in configs):
         raise OfflineBlocked(f"OFFLINE_MODEL_MISSING: {p}; stage a legal local {MODEL_NAMES[kind]} checkpoint")
     return p
 
@@ -208,8 +209,21 @@ def _load_flux(model_dir: Path):
     dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
     pipe = Flux2KleinPipeline.from_pretrained(str(model_dir), torch_dtype=dtype,
                                              local_files_only=True)
-    pipe.enable_model_cpu_offload()
+    configure_image_memory(pipe, torch.cuda.get_device_properties(0).total_memory / 1024**3)
     return pipe
+
+
+def configure_image_memory(pipe, total_gib: float) -> str:
+    """A 4B pipeline includes a text encoder; avoid loading a whole block on T4."""
+    vae = getattr(pipe, 'vae', None)
+    for method in ('enable_tiling', 'enable_slicing'):
+        if callable(getattr(vae, method, None)):
+            getattr(vae, method)()
+    if total_gib < 20:
+        pipe.enable_sequential_cpu_offload()
+        return 'sequential_cpu_offload'
+    pipe.enable_model_cpu_offload()
+    return 'model_cpu_offload'
 
 
 @lru_cache(maxsize=1)

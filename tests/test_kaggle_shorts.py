@@ -59,7 +59,9 @@ class KaggleShortsTests(unittest.TestCase):
     def test_resume_images_and_voice_timings(self):
         path=self.base/'source.zip';self._zip(path)
         work=prepare_input(path,self.base/'work','13')
-        def fake_image(prompt,dest,models,*,seed,width,height):
+        image_references = []
+        def fake_image(prompt,dest,models,*,seed,width,height,references=None):
+            image_references.append(references)
             dest.parent.mkdir(parents=True,exist_ok=True)
             Image.new('RGB',(width,height),(90,100,130)).save(dest)
             return {'model':'OFFLINE_TEST_ONLY'}
@@ -73,6 +75,8 @@ class KaggleShortsTests(unittest.TestCase):
                   max_scenes=2,image_backend=fake_image)
         self.assertEqual(len(r['made']),2)
         self.assertEqual(r['status'],'COMPLETE')
+        self.assertIsNone(image_references[0])
+        self.assertEqual(image_references[1], [work/'images/scene_01.png'])
         self.assertEqual(r['inventory']['image'],6)
         self.assertEqual(run_job(work,self.base/'skip',self.base/'models',story='13',phase='image',
                       max_scenes=2,image_backend=fake_image)['skipped'],[1,2])

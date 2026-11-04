@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 
 from studio.offline_media import (OfflineBlocked, split_narration, real_voice,
-                                  real_image, tone_score, local_model)
+                                  real_image, tone_score, local_model, configure_image_memory)
 from studio.autonomous_factory import inventory, run_story, atomic_json
 
 
@@ -92,6 +92,22 @@ class OfflineMediaTests(unittest.TestCase):
         (self.base/'image').mkdir()
         (self.base/'image/config.json').write_text('{}')
         self.assertEqual(local_model(self.base, 'image'), self.base/'image')
+
+    def test_diffusers_root_model_index_is_accepted(self):
+        (self.base/'image').mkdir()
+        (self.base/'image/model_index.json').write_text('{}')
+        self.assertEqual(local_model(self.base, 'image'), self.base/'image')
+        with self.assertRaises(OfflineBlocked):
+            local_model(self.base, 'voice')
+
+    def test_t4_uses_sequential_offload_and_vae_tiling(self):
+        from unittest.mock import Mock
+        pipe = Mock()
+        self.assertEqual(configure_image_memory(pipe, 15), 'sequential_cpu_offload')
+        pipe.enable_sequential_cpu_offload.assert_called_once()
+        pipe.enable_model_cpu_offload.assert_not_called()
+        pipe.vae.enable_tiling.assert_called_once()
+        pipe.vae.enable_slicing.assert_called_once()
 
     def synthetic_project(self):
         folder = self.base / 'project'
