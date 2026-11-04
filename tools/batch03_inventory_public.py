@@ -18,7 +18,7 @@ OWNER = "wolf19loner92"
 STORIES = {str(n) for n in range(13, 19)}
 FILE_NAME = re.compile(r"TwoWorlds_PRIVATE_(1[3-8])_(image|voice|motion)\\.zip$", re.I)
 APPROVED = re.compile(r"^wolf19loner92/(?:tw-batch03-[a-z0-9-]+|two-worlds-russian-(?:short|story)-gpu)$")
-MAX_QUERIES = 30
+MAX_QUERIES = 60
 
 
 def invoke(*args: str, timeout: int = 60) -> tuple[bool, str]:
