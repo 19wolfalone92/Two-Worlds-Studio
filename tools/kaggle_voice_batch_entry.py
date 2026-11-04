@@ -85,7 +85,7 @@ def main():
                 '--source',str(source),'--story',str(story),'--phase','voice',
                 '--models',str(model_root),'--work',str(OUT/'private_projects'/str(story)),
                 '--out',str(out),'--start','1','--count','8','--gpu-id',str(gpu),
-                '--time-budget','4800','--speaker','Ryan' if story in [16,17] else 'Serena']
+                '--time-budget','4800','--speaker','Ryan' if story == 16 else 'Serena']
         if len(recovery)==1:
             args += ['--recovery',str(recovery[0])]
         env = os.environ.copy()
