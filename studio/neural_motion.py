@@ -164,7 +164,7 @@ def encode_directions(source: Path, model_dir: Path, output: Path) -> dict:
     return {'scenes':count,'gpu_used':False}
 
 
-def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload'):
+def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload',vae_tile=512):
     import torch
     from diffusers import LTXImageToVideoPipeline,LTXVideoTransformer3DModel,AutoencoderKLLTXVideo,FlowMatchEulerDiscreteScheduler
     if not torch.cuda.is_available():
@@ -177,7 +177,12 @@ def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload'):
                     use_dynamic_shifting=False,stochastic_sampling=True)
     pipe=LTXImageToVideoPipeline(transformer=transformer,vae=vae,scheduler=scheduler,
                                 text_encoder=None,tokenizer=None)
-    pipe.vae.enable_tiling()
+    if vae_tile not in {256,512}:raise ValueError('Unreviewed VAE tile geometry')
+    pipe.vae.enable_tiling(tile_sample_min_height=vae_tile,tile_sample_min_width=vae_tile,
+                          tile_sample_stride_height=vae_tile-64,tile_sample_stride_width=vae_tile-64)
+    pipe._tw_vae_tile=vae_tile
+    meminfo=Path('/proc/meminfo').read_text()
+    pipe._tw_host_ram_gib=round(int(meminfo.split('MemTotal:')[1].split()[0])/1024**2,3)
     if memory_mode not in {'resident','cpu_offload'}:raise ValueError('Unknown bounded motion memory policy')
     free,_=torch.cuda.mem_get_info()
     if memory_mode=='resident' and free>=13.25*1024**3:
@@ -215,14 +220,16 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
                 num_inference_steps=len(SIGMAS),
                 decode_timestep=.05,decode_noise_scale=.025,
                 generator=torch.Generator(device='cuda:0').manual_seed(seed))
-    fallback=False
+    fallback=False;result=None
     try:result=pipe(**call_args).frames[0]
     except torch.cuda.OutOfMemoryError:
         if getattr(pipe,'_tw_memory_mode',None)!='resident':raise
+        fallback=True
+    if fallback:
         # A measured full-residency trial may return to the already proven
         # offload path; never reduce frame count, size or source fidelity.
         pipe.to('cpu');gc.collect();torch.cuda.empty_cache();pipe.enable_model_cpu_offload()
-        pipe._tw_memory_mode='cpu_offload';fallback=True
+        pipe._tw_memory_mode='cpu_offload'
         call_args['generator']=torch.Generator(device='cuda:0').manual_seed(seed)
         result=pipe(**call_args).frames[0]
     if len(result)!=frames:
@@ -238,6 +245,7 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
              'gpu':torch.cuda.get_device_name(0),'gpu_memory_pooled':False,
              'compute_dtype':'float32','elapsed_s':round(time.monotonic()-start,2),
              'memory_mode':getattr(pipe,'_tw_memory_mode','cpu_offload'),'resident_trial_fell_back':fallback,
+             'vae_tile_pixels':getattr(pipe,'_tw_vae_tile',512),'host_ram_gib':getattr(pipe,'_tw_host_ram_gib',None),
              'inference_sigmas':SIGMAS,
              'gpu_peak_allocated_gib':round(torch.cuda.max_memory_allocated()/1024**3,3),
              'sha256':_digest(dest),

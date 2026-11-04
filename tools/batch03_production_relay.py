@@ -45,6 +45,8 @@ def request():
             or any(type(s) is not int or not 13<=s<=18 for s in doc['stories'])):
         raise ValueError('Invalid explicitly bounded story set')
     if doc['phase']=='motion_batch' and (not 1<=doc.get('variants',1)<=3
+            or type(doc.get('first_variant',1)) is not int or not 1<=doc.get('first_variant',1)<=7
+            or doc.get('vae_tile',512) not in [256,512]
             or doc.get('frames',121) not in range(49,258,8)
             or doc.get('width',512) not in [512,576,640,704]
             or doc.get('height',896) not in [896,1024,1152,1248]):
@@ -237,6 +239,7 @@ def produce():
                         'image_kernel_slug':conf.get('image_kernel','/').split('/')[1],
                         'image_fallback_slug':conf.get('recovery_kernel','/').split('/')[1],
                         'memory_mode':conf.get('motion_memory_mode','cpu_offload'),
+                        'vae_tile':conf.get('vae_tile',512),'first_variant':conf.get('first_variant',1),
                         'stories':conf.get('stories',[13]),'first_scene':conf.get('first_scene',1),
                         'count':conf['count'],'variants':conf.get('variants',1),
                         'frames':conf.get('frames',121),'width':conf.get('width',512),'height':conf.get('height',896)}

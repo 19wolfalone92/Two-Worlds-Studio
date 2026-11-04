@@ -21,7 +21,7 @@ BASE=OUT/'tw_motion_modules'
 def bounded_tasks(conf):
     return [(str(story),scene,variant) for story in conf['stories']
             for scene in range(conf['first_scene'],conf['first_scene']+conf['count'])
-            for variant in range(1,conf.get('variants',1)+1)]
+            for variant in range(conf.get('first_variant',1),conf.get('first_variant',1)+conf.get('variants',1))]
 
 
 def worker(config):
@@ -31,7 +31,8 @@ def worker(config):
     import torch
     torch.set_num_threads(2)
     from studio.neural_motion import load_pipeline,render_clip,_json
-    pipe=load_pipeline(Path(config['model']),memory_mode=config.get('memory_mode','cpu_offload'))
+    pipe=load_pipeline(Path(config['model']),memory_mode=config.get('memory_mode','cpu_offload'),
+                       vae_tile=config.get('vae_tile',512))
     _json(Path(config['ready']),{'model_loaded':True,'gpu_memory_pooled':False})
     state={'made':[],'errors':[],'gpu_memory_pooled':False,'reviewed':False}
     status=Path(config['status'])
@@ -150,6 +151,7 @@ def main():
     for card in range(devices):
         settings={'model':str(model),'embeddings':str(embeddings[0]),'images':image_roots,
             'physical_card':card,
+            'vae_tile':conf.get('vae_tile',512),
             'memory_mode':conf.get('memory_mode','cpu_offload'),'ready':str(OUT/f'motion_worker_{card}.ready.json'),
             'tasks':tasks[card::devices],'width':conf.get('width',512),'height':conf.get('height',896),
             'frames':conf.get('frames',81),'status':str(OUT/f'motion_worker_{card}.json')}
