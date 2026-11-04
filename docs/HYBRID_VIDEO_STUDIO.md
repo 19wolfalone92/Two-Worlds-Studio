@@ -18,13 +18,13 @@ Example manifest (the files need to exist):
   "schema": 1,
   "width": 1080,
   "height": 1920,
-  "fps": 24,
+  "fps": 30,
   "editorial_approved": false,
   "rights_approved": false,
   "music": "assets/background_music.wav",
   "music_volume": 0.12,
   "shots": [
-    {"image": "assets/bridge.png", "duration": 5, "camera": "push_in", "caption": "Той ночью мост был пуст...", "voice": "assets/line01.wav"},
+    {"image": "assets/bridge.png", "duration": 5, "camera": "push_in", "camera_strength": 0.35, "caption": "Той ночью мост был пуст...", "voice": "assets/line01.wav"},
     {"clip": "assets/bridge_motion.mp4", "duration": 4, "caption": "Но кто-то оставил шарф."},
     {"image": "assets/scarf.png", "duration": 4, "camera": "pan_left", "caption": "И она узнала его."}
   ]
@@ -44,3 +44,15 @@ Default mode exports a visibly identified **unreviewed preview**. For `--master`
 ### Compute constraints
 
 Standard GitHub-hosted CI runs CPU-only. Kaggle may provide T4/P100 GPU access under availability/quota restrictions, but no guaranteed production-grade image-to-video model fits unmodified on one 16 GiB T4. The official Wan2.2 TI2V-5B recipe requires **at least 24 GB VRAM** and is not silently scheduled as a free Kaggle job. This is deliberately a dependable *assembly/QA pipeline*, not a promise of free unlimited GPU inference.
+
+## Smooth-camera correction (2026-11-04)
+
+Feedback on the original 9-second pilot revealed visible jitter from aggressively stepped FFmpeg `zoompan` crop positions. **Still-image shots now use `studio.smooth_camera`:**
+
+- Subpixel floating-point affine positioning, independently sampled from one source image with Pillow bicubic interpolation. No integer crop stepping or accumulation of resampling errors.
+- Sinusoidal ease-in/ease-out, zero velocity at shot edges, restrained ~2.4% default zoom across an entire shot instead of the previous 10.5%.
+- `camera_strength` per image shot, number **0..1**, default 0.45 (use ~0.25–0.4 for gentle human-interest drama). Use `camera: static` or strength 0 for absolutely steady image.
+- Choose `fps: 30` for smoother mobile playback while retaining 9:16 H.264/AAC. At 24 fps motion is still subpixel smooth; 30 fps helps perception.
+- This fixes camera stepping on *stills*; it does not stabilize shakes already baked into imported motion clips. Those need separate motion analysis and stabilization.
+
+Existing master review/rights gates remain unchanged; no premium credits or GPU inference involved.
