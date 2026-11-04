@@ -46,7 +46,8 @@ def worker(config):
                     Path(config['images'][story])/f'images/scene_{scene:02d}.png',dest,
                     seed=int(story)*100000+scene*100+variant,width=config['width'],
                     height=config['height'],frames=config['frames'])
-            state['made'].append({'story':story,'scene':scene,'variant':variant,**info})
+            state['made'].append({'story':story,'scene':scene,'variant':variant,
+                                 'independent_physical_card':config['physical_card'],**info})
         except Exception as exc:
             state['errors'].append({'story':story,'scene':scene,'variant':variant,
                 'type':type(exc).__name__,'message':str(exc),'traceback':traceback.format_exc()})
@@ -122,6 +123,7 @@ def main():
     jobs=[]
     for card in range(devices):
         settings={'model':str(model),'embeddings':str(embeddings[0]),'images':image_roots,
+            'physical_card':card,
             'tasks':tasks[card::devices],'width':conf.get('width',512),'height':conf.get('height',896),
             'frames':conf.get('frames',81),'status':str(OUT/f'motion_worker_{card}.json')}
         path=OUT/f'motion_worker_{card}_config.json';_json(path,settings)

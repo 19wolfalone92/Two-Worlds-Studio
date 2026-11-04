@@ -212,6 +212,7 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
     dest.parent.mkdir(parents=True,exist_ok=True)
     export_to_video(result,str(dest),fps=fps,macro_block_size=1,quality=8)
     receipt={'model':REPO,'checkpoint':CHECKPOINT,'actual_neural_frames':frames,
+             'source_image_sha256':_digest(image),
              'seconds':frames/fps,'width':width,'height':height,'seed':seed,
              'gpu':torch.cuda.get_device_name(0),'gpu_memory_pooled':False,
              'compute_dtype':'float32','elapsed_s':round(time.monotonic()-start,2),

@@ -127,6 +127,10 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
         motion = asset(base, scene["motion_video"], ALLOWED_VIDEO) if scene.get("motion_video") else None
         if motion and video_duration(motion) + .05 < length:
             raise Blocked(f'Scene {scene["id"]}: motion video shorter than Russian narration')
+        takes=scene.get('motion_clips',[])
+        if not isinstance(takes,list) or len(takes)>9:raise Blocked('Invalid bounded neural take list')
+        takes=[asset(base,p,ALLOWED_VIDEO) for p in takes]
+        for take in takes:video_duration(take)
         music = asset(base, scene["music"], ALLOWED_AUDIO) if scene.get("music") else None
         if music:
             duration(music)
@@ -146,10 +150,11 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
                 raise Blocked(f'Invalid real subtitle timestamp in scene {scene["id"]}')
             previous = end
         entries.append({"id": scene["id"], "image": image, "voice": voice,
-                        "music": music, "motion_video": motion, "seconds": length, "cues": cues})
+                        "music": music, "motion_video": motion, "motion_clips":takes,"seconds": length, "cues": cues})
     return {"id": doc["id"], "title": title, "base": base, "script": script,
             "digest": digest, "width": width, "height": height,
             "fps": fps, "entries": entries, "smoke": smoke,
+            "ai_disclosure":doc.get('ai_disclosure'),
             "master_audio": asset(base,doc['master_audio'],ALLOWED_AUDIO) if doc.get('master_audio') else None}
 
 
@@ -179,7 +184,7 @@ def write_srt(entries: list[dict], dest: Path, fps: int) -> None:
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_ass(entries: list[dict], dest: Path, fps: int) -> None:
+def write_ass(entries: list[dict], dest: Path, fps: int,disclosure: str | None = None) -> None:
     """Explicit portrait canvas and margins keep captions above TikTok controls."""
     header = ('[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n'
               'WrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n'
@@ -201,6 +206,9 @@ def write_ass(entries: list[dict], dest: Path, fps: int) -> None:
             text = cue['text'].strip().replace('\\', '＼').replace('{', '(').replace('}', ')').replace('\n', ' ')
             lines.append(f"Dialogue: 0,{ass_time(offset+cue['start'])},{ass_time(offset+cue['end'])},Narration,,0,0,0,,{text}\n")
         offset += math.ceil(scene['seconds'] * fps)/fps
+    if disclosure:
+        text=disclosure.replace('\\','＼').replace('{','(').replace('}',')').replace('\n',' ')
+        lines.append(f"Dialogue: 1,{ass_time(max(0,offset-4))},{ass_time(offset)},Narration,,0,0,0,,{{\\an8\\fs30\\bord1\\pos(500,115)}}{text}\n")
     dest.write_text(''.join(lines), encoding='utf-8')
 
 
@@ -232,6 +240,11 @@ def cover(image: Path, title: str, output: Path, w: int, h: int) -> None:
 
 def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
                  subtitles_path: Path | None = None) -> None:
+    if scene.get('motion_clips'):
+        from .cinematic_edit import render
+        receipt=render(scene,output,w,h,fps,subtitles_path)
+        output.with_suffix('.edit.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2))
+        return
     # Smooth photographic push-in, not an artificial skeleton/cutout animation.
     frames = math.ceil(scene["seconds"] * fps)
     args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
@@ -315,6 +328,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
     assets = {str(p.relative_to(item["base"])): sha(p)
               for scene in item["entries"]
               for p in (scene["image"], scene["voice"], scene["music"], scene["motion_video"]) if p}
+    assets.update({str(p.relative_to(item['base'])):sha(p) for scene in item['entries'] for p in scene['motion_clips']})
     if item['master_audio']:
         length=duration(item['master_audio'])
         expected=sum(math.ceil(s['seconds']*item['fps'])/item['fps'] for s in item['entries'])
@@ -332,10 +346,10 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         clips = staging / "clips"
         clips.mkdir()
         write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
-        write_ass(item['entries'], staging/'subtitles.ass', item['fps'])
+        write_ass(item['entries'], staging/'subtitles.ass', item['fps'],item['ai_disclosure'])
         for index, scene in enumerate(item["entries"], 1):
             scene_captions=clips/f'{index:03d}.ass'
-            write_ass([scene],scene_captions,item['fps'])
+            write_ass([scene],scene_captions,item['fps'],item['ai_disclosure'] if index==len(item['entries']) else None)
             render_scene(scene, clips / f"{index:03d}.mp4",
                          item["width"], item["height"], item["fps"],subtitles_path=scene_captions)
         playlist = staging / "clips.txt"
@@ -359,6 +373,8 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         report = qa(staging / "final.mp4", item["width"], item["height"], item["fps"])
         report["smoke_only"] = smoke
         report["real_motion_video_scenes"] = sum(bool(s["motion_video"]) for s in item["entries"])
+        report['neural_clip_montage_scenes']=sum(bool(s['motion_clips']) for s in item['entries'])
+        report['editorial_shots']=[json.loads(p.read_text()) for p in sorted(clips.glob('*.edit.json'))]
         report["music_for_all_scenes"] = all(s["music"] for s in item["entries"])
         (staging / "qa_report.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
