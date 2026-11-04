@@ -204,6 +204,14 @@ def reconcile(source_path: Path, media_root: Path, output: Path) -> dict:
                     _safe_extract(z, root)
             else:
                 raise ReconcileBlocked("Original Work Batch03 source is absent")
+            if not (root / "production_queue" / "13" / "project.json").is_file():
+                possible = sorted({
+                    p.parent.parent.parent for p in root.rglob("project.json")
+                    if p.parent.name == "13" and p.parent.parent.name == "production_queue"
+                })
+                if len(possible) != 1:
+                    raise ReconcileBlocked("Original source layout is missing or ambiguous")
+                root = possible[0]
             manifest = []
             for story in STORIES:
                 origin, _ = project(root, story)
