@@ -149,7 +149,8 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
                         "music": music, "motion_video": motion, "seconds": length, "cues": cues})
     return {"id": doc["id"], "title": title, "base": base, "script": script,
             "digest": digest, "width": width, "height": height,
-            "fps": fps, "entries": entries, "smoke": smoke}
+            "fps": fps, "entries": entries, "smoke": smoke,
+            "master_audio": asset(base,doc['master_audio'],ALLOWED_AUDIO) if doc.get('master_audio') else None}
 
 
 def _run(args: list[str]) -> None:
@@ -229,7 +230,8 @@ def cover(image: Path, title: str, output: Path, w: int, h: int) -> None:
     picture.save(output, quality=94, subsampling=0)
 
 
-def render_scene(scene: dict, output: Path, w: int, h: int, fps: int) -> None:
+def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
+                 subtitles_path: Path | None = None) -> None:
     # Smooth photographic push-in, not an artificial skeleton/cutout animation.
     frames = math.ceil(scene["seconds"] * fps)
     args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
@@ -249,6 +251,9 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int) -> None:
                          f"crop={w}:{h},fps={fps},format=yuv420p[v]")
     else:
         motion_filter = '[0:v]format=yuv420p[v]'
+    if subtitles_path:
+        escaped=str(subtitles_path).replace('\\','\\\\').replace(':','\\:').replace("'","\\'")
+        motion_filter=motion_filter.replace('[v]',f",ass='{escaped}'[v]")
     filt = motion_filter + ";[1:a]aresample=48000,aformat=channel_layouts=stereo,apad[voice]"
     if with_music:
         filt += (";[voice]asplit=2[mainvoice][keyvoice];"
@@ -310,6 +315,12 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
     assets = {str(p.relative_to(item["base"])): sha(p)
               for scene in item["entries"]
               for p in (scene["image"], scene["voice"], scene["music"], scene["motion_video"]) if p}
+    if item['master_audio']:
+        length=duration(item['master_audio'])
+        expected=sum(math.ceil(s['seconds']*item['fps'])/item['fps'] for s in item['entries'])
+        if abs(length-expected)>.08:
+            raise Blocked('Mixed story audio differs from the full original narration timeline')
+        assets[str(item['master_audio'].relative_to(item['base']))]=sha(item['master_audio'])
     if dry_run:
         return {"status": "ASSETS_READY", "dry_run": True,
                 "story": item["id"], "scenes": len(item["entries"]),
@@ -320,25 +331,29 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         staging = Path(td)
         clips = staging / "clips"
         clips.mkdir()
+        write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
+        write_ass(item['entries'], staging/'subtitles.ass', item['fps'])
         for index, scene in enumerate(item["entries"], 1):
+            scene_captions=clips/f'{index:03d}.ass'
+            write_ass([scene],scene_captions,item['fps'])
             render_scene(scene, clips / f"{index:03d}.mp4",
-                         item["width"], item["height"], item["fps"])
+                         item["width"], item["height"], item["fps"],subtitles_path=scene_captions)
         playlist = staging / "clips.txt"
         playlist.write_text(
             "".join(f"file '{p.resolve()}'\n" for p in sorted(clips.glob("*.mp4"))),
             encoding="utf-8")
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0",
               "-i", str(playlist), "-c", "copy", str(staging / "joined.mp4")])
-        write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
-        write_ass(item['entries'], staging/'subtitles.ass', item['fps'])
-        srt = (str(staging / "subtitles.ass").replace("\\", "\\\\")
-               .replace(":", "\\:").replace("'", "\\'"))
-        _run(["ffmpeg", "-v", "error", "-nostdin", "-y",
-              "-i", str(staging / "joined.mp4"),
-              "-vf", f"ass='{srt}'",
-              "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-              "-pix_fmt", "yuv420p", "-c:a", "copy",
-              "-movflags", "+faststart", str(staging / "final.mp4")])
+        # Captions were burned once per scene; the full portrait movie does
+        # not need a second costly H.264 encode with the same subtitle pixels.
+        args=['ffmpeg','-v','error','-nostdin','-y','-i',str(staging/'joined.mp4')]
+        if item['master_audio']:
+            args+=['-i',str(item['master_audio']),'-map','0:v:0','-map','1:a:0',
+                   '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-ac','2']
+        else:
+            args+=['-c','copy']
+        args+=['-movflags','+faststart',str(staging/'final.mp4')]
+        _run(args)
         cover(item["entries"][0]["image"], item["title"], staging / "cover.jpg",
               item["width"], item["height"])
         report = qa(staging / "final.mp4", item["width"], item["height"], item["fps"])

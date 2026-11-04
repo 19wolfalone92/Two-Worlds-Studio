@@ -113,13 +113,19 @@ def main():
         if torch.cuda.device_count() < 2:
             raise ValueError('Use the tested single-card offload path')
         pipe = Flux2KleinPipeline.from_pretrained(str(model_root/'image'),
-                    torch_dtype=torch.float16,local_files_only=True,
+                    dtype=torch.float16,local_files_only=True,
                     device_map='balanced',max_memory={0:'13GiB',1:'13GiB','cpu':'20GiB'})
+        if str(pipe.hf_device_map.get('transformer','')).startswith('cpu'):
+            raise ValueError('Do not silently run the diffusion transformer on CPU')
+        if next(pipe.transformer.parameters()).dtype != torch.float16:
+            raise ValueError('Unexpected FLUX inference dtype')
         pipe.vae.enable_tiling()
         pipe.vae.enable_slicing()
         state['placement'] = {str(k):str(v) for k,v in pipe.hf_device_map.items()}
     except (ValueError,NotImplementedError,torch.cuda.OutOfMemoryError) as exc:
         state['placement_fallback'] = type(exc).__name__
+        if 'pipe' in locals():
+            del pipe
         gc.collect()
         torch.cuda.empty_cache()
         pipe = Flux2KleinPipeline.from_pretrained(str(model_root/'image'),

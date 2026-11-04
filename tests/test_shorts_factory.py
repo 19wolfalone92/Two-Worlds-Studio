@@ -59,6 +59,12 @@ class ShortsFactoryTests(unittest.TestCase):
         with self.assertRaises(Blocked):
             validate_project(self.manifest)
 
+    def test_shortened_full_audio_mix_is_rejected(self):
+        self.doc['master_audio']='audio/1.wav'
+        self.save()
+        with self.assertRaisesRegex(Blocked,'full original narration timeline'):
+            run(self.manifest,self.root/'out',smoke=True,dry_run=True)
+
     def test_missing_voice_fails_closed(self):
         self.doc["scenes"][1]["voice"] = "audio/not_found.wav"
         self.save()
