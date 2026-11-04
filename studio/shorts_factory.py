@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageOps,ImageEnhance
 
-VERSION = "1.1.0"
+VERSION = "1.2.1"
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_AUDIO = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
@@ -156,11 +156,13 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
             previous = end
         entries.append({"id": scene["id"], "image": image, "voice": voice,
                         "music": music, "motion_video": motion, "motion_clips":takes,"seconds": length,
-                        "foreground_soft_focus":focus,"cues": cues})
+                        "foreground_soft_focus":focus,"cues": cues,
+                        "camera":scene.get("camera","push_in"),
+                        "camera_strength":scene.get("camera_strength",.35)})
     return {"id": doc["id"], "title": title, "base": base, "script": script,
             "digest": digest, "width": width, "height": height,
             "fps": fps, "entries": entries, "smoke": smoke,
-            "ai_disclosure":doc.get('ai_disclosure'),
+            "ai_disclosure":doc.get('ai_disclosure'), "intro_hook":doc.get('intro_hook'),
             "master_audio": asset(base,doc['master_audio'],ALLOWED_AUDIO) if doc.get('master_audio') else None}
 
 
@@ -190,7 +192,7 @@ def write_srt(entries: list[dict], dest: Path, fps: int) -> None:
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_ass(entries: list[dict], dest: Path, fps: int,disclosure: str | None = None) -> None:
+def write_ass(entries: list[dict], dest: Path, fps: int,disclosure: str | None = None,hook_text: str | None = None) -> None:
     """Explicit portrait canvas and margins keep captions above TikTok controls."""
     header = ('[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n'
               'WrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n'
@@ -212,6 +214,9 @@ def write_ass(entries: list[dict], dest: Path, fps: int,disclosure: str | None =
             text = cue['text'].strip().replace('\\', '＼').replace('{', '(').replace('}', ')').replace('\n', ' ')
             lines.append(f"Dialogue: 0,{ass_time(offset+cue['start'])},{ass_time(offset+cue['end'])},Narration,,0,0,0,,{text}\n")
         offset += math.ceil(scene['seconds'] * fps)/fps
+    if hook_text:
+        text=hook_text.replace('\\','＼').replace('{','(').replace('}',')').replace('\n',' ')
+        lines.append(f"Dialogue: 2,0:00:00.00,{ass_time(min(2.0,offset))},Narration,,0,0,0,,{{\\an8\\fs64\\bord3\\pos(500,185)}}{text}\n")
     if disclosure:
         text=disclosure.replace('\\','＼').replace('{','(').replace('}',')').replace('\n',' ')
         lines.append(f"Dialogue: 1,{ass_time(max(0,offset-4))},{ass_time(offset)},Narration,,0,0,0,,{{\\an8\\fs30\\bord1\\pos(500,115)}}{text}\n")
@@ -264,7 +269,7 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
     else:
         from .smooth_camera import render_still
         camera_clip = output.with_suffix('.camera.mp4')
-        render_still(scene['image'], camera_clip, w, h, fps, frames, 'push_in', strength=.35)
+        render_still(scene['image'], camera_clip, w, h, fps, frames, scene.get('camera','push_in'), strength=scene.get('camera_strength',.35))
         args += ['-i', str(camera_clip)]
     args += ["-i", str(scene["voice"])]
     with_music = scene["music"] is not None
@@ -290,7 +295,7 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
     else:
         filt += ";[voice]alimiter=limit=0.92[a]"
     args += ["-filter_complex", filt, "-map", "[v]", "-map", "[a]",
-             "-frames:v", str(frames), "-c:v", "libx264", "-preset", "medium",
+             "-frames:v", str(frames), "-c:v", "libx264", "-threads", "2", "-preset", "medium",
              "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(fps),
              "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
              "-t", f"{frames/fps:.6f}", "-movflags", "+faststart", str(output)]
@@ -315,7 +320,7 @@ def qa(video: Path, w: int, h: int, fps: int) -> dict:
     if len(f) != 2 or not int(f[1]) or abs(int(f[0]) / int(f[1]) - fps) > .01:
         raise RuntimeError("Wrong output frame rate")
     decoded=subprocess.run(['ffmpeg','-hide_banner','-nostdin','-nostats','-v','info','-xerror',
-        '-i',str(video),'-vf','blackdetect=d=0.04:pix_th=0.025:pic_th=0.995','-f','null','-'],
+        '-i',str(video),'-vf','blackdetect=d=0:pix_th=0.025:pic_th=0.995','-f','null','-'],
         capture_output=True,text=True)
     if decoded.returncode:raise RuntimeError('Full final video decode failed: '+decoded.stderr[-1700:])
     black_intervals=[line.strip() for line in decoded.stderr.splitlines() if 'black_start:' in line]
@@ -364,14 +369,15 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         clips.mkdir()
         cache=destination/'.scene_cache'/item['id'];cache.mkdir(parents=True,exist_ok=True)
         write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
-        write_ass(item['entries'], staging/'subtitles.ass', item['fps'],item['ai_disclosure'])
+        write_ass(item['entries'], staging/'subtitles.ass', item['fps'],item['ai_disclosure'],item['intro_hook'])
         for index, scene in enumerate(item["entries"], 1):
             scene_captions=clips/f'{index:03d}.ass'
-            write_ass([scene],scene_captions,item['fps'],item['ai_disclosure'] if index==len(item['entries']) else None)
+            write_ass([scene],scene_captions,item['fps'],item['ai_disclosure'] if index==len(item['entries']) else None,item['intro_hook'] if index==1 else None)
             sources=[scene['image'],scene['voice'],scene['music'],scene['motion_video'],*scene['motion_clips']]
             fingerprint_data={'renderer':VERSION,'width':item['width'],'height':item['height'],
                 'fps':item['fps'],'source_hashes':[sha(p) for p in sources if p],
-                'captions':scene_captions.read_text(),'seconds':scene['seconds']}
+                'captions':scene_captions.read_text(),'seconds':scene['seconds'],
+                'camera':scene.get('camera','push_in'),'camera_strength':scene.get('camera_strength',.35)}
             if scene.get('foreground_soft_focus'):fingerprint_data['foreground_soft_focus']=scene['foreground_soft_focus']
             fingerprint=hashlib.sha256(json.dumps(fingerprint_data,sort_keys=True).encode()).hexdigest()
             cached=cache/f'{index:03d}_{fingerprint[:24]}.mp4';proof=cached.with_suffix('.cache.json')

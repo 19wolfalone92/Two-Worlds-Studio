@@ -105,6 +105,8 @@ def inventory(project_dir: Path) -> dict:
 
 def mood_of(shot: dict) -> str:
     exact = str(shot.get('music_cue', '')).lower()
+    if exact in {'neutral','tender','sad','mysterious','tense','hopeful'}:
+        return exact
     if exact in MOOD_FROM_CUE:
         return MOOD_FROM_CUE[exact]
     cue = str(shot.get("music_cue", "") + " " + shot.get("music_direction_ru", "")).lower()

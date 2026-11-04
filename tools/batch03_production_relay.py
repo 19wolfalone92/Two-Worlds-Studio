@@ -21,14 +21,20 @@ from pathlib import Path
 from studio.sealed_artifacts import generate_keys, seal, unseal
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMP = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / 'tw-batch03-relay'
+REQUEST_DIR = os.environ.get('TW_REQUEST_DIR', '.github/batch03_requests')
+RELAY_BRANCH = os.environ.get('TW_RELAY_BRANCH', 'integration/story-glitch-batch03-20261104')
+if REQUEST_DIR not in {'.github/batch03_requests', '.github/shortform04_requests'}:
+    raise ValueError('Unsupported private request directory')
+if RELAY_BRANCH not in {'integration/story-glitch-batch03-20261104', 'production/story-glitch-batch04-20261105'}:
+    raise ValueError('Unsupported production branch')
+TEMP = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / ('tw-shortform04-relay' if 'shortform04' in REQUEST_DIR else 'tw-batch03-relay')
 
 
 def request():
-    doc = json.loads((ROOT / '.github/batch03_requests/production.json').read_text())
+    doc = json.loads((ROOT / REQUEST_DIR / 'production.json').read_text())
     if (doc.get('schema') != 1 or doc.get('free_resources_only') is not True
             or doc.get('story') not in [str(i) for i in range(13, 19)]
-            or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'voice_qa', 'motion_prepare', 'motion_batch', 'preflight', 'recover'}
+            or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'voice_qa', 'motion_prepare', 'motion_batch', 'preflight', 'recover', 'status'}
             or not 1 <= doc.get('count', 0) <= 8):
         raise ValueError('Invalid explicitly bounded production request')
     import re
@@ -54,6 +60,11 @@ def request():
     if doc['phase'] == 'recover' and not re.fullmatch(
             r'wolf19loner92/(tw-batch03-[a-z0-9-]+|two-worlds-russian-(short|story)-gpu)', doc.get('kernel', '')):
         raise ValueError('Only this production kernel may be recovered')
+    if doc['phase'] == 'status' and (not isinstance(doc.get('kernels'), list)
+            or not 1 <= len(doc['kernels']) <= 4
+            or any(not re.fullmatch(r'wolf19loner92/tw-batch03-[a-z0-9-]+', k)
+                   for k in doc['kernels'])):
+        raise ValueError('Only bounded existing production status queries are permitted')
     return doc
 
 
@@ -84,8 +95,8 @@ def command(args, *, timeout=180):
 def receive(conf):
     name = 'input_' + conf['nonce'] + '.twenc.b64'
     endpoint = ('https://api.github.com/repos/19wolfalone92/Two-Worlds-Studio/contents/'
-                '.github/batch03_requests/' + name + '?ref=' +
-                urllib.parse.quote('integration/story-glitch-batch03-20261104', safe=''))
+                + REQUEST_DIR + '/' + name + '?ref=' +
+                urllib.parse.quote(RELAY_BRANCH, safe=''))
     deadline = time.monotonic() + 900
     while time.monotonic() < deadline:
         req = urllib.request.Request(endpoint, headers={
@@ -143,7 +154,24 @@ def produce():
     result_dir = TEMP / 'result'
     result_dir.mkdir(parents=True, exist_ok=True)
     try:
-        command(['kaggle', 'quota'])
+        quota = command(['kaggle', 'quota'])
+        if conf['phase'] == 'status':
+            summary['quota'] = quota
+            summary['kernel_statuses'] = {k: command(['kaggle', 'kernels', 'status', k])
+                                          for k in conf['kernels']}
+            if conf.get('query_progress') is True:
+                summary['progress_queries'] = {}
+                for index, kernel in enumerate(conf['kernels']):
+                    try:
+                        command(['kaggle', 'kernels', 'output', kernel,
+                                 '-p', str(result_dir / f'progress_{index}'), '--force',
+                                 '--file-pattern', r'(batch_(image|voice)_status\.json|TwoWorlds_PRIVATE_.*\.zip)$'],
+                                timeout=180)
+                        summary['progress_queries'][kernel] = 'AVAILABLE'
+                    except Exception as exc:
+                        summary['progress_queries'][kernel] = type(exc).__name__
+            summary['gpu_requested'] = False
+            return
         dataset = 'wolf19loner92/' + conf['dataset_slug']
         if conf['phase'] == 'recover':
             from studio.kaggle_api import poll_kernel
@@ -211,6 +239,9 @@ def produce():
                           'dataset_slug':conf['dataset_slug'],
                           'model_root':'/kaggle/input/'+cached.split('/')[1]+'/private_models',
                           'model_kernel_slug':cached.split('/')[1]}
+            if 'tasks' in conf:
+                from tools.kaggle_voice_batch_entry import voice_tasks
+                batch_conf['tasks'] = voice_tasks(conf)
             template = (ROOT/'tools/kaggle_voice_batch_entry.py').read_text()
             rendered = template.replace('__TW_VOICE_BATCH_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
             rendered = rendered.replace('__TW_VOICE_BATCH_SOURCE__',base64.b64encode(build_source(ROOT)).decode())

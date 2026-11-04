@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "nonce": "b04-progress-20261105-01",
+  "phase": "status",
+  "story": "15",
+  "count": 2,
+  "first_scene": 4,
+  "free_resources_only": true,
+  "dataset_slug": "two-worlds-private-batch03-b04-repair-20261105",
+  "source_sha256": "a68de0da0e4338783834b0504df57dc1e20327b15539a741c3087b27bbaaca45",
+  "model_kernel": "wolf19loner92/tw-batch03-voice-20261104-14-01",
+  "query_progress": true,
+  "kernels": [
+    "wolf19loner92/tw-batch03-b04-image-20261105-v2"
+  ]
+}
