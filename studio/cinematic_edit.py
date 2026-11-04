@@ -59,12 +59,29 @@ def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | Non
         filters.append(f'[{index}:v]fps={fps},{crop_filter(shot,w,h)},'
             f'tpad=stop_mode=clone:stop_duration={shot["frames"]/fps:.9f},'
             f'trim=end_frame={shot["frames"]},setpts=N/{fps}/TB,format=yuv420p[s{index}]')
-    voice_index=len(shots);args+=['-i',str(scene['voice'])]
+    next_input=len(shots)
+    focus=scene.get('foreground_soft_focus')
+    if focus:
+        from PIL import Image,ImageDraw
+        mask=output.with_suffix('.focus-mask.png');matte=Image.new('L',(w,h));draw=ImageDraw.Draw(matte)
+        for row in range(h):
+            value=max(0,min(1,(row/h-focus['start'])/(focus['end']-focus['start'])))
+            value=value*value*(3-2*value)
+            draw.line((0,row,w,row),fill=round(255*value))
+        matte.save(mask)
+        mask_index=next_input;next_input+=1
+        args+=['-loop','1','-framerate',str(fps),'-i',str(mask)]
+    voice_index=next_input;args+=['-i',str(scene['voice'])]
     filters.append(''.join(f'[s{i}]' for i in range(len(shots)))+f'concat=n={len(shots)}:v=1:a=0[edit]')
-    vf='[edit]null'
+    name='edit'
+    if focus:
+        filters.append(f"[edit]split=2[sharp][softsource];[softsource]gblur=sigma={focus['sigma']}[soft];"
+            f'[{mask_index}:v]format=yuv420p[mask];[sharp][soft][mask]maskedmerge=planes=1[focused]')
+        name='focused'
+    vf=f'[{name}]null'
     if subtitles:
         escaped=str(subtitles).replace('\\','\\\\').replace(':','\\:').replace("'","\\'")
-        vf=f"[edit]ass='{escaped}'"
+        vf=f"[{name}]ass='{escaped}'"
     filters.append(vf+'[v]')
     filters.append(f'[{voice_index}:a]aresample=48000,aformat=channel_layouts=stereo,apad[voice]')
     if scene.get('music'):
@@ -76,8 +93,8 @@ def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | Non
     else:filters.append('[voice]alimiter=limit=0.92[a]')
     frames=math.ceil(scene['seconds']*fps)
     args+=['-filter_complex',';'.join(filters),'-map','[v]','-map','[a]',
-        '-frames:v',str(frames),'-t',f'{frames/fps:.9f}','-c:v','libx264','-preset','medium',
-        '-crf','19','-threads','3','-pix_fmt','yuv420p','-r',str(fps),'-c:a','aac',
+        '-frames:v',str(frames),'-t',f'{frames/fps:.9f}','-c:v','libx264','-preset','fast',
+        '-crf','18','-threads','3','-pix_fmt','yuv420p','-r',str(fps),'-c:a','aac',
         '-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
         '-b:a','192k','-ar','48000','-ac','2','-movflags','+faststart',str(output)]
     result=subprocess.run(args,capture_output=True,text=True,timeout=1800)

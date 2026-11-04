@@ -131,6 +131,11 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
         if not isinstance(takes,list) or len(takes)>9:raise Blocked('Invalid bounded neural take list')
         takes=[asset(base,p,ALLOWED_VIDEO) for p in takes]
         for take in takes:video_duration(take)
+        focus=scene.get('foreground_soft_focus')
+        if focus is not None and (not isinstance(focus,dict) or
+            not all(isinstance(focus.get(k),(int,float)) and math.isfinite(focus[k]) for k in ['start','end','sigma'])
+            or not 0<=focus['start']<focus['end']<=1 or not 1<=focus['sigma']<=30):
+            raise Blocked('Invalid bounded foreground focus configuration')
         music = asset(base, scene["music"], ALLOWED_AUDIO) if scene.get("music") else None
         if music:
             duration(music)
@@ -150,7 +155,8 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
                 raise Blocked(f'Invalid real subtitle timestamp in scene {scene["id"]}')
             previous = end
         entries.append({"id": scene["id"], "image": image, "voice": voice,
-                        "music": music, "motion_video": motion, "motion_clips":takes,"seconds": length, "cues": cues})
+                        "music": music, "motion_video": motion, "motion_clips":takes,"seconds": length,
+                        "foreground_soft_focus":focus,"cues": cues})
     return {"id": doc["id"], "title": title, "base": base, "script": script,
             "digest": digest, "width": width, "height": height,
             "fps": fps, "entries": entries, "smoke": smoke,
@@ -308,7 +314,12 @@ def qa(video: Path, w: int, h: int, fps: int) -> dict:
     f = v.get("avg_frame_rate", "0/1").split("/")
     if len(f) != 2 or not int(f[1]) or abs(int(f[0]) / int(f[1]) - fps) > .01:
         raise RuntimeError("Wrong output frame rate")
-    _run(["ffmpeg", "-v", "error", "-xerror", "-i", str(video), "-f", "null", "-"])
+    decoded=subprocess.run(['ffmpeg','-hide_banner','-nostdin','-nostats','-v','info','-xerror',
+        '-i',str(video),'-vf','blackdetect=d=0.04:pix_th=0.025:pic_th=0.995','-f','null','-'],
+        capture_output=True,text=True)
+    if decoded.returncode:raise RuntimeError('Full final video decode failed: '+decoded.stderr[-1700:])
+    black_intervals=[line.strip() for line in decoded.stderr.splitlines() if 'black_start:' in line]
+    if black_intervals:raise RuntimeError('Final video contains black frames: '+'; '.join(black_intervals))
     with tempfile.TemporaryDirectory() as tmp:
         frame = Path(tmp) / "first.png"
         _run(["ffmpeg", "-v", "error", "-i", str(video), "-frames:v", "1", str(frame)])
@@ -317,6 +328,7 @@ def qa(video: Path, w: int, h: int, fps: int) -> dict:
         if mean < 9:
             raise RuntimeError(f"First frame is near-black: brightness={mean:.1f}")
     return {"technical_pass": True, "full_decode_pass": True,
+            'full_timeline_black_frame_check':True,'black_intervals':[],
             "first_frame_mean": round(mean, 2),
             "width": w, "height": h, "fps": fps,
             "duration_s": float(info.get("format", {}).get("duration", 0)),
@@ -357,9 +369,11 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
             scene_captions=clips/f'{index:03d}.ass'
             write_ass([scene],scene_captions,item['fps'],item['ai_disclosure'] if index==len(item['entries']) else None)
             sources=[scene['image'],scene['voice'],scene['music'],scene['motion_video'],*scene['motion_clips']]
-            fingerprint=hashlib.sha256(json.dumps({'renderer':VERSION,'width':item['width'],'height':item['height'],
+            fingerprint_data={'renderer':VERSION,'width':item['width'],'height':item['height'],
                 'fps':item['fps'],'source_hashes':[sha(p) for p in sources if p],
-                'captions':scene_captions.read_text(),'seconds':scene['seconds']},sort_keys=True).encode()).hexdigest()
+                'captions':scene_captions.read_text(),'seconds':scene['seconds']}
+            if scene.get('foreground_soft_focus'):fingerprint_data['foreground_soft_focus']=scene['foreground_soft_focus']
+            fingerprint=hashlib.sha256(json.dumps(fingerprint_data,sort_keys=True).encode()).hexdigest()
             cached=cache/f'{index:03d}_{fingerprint[:24]}.mp4';proof=cached.with_suffix('.cache.json')
             valid=False
             if cached.is_file() and proof.is_file():
@@ -393,6 +407,10 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         cover(item["entries"][0]["image"], item["title"], staging / "cover.jpg",
               item["width"], item["height"])
         report = qa(staging / "final.mp4", item["width"], item["height"], item["fps"])
+        expected=sum(math.ceil(s['seconds']*item['fps'])/item['fps'] for s in item['entries'])
+        if abs(report['duration_s']-expected)>.10:raise RuntimeError('Final movie changed the full original narration duration')
+        report['full_original_narration_clock_s']=expected
+        report['duration_matches_full_original_narration']=True
         report["smoke_only"] = smoke
         report["real_motion_video_scenes"] = sum(bool(s["motion_video"]) for s in item["entries"])
         report['neural_clip_montage_scenes']=sum(bool(s['motion_clips']) for s in item['entries'])

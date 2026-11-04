@@ -1,18 +1,21 @@
 {
   "schema": 1,
-  "nonce": "image-coach-repair-20261104-02",
-  "phase": "image_batch",
+  "nonce": "motion-coach-final-20261104-01",
+  "phase": "motion_batch",
+  "motion_memory_mode": "resident",
   "story": "15",
   "stories": [
     15
   ],
   "count": 1,
   "first_scene": 5,
-  "width": 864,
-  "height": 1536,
+  "variants": 3,
+  "frames": 81,
+  "width": 512,
+  "height": 896,
   "free_resources_only": true,
   "dataset_slug": "two-worlds-private-batch03-20261104-repair-v7",
   "source_sha256": "f45ff5bcd7633e361d65aa6cf43870a414f9e4f6ea95c7c0c4d3713f38ec9912",
-  "model_kernel": "wolf19loner92/tw-batch03-image-20261104-repair01",
-  "recovery_kernel": "wolf19loner92/tw-batch03-image-six-20261104-01"
+  "model_kernel": "wolf19loner92/tw-batch03-motion-cpu-cache-20261104-01",
+  "image_kernel": "wolf19loner92/tw-batch03-image-coach-repair-20261104-02"
 }

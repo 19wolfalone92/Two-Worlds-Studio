@@ -24,7 +24,8 @@ class CinematicClockTests(unittest.TestCase):
             subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','testsrc2=size=180x320:rate=12',
                             '-t','0.5','-c:v','libx264','-pix_fmt','yuv420p',str(clip)],check=True)
             out=root/'edit.mp4'
-            receipt=render({'seconds':4,'motion_clips':[clip]*3,'image':image,'voice':voice},out,180,320,12,None)
+            receipt=render({'seconds':4,'motion_clips':[clip]*3,'image':image,'voice':voice,
+                            'foreground_soft_focus':{'start':.58,'end':.74,'sigma':8}},out,180,320,12,None)
             info=probe(out);video=next(s for s in info['streams'] if s['codec_type']=='video')
             self.assertEqual(int(video['nb_frames']),48)
             self.assertAlmostEqual(float(info['format']['duration']),4,delta=.08)
