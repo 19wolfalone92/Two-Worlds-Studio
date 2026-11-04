@@ -1,21 +1,21 @@
 name: TWO WORLDS - Batch03 private account preflight
 on:
-  pull_request:
-    types: [opened, synchronize]
+  push:
+    branches: ['integration/story-glitch-batch03-20261104']
     paths: ['.github/batch03_requests/request.json']
 permissions:
   contents: read
 jobs:
   read-only-preflight:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'integration/story-glitch-batch03-20261104'
+      github.repository == '19wolfalone92/Two-Worlds-Studio' &&
+      github.ref == 'refs/heads/integration/story-glitch-batch03-20261104'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

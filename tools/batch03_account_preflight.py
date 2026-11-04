@@ -36,7 +36,7 @@ def main():
     kernels = results.get('kernels', {})
     if kernels.get('returncode') == 0:
         candidates = [r['ref'] for r in csv.DictReader(io.StringIO(kernels['stdout']))
-                      if 'batch03' in r.get('ref', '') or 'russian-short' in r.get('ref', '')]
+                      if 'batch03' in r.get('ref', '') or 'russian-story' in r.get('ref', '')]
         for handle in candidates[:5]:
             proc = subprocess.run(['kaggle', 'kernels', 'status', handle],
                                   capture_output=True, text=True, timeout=90)
