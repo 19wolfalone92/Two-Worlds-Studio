@@ -27,7 +27,7 @@ def request():
     doc = json.loads((ROOT / '.github/batch03_requests/production.json').read_text())
     if (doc.get('schema') != 1 or doc.get('free_resources_only') is not True
             or doc.get('story') not in [str(i) for i in range(13, 19)]
-            or doc.get('phase') not in {'seed_image', 'image', 'voice', 'voice_batch', 'preflight', 'recover'}
+            or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'preflight', 'recover'}
             or not 1 <= doc.get('count', 0) <= 8):
         raise ValueError('Invalid explicitly bounded production request')
     import re
@@ -46,7 +46,7 @@ def request():
 def prepare():
     conf = request()
     TEMP.mkdir(mode=0o700)
-    if conf['phase'] == 'seed_image':
+    if conf['phase'] in {'seed_image', 'seed_only'}:
         generate_keys(TEMP / 'input_private.pem', ROOT / 'dist/handshake/input_public.pem')
     else:
         (ROOT / 'dist/handshake').mkdir(parents=True, exist_ok=True)
@@ -117,7 +117,7 @@ def produce():
                      '--force', '--file-pattern', r'(TwoWorlds_PRIVATE_.*\.zip|two_worlds_kaggle_receipt\.json)$'],
                     timeout=300)
             return
-        if conf['phase'] == 'seed_image':
+        if conf['phase'] in {'seed_image', 'seed_only'}:
             source = receive(conf)
             upload = TEMP / 'source_upload'
             upload.mkdir()
@@ -139,10 +139,13 @@ def produce():
                     time.sleep(10)
             if not ready:
                 raise RuntimeError('Private source dataset did not become available')
+            if conf['phase'] == 'seed_only':
+                summary['gpu_requested'] = False
+                return
         from studio.kaggle_shorts import build_kernel
         from studio.kaggle_api import poll_kernel
         phase = 'image' if conf['phase'] == 'seed_image' else conf['phase']
-        build_phase = 'voice' if phase == 'voice_batch' else phase
+        build_phase = 'voice' if phase == 'voice_batch' else 'image' if phase == 'image_batch' else phase
         cached = conf.get('model_kernel')
         repair_cache = bool(cached and conf.get('repair_cached_model'))
         slug = 'tw-batch03-' + conf['nonce']
@@ -171,6 +174,21 @@ def produce():
             rendered = template.replace('__TW_VOICE_BATCH_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
             rendered = rendered.replace('__TW_VOICE_BATCH_SOURCE__',base64.b64encode(build_source(ROOT)).decode())
             (kernel_dir/'kernel_main.py').write_text(rendered)
+        if phase == 'image_batch':
+            if not cached:
+                raise ValueError('Image batch requires the already validated shared FLUX cache')
+            from studio.kaggle_shorts import build_source
+            batch_conf = {'source_path':'/kaggle/input/'+conf['dataset_slug']+'/batch03_source.zip',
+                          'dataset_slug':conf['dataset_slug'],
+                          'model_root':'/kaggle/input/'+cached.split('/')[1]+'/private_models',
+                          'model_kernel_slug':cached.split('/')[1],
+                          'stories':conf.get('stories', list(range(13,19))),
+                          'first_scene':conf.get('first_scene',1),'count':conf['count'],
+                          'width':conf.get('width',864),'height':conf.get('height',1536)}
+            template = (ROOT/'tools/kaggle_image_batch_entry.py').read_text()
+            rendered = template.replace('__TW_IMAGE_BATCH_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
+            rendered = rendered.replace('__TW_IMAGE_BATCH_SOURCE__',base64.b64encode(build_source(ROOT)).decode())
+            (kernel_dir/'kernel_main.py').write_text(rendered)
         metadata_path = kernel_dir / 'kernel-metadata.json'
         metadata = json.loads(metadata_path.read_text())
         # Kaggle can derive a new kernel's URL suffix from its title.
@@ -178,8 +196,8 @@ def produce():
         metadata_path.write_text(json.dumps(metadata, indent=2))
         summary['kernel'] = prepared['kernel']
         args = ['kaggle', 'kernels', 'push', '-p', str(kernel_dir), '--timeout',
-                '9600' if phase=='voice_batch' else '3600']
-        if phase in {'image', 'voice', 'voice_batch'}:
+                '10800' if phase in {'voice_batch','image_batch'} else '3600']
+        if phase in {'image', 'image_batch', 'voice', 'voice_batch'}:
             args += ['--accelerator', 'NvidiaTeslaT4']
         pushed = command(args)
         (result_dir / 'submission_response.txt').write_text(pushed)
@@ -191,11 +209,11 @@ def produce():
         summary['submitted'] = True
         try:
             summary['kernel_status'] = poll_kernel(prepared['kernel'],
-                timeout_seconds=5400 if phase=='voice_batch' else 3500, interval_seconds=45)
+                timeout_seconds=9600 if phase in {'voice_batch','image_batch'} else 3500, interval_seconds=45)
         except Exception as exc:
             summary['kernel_error'] = type(exc).__name__ + ': ' + str(exc)
         command(['kaggle', 'kernels', 'output', prepared['kernel'], '-p', str(result_dir),
-                 '--force', '--file-pattern', r'(TwoWorlds_PRIVATE_.*\.zip|two_worlds_kaggle_receipt\.json|batch_voice_.*\.json)$'],
+                 '--force', '--file-pattern', r'(TwoWorlds_PRIVATE_.*\.zip|two_worlds_kaggle_receipt\.json|batch_(voice|image)_.*\.json)$'],
                 timeout=300)
         summary['downloaded_files'] = len([p for p in result_dir.rglob('*') if p.is_file()])
     except Exception as exc:

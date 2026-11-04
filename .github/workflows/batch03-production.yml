@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: tw-private-batch03
+  group: tw-private-batch03-${{ contains(github.event.head_commit.message, '[cpu-source]') && 'source' || 'media' }}
   cancel-in-progress: false
 jobs:
   production:
