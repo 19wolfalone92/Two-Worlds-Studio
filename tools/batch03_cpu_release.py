@@ -20,7 +20,7 @@ from pathlib import Path
 
 from studio.private_batch_reconcile import reconcile, digest
 from studio.autonomous_batch import execute
-from tools.batch03_production_relay import seal_return
+from tools.batch03_production_relay import seal_return, TEMP as SEAL_TEMP
 from tools.batch03_inventory_public import list_owned_kernels, discover_output_kinds
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -118,7 +118,23 @@ def release(config_path: Path, output: Path) -> dict:
             input_dir = root / "original"; input_dir.mkdir()
             command("datasets", "download", f"{OWNER}/{DATASET}",
                     "--file", "batch03_source.zip", "--path", str(input_dir),
-                    "--unzip", "--quiet", timeout=600)
+                    "--quiet", timeout=600)
+            # Some Kaggle API versions wrap a requested ZIP in another ZIP.
+            # Unwrap only that single filename, never extract private content to logs.
+            if not list(input_dir.rglob("batch03_source.zip")):
+                wrappers = list(input_dir.rglob("batch03_source.zip.zip"))
+                if len(wrappers) != 1:
+                    raise ReleaseBlocked("The private original source archive is unavailable")
+                with zipfile.ZipFile(wrappers[0]) as packaged:
+                    candidates = [item for item in packaged.infolist()
+                                  if Path(item.filename).name == "batch03_source.zip"
+                                  and not Path(item.filename).is_absolute()
+                                  and ".." not in Path(item.filename).parts]
+                    if len(candidates) != 1:
+                        raise ReleaseBlocked("Ambiguous wrapped original source archive")
+                    target = input_dir / "batch03_source.zip"
+                    with packaged.open(candidates[0]) as incoming, target.open("xb") as outgoing:
+                        shutil.copyfileobj(incoming, outgoing, length=1024 * 1024)
             source = source_location(input_dir)
             index = index_private_outputs()
             # Never download gigantic motion clips in this free CPU pass:
@@ -136,7 +152,7 @@ def release(config_path: Path, output: Path) -> dict:
                     name = f"TwoWorlds_PRIVATE_{story}_{phase}.zip"
                     # Regex anchored to a trusted exact output basename.
                     command("kernels", "output", handle, "--path", str(dst),
-                            "--file-pattern", "^" + re.escape(name) + "$",
+                            "--file-pattern", re.escape(name) + "$",
                             "--force", "--quiet", timeout=600)
                     candidates = list(dst.rglob(name))
                     if len(candidates) != 1 or candidates[0].is_symlink():
@@ -160,6 +176,7 @@ def release(config_path: Path, output: Path) -> dict:
                 if summary["video_files"]:
                     saved = root / "private_reviews.zip"
                     safe_package(root / "unpublished_exports", saved)
+                    SEAL_TEMP.mkdir(parents=True, exist_ok=True)
                     seal_return(saved, ROOT / ".github/batch03_requests/recipient_public.pem",
                                 output, config["nonce"])
                     summary["encrypted_return"] = True
@@ -174,6 +191,7 @@ def release(config_path: Path, output: Path) -> dict:
         if not summary["encrypted_return"]:
             detail = root / "private_release_status.json"
             detail.write_text(json.dumps(summary, ensure_ascii=False, indent=2))
+            SEAL_TEMP.mkdir(parents=True, exist_ok=True)
             seal_return(detail, ROOT / ".github/batch03_requests/recipient_public.pem",
                         output, config["nonce"])
             summary["encrypted_return"] = True
