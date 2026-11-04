@@ -1,11 +1,12 @@
 {
   "schema": 1,
-  "nonce": "seed-20261104-01",
-  "phase": "seed_image",
+  "nonce": "recover-20261104-01",
+  "phase": "recover",
   "story": "13",
   "count": 1,
   "first_scene": 1,
   "free_resources_only": true,
   "dataset_slug": "two-worlds-private-batch03-20261104",
-  "source_sha256": "cb32a1f19a4f69a1aeb7902069d45125b1452e454b66ae283393f151674d09e7"
+  "source_sha256": "cb32a1f19a4f69a1aeb7902069d45125b1452e454b66ae283393f151674d09e7",
+  "kernel": "wolf19loner92/two-worlds-russian-story-gpu"
 }

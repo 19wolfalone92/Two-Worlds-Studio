@@ -27,7 +27,7 @@ def request():
     doc = json.loads((ROOT / '.github/batch03_requests/production.json').read_text())
     if (doc.get('schema') != 1 or doc.get('free_resources_only') is not True
             or doc.get('story') not in [str(i) for i in range(13, 19)]
-            or doc.get('phase') not in {'seed_image', 'image', 'voice', 'preflight'}
+            or doc.get('phase') not in {'seed_image', 'image', 'voice', 'preflight', 'recover'}
             or not 1 <= doc.get('count', 0) <= 8):
         raise ValueError('Invalid explicitly bounded production request')
     import re
@@ -37,6 +37,9 @@ def request():
         raise ValueError('Invalid private production dataset')
     if not re.fullmatch(r'[0-9a-f]{64}', doc.get('source_sha256', '')):
         raise ValueError('Missing immutable source checksum')
+    if doc['phase'] == 'recover' and not re.fullmatch(
+            r'wolf19loner92/(tw-batch03-[a-z0-9-]+|two-worlds-russian-(short|story)-gpu)', doc.get('kernel', '')):
+        raise ValueError('Only this production kernel may be recovered')
     return doc
 
 
@@ -102,6 +105,18 @@ def produce():
     try:
         command(['kaggle', 'quota'])
         dataset = 'wolf19loner92/' + conf['dataset_slug']
+        if conf['phase'] == 'recover':
+            from studio.kaggle_api import poll_kernel
+            summary['kernel'] = conf['kernel']
+            try:
+                summary['kernel_status'] = poll_kernel(conf['kernel'], timeout_seconds=3500,
+                                                       interval_seconds=45)
+            except Exception as exc:
+                summary['kernel_error'] = type(exc).__name__ + ': ' + str(exc)
+            command(['kaggle', 'kernels', 'output', conf['kernel'], '-p', str(result_dir),
+                     '--force', '--file-pattern', r'(TwoWorlds_PRIVATE_.*\.zip|two_worlds_kaggle_receipt\.json)$'],
+                    timeout=300)
+            return
         if conf['phase'] == 'seed_image':
             source = receive(conf)
             upload = TEMP / 'source_upload'
@@ -137,6 +152,11 @@ def produce():
             model_path=('/kaggle/working/private_models' if phase in {'image', 'voice'}
                         else '/kaggle/input/no-models-required'),
             install_deps=True, bootstrap=(phase in {'image', 'voice'}))
+        metadata_path = kernel_dir / 'kernel-metadata.json'
+        metadata = json.loads(metadata_path.read_text())
+        # Kaggle can derive a new kernel's URL suffix from its title.
+        metadata['title'] = slug.replace('-', ' ')
+        metadata_path.write_text(json.dumps(metadata, indent=2))
         summary['kernel'] = prepared['kernel']
         args = ['kaggle', 'kernels', 'push', '-p', str(kernel_dir), '--timeout', '3600']
         if phase in {'image', 'voice'}:

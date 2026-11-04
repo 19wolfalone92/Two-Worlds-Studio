@@ -47,7 +47,18 @@ def main():
         dst.mkdir(parents=True, exist_ok=True)
         snapshot_download(repo_id=mapping[phase], local_dir=str(dst))
     from studio.kaggle_shorts_worker import main as worker
-    args = ['--source', conf['source_path'], '--story', conf['story'],
+    source_path = Path(conf['source_path'])
+    if not source_path.exists():
+        matches = list(Path('/kaggle/input').rglob(source_path.name))
+        if len(matches) == 1:
+            source_path = matches[0]
+        else:
+            # Kaggle may unpack a Dataset ZIP before mounting it.
+            projects = [p for p in Path('/kaggle/input').rglob('project.json')
+                        if p.parent.name == conf['story'] and p.parent.parent.name == 'production_queue']
+            if len(projects) == 1:
+                source_path = projects[0].parent.parent.parent
+    args = ['--source', str(source_path), '--story', conf['story'],
             '--phase', phase, '--models', str(model_root),
             '--work', '/kaggle/working/tw_private_project',
             '--out', '/kaggle/working', '--start', str(conf['first_scene']),

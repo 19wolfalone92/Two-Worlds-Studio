@@ -211,7 +211,10 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int) -> None:
     if scene["motion_video"]:
         args += ["-i", str(scene["motion_video"])]
     else:
-        args += ["-loop", "1", "-framerate", str(fps), "-i", str(scene["image"])]
+        from .smooth_camera import render_still
+        camera_clip = output.with_suffix('.camera.mp4')
+        render_still(scene['image'], camera_clip, w, h, fps, frames, 'push_in', strength=.35)
+        args += ['-i', str(camera_clip)]
     args += ["-i", str(scene["voice"])]
     with_music = scene["music"] is not None
     if with_music:
@@ -220,12 +223,7 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int) -> None:
         motion_filter = (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
                          f"crop={w}:{h},fps={fps},format=yuv420p[v]")
     else:
-        sw, sh = int(w * 1.17) // 2 * 2, int(h * 1.17) // 2 * 2
-        motion_filter = (f"[0:v]scale={sw}:{sh}:force_original_aspect_ratio=increase,"
-                         f"crop={sw}:{sh},"
-                         f"zoompan=z='min(zoom+0.0007,1.09)':x='(iw-iw/zoom)/2':"
-                         f"y='(ih-ih/zoom)/2':d=1:s={w}x{h}:fps={fps},"
-                         "format=yuv420p[v]")
+        motion_filter = '[0:v]format=yuv420p[v]'
     filt = motion_filter + ";[1:a]aresample=48000,aformat=channel_layouts=stereo,apad[voice]"
     if with_music:
         filt += (";[voice]asplit=2[mainvoice][keyvoice];"
@@ -242,7 +240,11 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int) -> None:
              "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(fps),
              "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
              "-t", f"{frames/fps:.6f}", "-movflags", "+faststart", str(output)]
-    _run(args)
+    try:
+        _run(args)
+    finally:
+        if not scene['motion_video']:
+            camera_clip.unlink(missing_ok=True)
 
 
 def qa(video: Path, w: int, h: int, fps: int) -> dict:
