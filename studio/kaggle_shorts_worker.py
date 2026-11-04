@@ -171,6 +171,21 @@ def _import_recovery(recovery: Path, root: Path, story: str) -> None:
                 curr[key] = rel
             if old.get("subtitles") and (root / old["voice"]).exists():
                 curr["subtitles"] = old["subtitles"]
+        # Identity references and measured alignment metadata are production
+        # assets too. Resuming must not silently generate a different face.
+        audited={item['path']:item['sha256'] for item in audit['generated_media']}
+        for folder,pattern in [('images/refs','*.png'),('voices','*.alignment.json')]:
+            previous_dir=previous/folder
+            for source in previous_dir.glob(pattern) if previous_dir.exists() else []:
+                rel=source.relative_to(previous)
+                arc=(Path('production_queue')/story/rel).as_posix()
+                if audited.get(arc)!=digest(source):
+                    raise KaggleBlocked('Unverified recovery reference or alignment metadata')
+                dest=root/rel
+                if dest.exists() and digest(dest)!=digest(source):
+                    raise KaggleBlocked('Conflicting recovered reference metadata')
+                dest.parent.mkdir(parents=True,exist_ok=True)
+                if not dest.exists():shutil.copy2(source,dest)
         atomic_json(root / "project.json", doc)
         inventory(root)
 

@@ -85,6 +85,7 @@ def main():
     from studio.offline_media import real_image, configure_image_memory, digest
     from studio.kaggle_shorts_worker import prepare_input, export_private_assets
     from studio.autonomous_factory import atomic_json, inventory
+    from studio.model_cache import stage_cached_tree
     if not torch.cuda.is_available():
         raise RuntimeError('Actual image inference requires a real CUDA accelerator')
     os.environ['HF_HUB_OFFLINE'] = '1'
@@ -107,12 +108,14 @@ def main():
     def checkpoint():
         state['elapsed_s'] = round(time.monotonic()-started,2)
         atomic_json(OUT/'batch_image_status.json',state)
+    local_image,stage_receipt=stage_cached_tree(model_root/'image')
+    state['model_staging']=stage_receipt
     # Component placement uses the two separate cards with explicit per-card
     # limits. This never presents 16+16GB as one 32GB allocation.
     try:
         if torch.cuda.device_count() < 2:
             raise ValueError('Use the tested single-card offload path')
-        pipe = Flux2KleinPipeline.from_pretrained(str(model_root/'image'),
+        pipe = Flux2KleinPipeline.from_pretrained(str(local_image),
                     dtype=torch.float16,local_files_only=True,
                     device_map='balanced',max_memory={0:'13GiB',1:'13GiB','cpu':'20GiB'})
         if str(pipe.hf_device_map.get('transformer','')).startswith('cpu'):
@@ -128,7 +131,7 @@ def main():
             del pipe
         gc.collect()
         torch.cuda.empty_cache()
-        pipe = Flux2KleinPipeline.from_pretrained(str(model_root/'image'),
+        pipe = Flux2KleinPipeline.from_pretrained(str(local_image),
                     torch_dtype=torch.float16,local_files_only=True)
         state['placement'] = configure_image_memory(pipe,torch.cuda.get_device_properties(0).total_memory/1024**3)
     checkpoint()

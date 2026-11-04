@@ -47,6 +47,15 @@ def main():
             and conf['model_kernel_slug'] in p.parts]
     if len(models)!=1:raise FileNotFoundError('Validated private LTX model cache missing or ambiguous')
     model=models[0]
+    # The GPU pass needs only transformer+VAE. Leave the large CPU text encoder
+    # attached; its private embeddings have already been computed once.
+    from studio.model_cache import stage_cached_tree
+    import tempfile,shutil
+    local_model=Path(tempfile.mkdtemp(prefix='tw-ltx-components-'))
+    for part in ['transformer','vae']:
+        copied,receipt=stage_cached_tree(model/part)
+        copied.rename(local_model/part)
+    model=local_model
     embeddings=[p for p in INPUT.rglob('motion_embeddings') if conf['model_kernel_slug'] in p.parts]
     if len(embeddings)!=1:raise FileNotFoundError('Private CPU-generated motion embeddings missing')
     import torch
