@@ -248,7 +248,8 @@ def produce():
             if not cached and conf.get('qa_engine','wav2vec2')=='wav2vec2':raise ValueError('CTC speech audit requires validated cached weights')
             from studio.kaggle_shorts import build_source
             batch_conf={'model_kernel_slug':cached.split('/')[1] if cached else None,
-                        'voice_kernel_slug':conf['recovery_kernel'].split('/')[1]}
+                        'voice_kernel_slug':conf['recovery_kernel'].split('/')[1],
+                        'qa_scenes':conf.get('qa_scenes')}
             template=(ROOT/('tools/kaggle_voice_whisper_entry.py' if conf.get('qa_engine')=='whisper_cpu' else 'tools/kaggle_voice_qa_entry.py')).read_text()
             rendered=template.replace('__TW_VOICE_QA_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
             rendered=rendered.replace('__TW_VOICE_QA_SOURCE__',base64.b64encode(build_source(ROOT)).decode())

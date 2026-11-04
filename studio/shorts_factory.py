@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageOps,ImageEnhance
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_AUDIO = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
@@ -350,13 +350,30 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         staging = Path(td)
         clips = staging / "clips"
         clips.mkdir()
+        cache=destination/'.scene_cache'/item['id'];cache.mkdir(parents=True,exist_ok=True)
         write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
         write_ass(item['entries'], staging/'subtitles.ass', item['fps'],item['ai_disclosure'])
         for index, scene in enumerate(item["entries"], 1):
             scene_captions=clips/f'{index:03d}.ass'
             write_ass([scene],scene_captions,item['fps'],item['ai_disclosure'] if index==len(item['entries']) else None)
-            render_scene(scene, clips / f"{index:03d}.mp4",
-                         item["width"], item["height"], item["fps"],subtitles_path=scene_captions)
+            sources=[scene['image'],scene['voice'],scene['music'],scene['motion_video'],*scene['motion_clips']]
+            fingerprint=hashlib.sha256(json.dumps({'renderer':VERSION,'width':item['width'],'height':item['height'],
+                'fps':item['fps'],'source_hashes':[sha(p) for p in sources if p],
+                'captions':scene_captions.read_text(),'seconds':scene['seconds']},sort_keys=True).encode()).hexdigest()
+            cached=cache/f'{index:03d}_{fingerprint[:24]}.mp4';proof=cached.with_suffix('.cache.json')
+            valid=False
+            if cached.is_file() and proof.is_file():
+                saved=json.loads(proof.read_text())
+                valid=(saved.get('fingerprint')==fingerprint and saved.get('sha256')==sha(cached)
+                       and abs(video_duration(cached)-math.ceil(scene['seconds']*item['fps'])/item['fps'])<.08)
+            if not valid:
+                building=cached.with_suffix('.building.mp4')
+                render_scene(scene,building,item['width'],item['height'],item['fps'],subtitles_path=scene_captions)
+                os.replace(building,cached)
+                if building.with_suffix('.edit.json').is_file():os.replace(building.with_suffix('.edit.json'),cached.with_suffix('.edit.json'))
+                proof.write_text(json.dumps({'fingerprint':fingerprint,'sha256':sha(cached),'complete':True}))
+            os.link(cached,clips/f'{index:03d}.mp4')
+            if cached.with_suffix('.edit.json').is_file():shutil.copy2(cached.with_suffix('.edit.json'),clips/f'{index:03d}.edit.json')
         playlist = staging / "clips.txt"
         playlist.write_text(
             "".join(f"file '{p.resolve()}'\n" for p in sorted(clips.glob("*.mp4"))),

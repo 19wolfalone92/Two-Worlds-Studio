@@ -109,6 +109,25 @@ class ShortsFactoryTests(unittest.TestCase):
         with self.assertRaisesRegex(Blocked, "Output exists"):
             run(self.manifest, self.root / "out", smoke=True)
 
+    @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg absent')
+    def test_interrupted_story_reuses_verified_complete_scene(self):
+        from unittest.mock import patch
+        from studio.shorts_factory import render_scene as actual
+        calls=[]
+        def interrupted(scene,*args,**kwargs):
+            calls.append(scene['id'])
+            if scene['id']==2:raise RuntimeError('Simulated interrupted second scene')
+            return actual(scene,*args,**kwargs)
+        with patch('studio.shorts_factory.render_scene',interrupted):
+            with self.assertRaisesRegex(RuntimeError,'interrupted'):
+                run(self.manifest,self.root/'resumed',smoke=True)
+        self.assertEqual(calls,[1,2]);calls.clear()
+        def resumed(scene,*args,**kwargs):
+            calls.append(scene['id']);return actual(scene,*args,**kwargs)
+        with patch('studio.shorts_factory.render_scene',resumed):
+            result=run(self.manifest,self.root/'resumed',smoke=True)
+        self.assertEqual(calls,[2]);self.assertTrue(result['qa']['technical_pass'])
+
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg absent")
     def test_voice_triggers_music_ducking_and_output_stays_unapproved(self):

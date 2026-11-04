@@ -1,20 +1,19 @@
 {
   "schema": 1,
-  "nonce": "image-repair-v6-20261104-01",
-  "phase": "image_batch",
-  "story": "13",
-  "stories": [
-    13,
-    17,
-    18
-  ],
-  "count": 8,
-  "first_scene": 1,
-  "width": 864,
-  "height": 1536,
+  "nonce": "voice-whisper-recheck-20261104-01",
+  "phase": "voice_qa",
+  "qa_engine": "whisper_cpu",
+  "qa_scenes": {
+    "14": [
+      5
+    ]
+  },
+  "story": "14",
+  "count": 1,
+  "first_scene": 5,
   "free_resources_only": true,
-  "dataset_slug": "two-worlds-private-batch03-20261104-repair-v6",
-  "source_sha256": "0bf78ddd15984ecd51287dc3140cd9b2b89192348fd95fd6e49edf4e95d0f061",
-  "model_kernel": "wolf19loner92/tw-batch03-image-20261104-repair01",
-  "recovery_kernel": "wolf19loner92/tw-batch03-image-repair-v4-20261104-01"
+  "dataset_slug": "two-worlds-private-batch03-20261104",
+  "source_sha256": "cb32a1f19a4f69a1aeb7902069d45125b1452e454b66ae283393f151674d09e7",
+  "model_kernel": "wolf19loner92/tw-batch03-voice-whisper-cpu-20261104-02",
+  "recovery_kernel": "wolf19loner92/tw-batch03-voice-six-20261104-02"
 }

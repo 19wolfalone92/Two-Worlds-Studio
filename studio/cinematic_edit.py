@@ -43,7 +43,7 @@ def crop_filter(shot: dict,w: int,h: int) -> str:
     y=max(0,min(1-fraction,shot['cy']-fraction/2))
     return (f'crop=w=trunc(iw/{zoom}/2)*2:h=trunc(ih/{zoom}/2)*2:'
             f'x=trunc(iw*{x:.8f}/2)*2:y=trunc(ih*{y:.8f}/2)*2,'
-            f'scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h},setsar=1')
+            f'scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos:out_color_matrix=bt709:out_range=tv,crop={w}:{h},setsar=1')
 
 
 def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | None) -> dict:
@@ -78,6 +78,7 @@ def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | Non
     args+=['-filter_complex',';'.join(filters),'-map','[v]','-map','[a]',
         '-frames:v',str(frames),'-t',f'{frames/fps:.9f}','-c:v','libx264','-preset','medium',
         '-crf','19','-threads','3','-pix_fmt','yuv420p','-r',str(fps),'-c:a','aac',
+        '-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
         '-b:a','192k','-ar','48000','-ac','2','-movflags','+faststart',str(output)]
     result=subprocess.run(args,capture_output=True,text=True,timeout=1800)
     if result.returncode:raise RuntimeError('Real scene edit failed: '+result.stderr[-2400:])
