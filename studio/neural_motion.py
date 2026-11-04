@@ -192,6 +192,9 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
     if dest.exists() or width%32 or height%32 or (frames-1)%8 or not 49<=frames<=257:
         raise ValueError('Existing destination or invalid bounded LTX dimensions')
     values=load_file(str(embeddings))
+    # The precomputed CPU embeddings bypass the text encoder. Diffusers keeps
+    # their original device, while model offload moves the transformer to T4.
+    values={name:tensor.to('cuda:0') for name,tensor in values.items()}
     with Image.open(image) as im:
         reference=ImageOps.fit(im.convert('RGB'),(width,height),method=Image.Resampling.LANCZOS)
     start=time.monotonic()
