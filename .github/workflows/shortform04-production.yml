@@ -9,7 +9,7 @@ env:
 permissions:
   contents: read
 concurrency:
-  group: tw-private-shortform04-${{ contains(github.event.head_commit.message, '[cpu-source]') && format('source-{0}', github.run_id) || contains(github.event.head_commit.message, '[motion-b]') && 'animation-b' || contains(github.event.head_commit.message, '[motion]') && 'animation' || 'media' }}
+  group: tw-shortform04-${{ contains(github.event.head_commit.message, '[voice]') && 'voice' || contains(github.event.head_commit.message, '[image]') && 'image' || 'source' }}
   cancel-in-progress: false
 jobs:
   production:
