@@ -90,7 +90,7 @@ def command(args, *, timeout=180):
 def receive(conf):
     name = 'input_' + conf['nonce'] + '.twenc.b64'
     endpoint = ('https://api.github.com/repos/19wolfalone92/Two-Worlds-Studio/contents/'
-                REQUEST_DIR + '/' + name + '?ref=' +
+                + REQUEST_DIR + '/' + name + '?ref=' +
                 urllib.parse.quote(RELAY_BRANCH, safe=''))
     deadline = time.monotonic() + 900
     while time.monotonic() < deadline:
