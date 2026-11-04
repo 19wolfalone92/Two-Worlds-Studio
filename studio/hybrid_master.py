@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-CAMERAS = {"push_in", "pull_out", "pan_left", "pan_right", "static"}
+from studio.smooth_camera import CAMERAS, render_still
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}
 CLIPS = {".mp4", ".mov", ".mkv", ".webm"}
 AUDIO = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
@@ -82,6 +82,9 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         camera = item.get("camera", "push_in")
         if camera not in CAMERAS:
             raise ValueError(f"Shot {i}: unknown camera move {camera}")
+        strength = item.get("camera_strength", 0.45)
+        if type(strength) not in (float, int) or not math.isfinite(strength) or not 0 <= strength <= 1:
+            raise ValueError(f"Shot {i}: camera_strength must be between 0 and 1")
         caption = item.get("caption", "")
         if not isinstance(caption, str) or len(caption) > 240:
             raise ValueError(f"Shot {i}: caption too long")
@@ -99,7 +102,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
             if master and item.get("voice_approved") is not True:
                 raise ValueError(f"Shot {i}: voice must be explicitly approved")
         normalized.append(dict(kind=kind, path=media, frames=frames,
-                               duration=frames / fps, start=start / fps, camera=camera,
+                               duration=frames / fps, start=start / fps, camera=camera, strength=strength,
                                caption=caption.strip(), voice=voice, approved=approved))
         start += frames
     if start / fps > 600:
@@ -117,22 +120,6 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                 approved=master)
 
 
-def camera_filter(shot: dict, width: int, height: int, fps: int) -> str:
-    """Safe zoompan expressions on a cover-scaled full-resolution still."""
-    frames = shot["frames"]
-    position = f"on/{max(frames - 1, 1)}"
-    camera = shot["camera"]
-    zoom = {"push_in": f"1.0+0.105*{position}",
-            "pull_out": f"1.105-0.105*{position}",
-            "pan_left": "1.12", "pan_right": "1.12", "static": "1.0"}[camera]
-    x = {"pan_left": f"(iw-iw/zoom)*(1-{position})",
-         "pan_right": f"(iw-iw/zoom)*{position}"}.get(camera, "(iw-iw/zoom)/2")
-    return (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,"
-            f"zoompan=z='{zoom}':x='{x}':y='(ih-ih/zoom)/2':"
-            f"d={frames}:s={width}x{height}:fps={fps},format=yuv420p")
-
-
 def run(command: list[str]) -> None:
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL,
                    stderr=subprocess.PIPE, timeout=1200)
@@ -140,14 +127,15 @@ def run(command: list[str]) -> None:
 
 def render_segment(shot: dict, path: Path, width: int, height: int, fps: int) -> None:
     if shot["kind"] == "image":
-        inputs = ["-i", str(shot["path"])]
-        filters = camera_filter(shot, width, height, fps)
-    else:
-        inputs = ["-i", str(shot["path"])]
-        # A short AI clip can safely hold its last frame; no fabricated motion.
-        filters = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-                   f"crop={width}:{height},setsar=1,fps={fps},"
-                   f"tpad=stop_mode=clone:stop_duration={shot['duration']},format=yuv420p")
+        render_still(shot["path"], path, width, height, fps,
+                     shot["frames"], shot["camera"], shot["strength"])
+        return
+    inputs = ["-i", str(shot["path"])]
+    # Existing AI clips are normalized to target frame rate, hold last frame
+    # if short; no invented movement or interpolation of subject identity.
+    filters = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+               f"crop={width}:{height},setsar=1,fps={fps},"
+               f"tpad=stop_mode=clone:stop_duration={shot['duration']},format=yuv420p")
     run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
          *inputs, "-vf", filters, "-frames:v", str(shot["frames"]),
          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
