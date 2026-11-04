@@ -1,0 +1,42 @@
+"""Read-only Kaggle capability check; return private diagnostics as sealed bytes."""
+from __future__ import annotations
+import json
+import os
+import subprocess
+from pathlib import Path
+from studio.sealed_artifacts import seal
+
+
+def main():
+    out = Path(os.environ['RUNNER_TEMP']) / 'tw-batch03-preflight'
+    out.mkdir(mode=0o700)
+    results = {}
+    for name, args in (
+        ('cli_version', ['kaggle', '--version']),
+        ('quota', ['kaggle', 'quota']),
+        ('datasets', ['kaggle', 'datasets', 'list', '--mine', '--csv']),
+        ('kernels', ['kaggle', 'kernels', 'list', '--mine', '--csv']),
+    ):
+        try:
+            run = subprocess.run(args, capture_output=True, text=True, timeout=90)
+            # Never write an unmasked credential, even if a CLI error echoes it.
+            secret = os.environ.get('KAGGLE_API_TOKEN', '')
+            clean = lambda s: s.replace(secret, '[REDACTED]') if secret else s
+            results[name] = {'returncode': run.returncode,
+                             'stdout': clean(run.stdout), 'stderr': clean(run.stderr)}
+            print(name + ': ' + ('PASS' if run.returncode == 0 else 'FAILED'), flush=True)
+        except subprocess.TimeoutExpired:
+            results[name] = {'returncode': -1, 'error': 'TIMEOUT'}
+            print(name + ': TIMEOUT', flush=True)
+    results['gpu_allocated'] = False
+    results['used_paid_services'] = False
+    private = out / 'diagnostics.json'
+    private.write_text(json.dumps(results, indent=2))
+    context = {'purpose': 'batch03-account-preflight', 'request': '20261104-v1'}
+    seal(private, Path('.github/batch03_requests/recipient_public.pem'),
+         Path('dist/private_batch03/account_preflight.twenc'), context)
+    private.unlink()
+
+
+if __name__ == '__main__':
+    main()

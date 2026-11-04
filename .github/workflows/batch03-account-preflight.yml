@@ -1,0 +1,35 @@
+name: TWO WORLDS - Batch03 private account preflight
+on:
+  pull_request:
+    types: [opened, synchronize]
+    paths: ['.github/batch03_requests/request.json']
+permissions:
+  contents: read
+jobs:
+  read-only-preflight:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'integration/story-glitch-batch03-20261104'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install official CLI with its required six compatibility dependency
+        run: python -m pip install 'kaggle==2.2.5' six cryptography
+      - name: Read current quota and private media availability; never print credentials
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: wolf19loner92
+        run: python -m tools.batch03_account_preflight
+      - name: Return only encrypted diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch03-private-account-preflight
+          path: dist/private_batch03/account_preflight.twenc
+          retention-days: 3
+          if-no-files-found: error

@@ -1,0 +1,152 @@
+name: TWO WORLDS — Private Kaggle RU Shorts GPU (manual)
+on:
+  workflow_dispatch:
+    inputs:
+      story:
+        description: 'Private Work story: 13..18'
+        type: choice
+        required: true
+        options: ['13', '14', '15', '16', '17', '18']
+      phase:
+        description: 'preflight is CPU-only and costs ZERO GPU quota'
+        type: choice
+        required: true
+        options: ['preflight', 'image', 'voice', 'music', 'render']
+      private_dataset:
+        description: 'Your PRIVATE Kaggle dataset: username/two-worlds-private-queue'
+        type: string
+        required: true
+      model_dataset:
+        description: 'PRIVATE dataset with image/ and voice/ model weights (can be empty for preflight)'
+        type: string
+        required: false
+      first_scene:
+        type: choice
+        required: true
+        options: ['1','2','3','4','5','6','7','8']
+        default: '1'
+      max_scenes:
+        description: 'Bounded GPU work, recommend 2 on first actual test'
+        type: choice
+        required: true
+        options: ['1','2','3','4','5','6','7','8']
+        default: '2'
+      gpu_id:
+        description: 'T4 x2: use one 16GB card; NOT pooled 32GB'
+        type: choice
+        required: true
+        options: ['0','1']
+        default: '0'
+      recovery_dataset:
+        description: 'Optional PRIVATE Kaggle dataset with previous scene output ZIP'
+        required: false
+        type: string
+      recovery_path:
+        description: 'Optional /kaggle/input/.../TwoWorlds_PRIVATE_13_image.zip'
+        required: false
+        type: string
+      install_dependencies:
+        type: boolean
+        required: true
+        default: true
+      bootstrap_weights:
+        description: 'CAUTION: HF model downloads on Kaggle use storage and session time. Requires internet.'
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-kaggle-shorts-${{ github.event.inputs.private_dataset }}
+  cancel-in-progress: false
+
+jobs:
+  kaggle-private:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_OWNER: ${{ vars.KAGGLE_USERNAME }}
+      TW_STORY: ${{ inputs.story }}
+      TW_PHASE: ${{ inputs.phase }}
+      TW_DATASET: ${{ inputs.private_dataset }}
+      TW_MODEL_DATASET: ${{ inputs.model_dataset }}
+      TW_FIRST: ${{ inputs.first_scene }}
+      TW_COUNT: ${{ inputs.max_scenes }}
+      TW_GPU_ID: ${{ inputs.gpu_id }}
+      TW_RECOVERY_DATASET: ${{ inputs.recovery_dataset }}
+      TW_RECOVERY_PATH: ${{ inputs.recovery_path }}
+      TW_INSTALL_DEPS: ${{ inputs.install_dependencies }}
+      TW_BOOTSTRAP: ${{ inputs.bootstrap_weights }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install only CLI and validation dependencies (NO GPU on Actions)
+        run: python -m pip install -q kaggle Pillow numpy
+      - name: Validate authorized private Kaggle account; never print token
+        shell: bash
+        run: |
+          test -n "$KAGGLE_API_TOKEN" || { echo 'Missing KAGGLE_API_TOKEN secret'; exit 1; }
+          test -n "$KAGGLE_OWNER" || { echo 'Missing KAGGLE_USERNAME repository variable'; exit 1; }
+          kaggle config view >/dev/null
+      - name: Prepare reviewed PRIVATE script, never embed stories or credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--username "$KAGGLE_OWNER" --private-dataset "$TW_DATASET"
+                --story "$TW_STORY" --phase "$TW_PHASE" --start "$TW_FIRST"
+                --count "$TW_COUNT" --gpu-id "$TW_GPU_ID" --out "$RUNNER_TEMP/tw-kernel")
+          if [[ "$TW_BOOTSTRAP" == 'true' ]]; then
+            args+=(--bootstrap --install-deps --model-path /kaggle/working/private_models)
+          else
+            if [[ -n "$TW_MODEL_DATASET" ]]; then args+=(--model-dataset "$TW_MODEL_DATASET"); fi
+            if [[ "$TW_INSTALL_DEPS" == 'true' ]]; then args+=(--install-deps); fi
+          fi
+          if [[ -n "$TW_RECOVERY_DATASET" ]]; then args+=(--recovery-dataset "$TW_RECOVERY_DATASET"); fi
+          if [[ -n "$TW_RECOVERY_PATH" ]]; then args+=(--recovery-path "$TW_RECOVERY_PATH"); fi
+          python -m studio.kaggle_shorts prepare "${args[@]}" > "$RUNNER_TEMP/job_prepare.json"
+          # User private inputs are Kaggle datasets, NOT public GitHub assets.
+          python - <<'PY'
+          import json,os
+          x=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'job_prepare.json')))
+          print('Prepared private kernel:',x['kernel'],'phase',x['phase'],'GPU requested?',x['gpu_requested'])
+          PY
+      - name: Submit explicit quota-consuming job to Kaggle
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/tw-kernel"
+      - name: Poll real Kaggle kernel status, not fabricated CI smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          x=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'job_prepare.json')))
+          with open(os.environ['GITHUB_ENV'],'a') as f:
+            f.write('TW_KERNEL='+x['kernel']+'\n')
+          PY
+      - name: Wait for Kaggle completion (bounded)
+        run: python -m studio.kaggle_api poll --kernel "$TW_KERNEL" --timeout 3500 --interval 50
+      - name: Download PRIVATE result for validation (never upload publicly)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tw-results"
+          kaggle kernels output "$TW_KERNEL" -p "$RUNNER_TEMP/tw-results"
+          python -m studio.kaggle_shorts verify --out "$RUNNER_TEMP/tw-results" --story "$TW_STORY" > "$RUNNER_TEMP/verified.json"
+          python - <<'PY'
+          import json,os
+          x=json.load(open(os.path.join(os.environ['RUNNER_TEMP'],'verified.json')))
+          assert x['kaggle_success'], 'Kaggle returned incomplete/failed media; check private receipt'
+          print('PRIVATE output verified: story',x['story'],'files',x['files'])
+          print('Download the generated ZIP from your PRIVATE Kaggle notebook output; not from a public GH artifact.')
+          PY
+      - name: Scrub downloaded unpublished artwork from GitHub runner
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/tw-results" "$RUNNER_TEMP/tw-kernel" || true
