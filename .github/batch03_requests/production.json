@@ -1,11 +1,17 @@
 {
   "schema": 1,
-  "nonce": "visual-source-v2-20261104",
-  "phase": "seed_only",
+  "nonce": "image-cast-20261104-01",
+  "phase": "image_batch",
   "story": "13",
-  "count": 8,
+  "count": 2,
   "first_scene": 1,
   "free_resources_only": true,
   "dataset_slug": "two-worlds-private-batch03-20261104-visual-v2",
-  "source_sha256": "3ca1f2149d13d8841597cf157c4c7a33cadcb019ce1797c817de9bdbca90d240"
+  "source_sha256": "3ca1f2149d13d8841597cf157c4c7a33cadcb019ce1797c817de9bdbca90d240",
+  "stories": [
+    13
+  ],
+  "width": 864,
+  "height": 1536,
+  "model_kernel": "wolf19loner92/tw-batch03-image-20261104-repair01"
 }
