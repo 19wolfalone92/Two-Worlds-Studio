@@ -44,7 +44,18 @@ def command(*args: str, timeout: int = 180) -> str:
         raise ReleaseBlocked("Private archive read failed: " + type(exc).__name__) from None
     # Raw provider responses may contain unpublished story titles and paths.
     if completed.returncode:
-        raise ReleaseBlocked("Private Kaggle download/list operation failed")
+        diagnostics = (completed.stdout + completed.stderr).lower()
+        if any(x in diagnostics for x in ("not found", "404", "does not exist")):
+            classification = "NOT_FOUND"
+        elif any(x in diagnostics for x in ("forbidden", "403", "unauthorized", "401")):
+            classification = "ACCESS_DENIED"
+        elif any(x in diagnostics for x in ("usage:", "unrecognized arguments", "invalid choice")):
+            classification = "CLI_ARGUMENT"
+        elif any(x in diagnostics for x in ("too many requests", "429", "rate limit")):
+            classification = "QUOTA_OR_RATE"
+        else:
+            classification = "UNKNOWN"
+        raise ReleaseBlocked("Private Kaggle CLI read failed: " + classification)
     return completed.stdout
 
 
@@ -117,9 +128,10 @@ def release(config_path: Path, output: Path) -> dict:
             # Reuse the already-authorized PRIVATE Kaggle source dataset.
             summary["stage"] = "private_source_download"
             input_dir = root / "original"; input_dir.mkdir()
+            # Kaggle's dataset -f download varies across API versions for ZIP-in-ZIP.
+            # Download the whole source-only private dataset without requesting GPU.
             command("datasets", "download", f"{OWNER}/{DATASET}",
-                    "--file", "batch03_source.zip", "--path", str(input_dir),
-                    "--quiet", timeout=600)
+                    "--path", str(input_dir), "--unzip", "--quiet", timeout=600)
             # Some Kaggle API versions wrap a requested ZIP in another ZIP.
             # Unwrap only that single filename, never extract private content to logs.
             if not list(input_dir.rglob("batch03_source.zip")):
