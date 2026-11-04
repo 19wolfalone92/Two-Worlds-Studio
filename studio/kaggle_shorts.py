@@ -89,6 +89,7 @@ def build_kernel(root: Path, destination: Path, *, username: str, dataset: str,
         "speaker": speaker, "source_path": source_path, "model_path": model_path,
         "recovery_path": recovery_path, "install_deps": install_deps,
         "bootstrap": bootstrap, "publication_approved": False,
+        "preexisting_model_kernel": model_kernel,
     }
     bundle = build_source(root)
     if template.count("__TW_SHORTS_JOB_B64__") != 1 or template.count("__TW_SHORTS_SOURCE_B64__") != 1:

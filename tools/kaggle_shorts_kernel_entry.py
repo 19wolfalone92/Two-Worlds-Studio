@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import traceback
@@ -17,6 +18,9 @@ OUT = Path('/kaggle/working')
 
 
 def main():
+    # Standard HTTPS fallback avoids the Xet background-writer failure observed
+    # on the actual first Kaggle run. It uses the same public model permissions.
+    os.environ['HF_HUB_DISABLE_XET'] = '1'
     conf = json.loads(base64.b64decode(CONFIG_B64))
     package = base64.b64decode(SOURCE_B64)
     BASE.mkdir(parents=True, exist_ok=True)
@@ -51,13 +55,35 @@ def main():
                    'voice': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice'}
         dst = model_root / phase
         dst.mkdir(parents=True, exist_ok=True)
+        if conf.get('preexisting_model_kernel'):
+            marker = 'model_index.json' if phase == 'image' else 'config.json'
+            previous = [p.parent for p in Path('/kaggle/input').rglob(marker) if p.parent.name == phase]
+            if len(previous) == 1:
+                # Copy only completed component files, omitting the failed
+                # duplicate root checkpoint and incomplete download cache.
+                for file in previous[0].rglob('*'):
+                    rel = file.relative_to(previous[0])
+                    if not file.is_file() or '.cache' in rel.parts or file.name.endswith('.incomplete'):
+                        continue
+                    if phase == 'image' and len(rel.parts) == 1 and file.suffix == '.safetensors':
+                        continue
+                    target = dst/rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(file, target)
         # FLUX publishes a duplicate 7.75GB single-file checkpoint at its root.
         # Diffusers needs only its component directories (~16GB); do not fill
         # the Notebook disk with a second copy of transformer weights.
         patterns = (['model_index.json', 'scheduler/*', 'text_encoder/*',
                      'tokenizer/*', 'transformer/*', 'vae/*', 'LICENSE.md']
                     if phase == 'image' else None)
-        snapshot_download(repo_id=mapping[phase], local_dir=str(dst), allow_patterns=patterns)
+        if conf.get('preexisting_model_kernel'):
+            import fnmatch
+            from huggingface_hub import HfApi
+            files = HfApi().list_repo_files(mapping[phase])
+            patterns = [name for name in files if (not patterns or any(fnmatch.fnmatch(name, p) for p in patterns))
+                        and not (dst/name).is_file()]
+        if patterns != []:
+            snapshot_download(repo_id=mapping[phase], local_dir=str(dst), allow_patterns=patterns)
     if phase == 'voice' and not (model_root / 'alignment/config.json').is_file():
         # Optional forced alignment stays separate from narration synthesis.
         # A missing aligner is recorded instead of inventing word timestamps.

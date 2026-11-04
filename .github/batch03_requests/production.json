@@ -1,11 +1,13 @@
 {
   "schema": 1,
-  "nonce": "voice-20261104-14-01",
-  "phase": "voice",
-  "story": "14",
+  "nonce": "image-20261104-repair01",
+  "phase": "image",
+  "story": "13",
   "count": 1,
   "first_scene": 1,
   "free_resources_only": true,
   "dataset_slug": "two-worlds-private-batch03-20261104",
-  "source_sha256": "cb32a1f19a4f69a1aeb7902069d45125b1452e454b66ae283393f151674d09e7"
+  "source_sha256": "cb32a1f19a4f69a1aeb7902069d45125b1452e454b66ae283393f151674d09e7",
+  "model_kernel": "wolf19loner92/two-worlds-russian-story-gpu",
+  "repair_cached_model": true
 }

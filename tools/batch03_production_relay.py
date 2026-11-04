@@ -143,6 +143,7 @@ def produce():
         from studio.kaggle_api import poll_kernel
         phase = 'image' if conf['phase'] == 'seed_image' else conf['phase']
         cached = conf.get('model_kernel')
+        repair_cache = bool(cached and conf.get('repair_cached_model'))
         slug = 'tw-batch03-' + conf['nonce']
         kernel_dir = TEMP / 'kernel'
         prepared = build_kernel(ROOT, kernel_dir, username='wolf19loner92',
@@ -150,13 +151,13 @@ def produce():
             first_scene=conf.get('first_scene', 1), max_scenes=conf['count'],
             budget_s=3000, slug=slug,
             source_path='/kaggle/input/' + conf['dataset_slug'] + '/batch03_source.zip',
-            model_path=('/kaggle/input/' + cached.split('/')[1] + '/private_models' if cached else
+            model_path=('/kaggle/input/' + cached.split('/')[1] + '/private_models' if cached and not repair_cache else
                         '/kaggle/working/private_models' if phase in {'image', 'voice'}
                         else '/kaggle/input/no-models-required'),
             model_kernel=cached,
             recovery_kernel=conf.get('recovery_kernel'), recovery_path=conf.get('recovery_path'),
             speaker=conf.get('speaker', 'Ryan' if conf['story'] in {'14', '17'} else 'Serena'),
-            install_deps=True, bootstrap=(phase in {'image', 'voice'} and not cached))
+            install_deps=True, bootstrap=(phase in {'image', 'voice'} and (not cached or repair_cache)))
         metadata_path = kernel_dir / 'kernel-metadata.json'
         metadata = json.loads(metadata_path.read_text())
         # Kaggle can derive a new kernel's URL suffix from its title.
