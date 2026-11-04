@@ -28,7 +28,7 @@ def request():
     doc = json.loads((ROOT / '.github/batch03_requests/production.json').read_text())
     if (doc.get('schema') != 1 or doc.get('free_resources_only') is not True
             or doc.get('story') not in [str(i) for i in range(13, 19)]
-            or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'motion_prepare', 'motion_batch', 'preflight', 'recover'}
+            or doc.get('phase') not in {'seed_only', 'seed_image', 'image', 'image_batch', 'voice', 'voice_batch', 'voice_qa', 'motion_prepare', 'motion_batch', 'preflight', 'recover'}
             or not 1 <= doc.get('count', 0) <= 8):
         raise ValueError('Invalid explicitly bounded production request')
     import re
@@ -184,7 +184,7 @@ def produce():
         from studio.kaggle_api import poll_kernel
         phase = 'image' if conf['phase'] == 'seed_image' else conf['phase']
         build_phase = ('voice' if phase=='voice_batch' else 'image' if phase in {'image_batch','motion_batch'}
-                       else 'preflight' if phase=='motion_prepare' else phase)
+                       else 'preflight' if phase in {'motion_prepare','voice_qa'} else phase)
         cached = conf.get('model_kernel')
         repair_cache = bool(cached and conf.get('repair_cached_model'))
         slug = 'tw-batch03-' + conf['nonce']
@@ -242,6 +242,15 @@ def produce():
             rendered=template.replace('__TW_MOTION_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
             rendered=rendered.replace('__TW_MOTION_SOURCE__',base64.b64encode(build_source(ROOT)).decode())
             (kernel_dir/'kernel_main.py').write_text(rendered)
+        if phase=='voice_qa':
+            if not cached or not conf.get('recovery_kernel'):raise ValueError('Speech audit requires the actual full voice outputs')
+            from studio.kaggle_shorts import build_source
+            batch_conf={'model_kernel_slug':cached.split('/')[1],
+                        'voice_kernel_slug':conf['recovery_kernel'].split('/')[1]}
+            template=(ROOT/'tools/kaggle_voice_qa_entry.py').read_text()
+            rendered=template.replace('__TW_VOICE_QA_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
+            rendered=rendered.replace('__TW_VOICE_QA_SOURCE__',base64.b64encode(build_source(ROOT)).decode())
+            (kernel_dir/'kernel_main.py').write_text(rendered)
         metadata_path = kernel_dir / 'kernel-metadata.json'
         metadata = json.loads(metadata_path.read_text())
         if conf.get('image_kernel'):
@@ -253,7 +262,7 @@ def produce():
         metadata_path.write_text(json.dumps(metadata, indent=2))
         summary['kernel'] = prepared['kernel']
         args = ['kaggle', 'kernels', 'push', '-p', str(kernel_dir), '--timeout',
-                '10800' if phase in {'voice_batch','image_batch','motion_prepare','motion_batch'} else '3600']
+                '10800' if phase in {'voice_batch','image_batch','voice_qa','motion_prepare','motion_batch'} else '3600']
         if phase in {'image', 'image_batch', 'voice', 'voice_batch','motion_batch'}:
             args += ['--accelerator', 'NvidiaTeslaT4']
         pushed = command(args)
@@ -265,7 +274,7 @@ def produce():
         summary['submitted'] = True
         try:
             summary['kernel_status'] = poll_kernel(prepared['kernel'],
-                timeout_seconds=9600 if phase in {'voice_batch','image_batch','motion_prepare','motion_batch'} else 3500, interval_seconds=45)
+                timeout_seconds=9600 if phase in {'voice_batch','image_batch','voice_qa','motion_prepare','motion_batch'} else 3500, interval_seconds=45)
         except Exception as exc:
             summary['kernel_error'] = type(exc).__name__ + ': ' + str(exc)
         command(['kaggle', 'kernels', 'output', prepared['kernel'], '-p', str(result_dir),

@@ -1,20 +1,21 @@
 {
   "schema": 1,
-  "nonce": "motion-cast-20261104-02",
-  "phase": "motion_batch",
+  "nonce": "voice-qa-20261104-01",
+  "phase": "voice_qa",
   "story": "13",
-  "count": 2,
+  "count": 8,
   "first_scene": 1,
   "stories": [
-    13
+    13,
+    14,
+    15,
+    16,
+    17,
+    18
   ],
-  "variants": 1,
-  "frames": 81,
-  "width": 512,
-  "height": 896,
   "free_resources_only": true,
   "dataset_slug": "two-worlds-private-batch03-20261104-motion-v3",
   "source_sha256": "d6662417e8b5ac0b9df653e7ec1f47d8f1efd4d2331d83fd6d23a5d71cc2cd14",
-  "model_kernel": "wolf19loner92/tw-batch03-motion-cpu-cache-20261104-01",
-  "image_kernel": "wolf19loner92/tw-batch03-image-cast-20261104-01"
+  "model_kernel": "wolf19loner92/tw-batch03-voice-20261104-14-01",
+  "recovery_kernel": "wolf19loner92/tw-batch03-voice-six-20261104-02"
 }
