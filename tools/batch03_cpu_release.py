@@ -110,11 +110,12 @@ def release(config_path: Path, output: Path) -> dict:
     summary = {"schema": 1, "nonce": config["nonce"], "mode": "cpu_only_review",
                "gpu_requested": False, "new_gpu_jobs": 0, "paid": False,
                "published": False, "zip_archive_stories": 0, "video_files": 0,
-               "status": "INIT", "errors": [], "encrypted_return": False}
+               "status": "INIT", "stage": "request_validated", "errors": [], "encrypted_return": False}
     with tempfile.TemporaryDirectory(prefix="tw-private-release-", dir=os.environ.get("RUNNER_TEMP", "/tmp")) as t:
         root = Path(t)
         try:
             # Reuse the already-authorized PRIVATE Kaggle source dataset.
+            summary["stage"] = "private_source_download"
             input_dir = root / "original"; input_dir.mkdir()
             command("datasets", "download", f"{OWNER}/{DATASET}",
                     "--file", "batch03_source.zip", "--path", str(input_dir),
@@ -135,12 +136,15 @@ def release(config_path: Path, output: Path) -> dict:
                     target = input_dir / "batch03_source.zip"
                     with packaged.open(candidates[0]) as incoming, target.open("xb") as outgoing:
                         shutil.copyfileobj(incoming, outgoing, length=1024 * 1024)
+            summary["stage"] = "private_source_sha256"
             source = source_location(input_dir)
+            summary["stage"] = "private_kernel_inventory"
             index = index_private_outputs()
             # Never download gigantic motion clips in this free CPU pass:
             # use the tested subpixel camera over the original movie stills.
             media = root / "media"; media.mkdir()
             not_found = []
+            summary["stage"] = "private_media_download"
             for story in STORIES:
                 for phase in ("image", "voice"):
                     handle = index.get((story, phase))
@@ -165,10 +169,12 @@ def release(config_path: Path, output: Path) -> dict:
                 story for story in STORIES if all((media / f"TwoWorlds_PRIVATE_{story}_{phase}.zip").is_file()
                                                  for phase in ("image", "voice"))})
             summary["missing_media_zip_count"] = len(not_found)
+            summary["stage"] = "private_archive_reconcile"
             joined = reconcile(source, media, root / "queue")
             counts = joined["production"]["counts"]
             summary["queue_status"] = counts
             if counts["READY_TO_RENDER"]:
+                summary["stage"] = "cpu_ffmpeg_render"
                 result = execute(root / "queue", root / "unpublished_exports", max_jobs=6)
                 summary["render_attempts"] = [{k: row[k] for k in ("story", "status")}
                                                for row in result.get("render_attempts", [])]
@@ -177,6 +183,7 @@ def release(config_path: Path, output: Path) -> dict:
                     saved = root / "private_reviews.zip"
                     safe_package(root / "unpublished_exports", saved)
                     SEAL_TEMP.mkdir(parents=True, exist_ok=True)
+                    summary["stage"] = "encrypt_rendered_videos"
                     seal_return(saved, ROOT / ".github/batch03_requests/recipient_public.pem",
                                 output, config["nonce"])
                     summary["encrypted_return"] = True
@@ -186,6 +193,8 @@ def release(config_path: Path, output: Path) -> dict:
             # No private file paths or provider text in public Action logs.
             summary["status"] = "BLOCKED"
             summary["errors"].append(type(exc).__name__)
+            if isinstance(exc, ReleaseBlocked):
+                summary["safe_reason"] = str(exc)
         # Even on failure deliver an authenticated, encrypted detailed report
         # only if no sealed MP4 return was created.
         if not summary["encrypted_return"]:
