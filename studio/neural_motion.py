@@ -20,6 +20,21 @@ VAE_REPO = 'Lightricks/LTX-Video-0.9.5'
 SIGMAS = [1.0,.99375,.9875,.98125,.975,.909375,.725,.421875]
 
 
+def distilled_scheduler(base):
+    """Keep the trained schedule when an I2V pipeline supplies uniform sigmas.
+
+    Current Diffusers computes uniform sigmas unconditionally, so passing its
+    timesteps argument as well raises before the first actual denoising step.
+    A scheduler specialization preserves the original distilled 8-step method.
+    """
+    class OriginalDistilledScheduler(base):
+        def set_timesteps(self,num_inference_steps=None,device=None,sigmas=None,mu=None,**kwargs):
+            if num_inference_steps not in (None,len(SIGMAS)):
+                raise ValueError('This original distilled checkpoint requires eight steps')
+            return super().set_timesteps(sigmas=SIGMAS,device=device)
+    return OriginalDistilledScheduler
+
+
 def _digest(path: Path):
     with path.open('rb') as stream:
         return hashlib.file_digest(stream,'sha256').hexdigest()
@@ -158,7 +173,7 @@ def load_pipeline(model_dir: Path):
     transformer=LTXVideoTransformer3DModel.from_pretrained(model_dir/'transformer',
                     torch_dtype=torch.float32,local_files_only=True)
     vae=AutoencoderKLLTXVideo.from_pretrained(model_dir/'vae',torch_dtype=torch.float32,local_files_only=True)
-    scheduler=FlowMatchEulerDiscreteScheduler(num_train_timesteps=1000,shift=1.0,
+    scheduler=distilled_scheduler(FlowMatchEulerDiscreteScheduler)(num_train_timesteps=1000,shift=1.0,
                     use_dynamic_shifting=False,stochastic_sampling=True)
     pipe=LTXImageToVideoPipeline(transformer=transformer,vae=vae,scheduler=scheduler,
                                 text_encoder=None,tokenizer=None)
@@ -183,7 +198,7 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
     result=pipe(image=reference,prompt_embeds=values['prompt_embeds'],
                 prompt_attention_mask=values['prompt_attention_mask'],width=width,height=height,
                 num_frames=frames,frame_rate=fps,guidance_scale=1.0,
-                timesteps=[s*1000 for s in SIGMAS],num_inference_steps=None,
+                num_inference_steps=len(SIGMAS),
                 decode_timestep=.05,decode_noise_scale=.025,
                 generator=torch.Generator(device='cpu').manual_seed(seed)).frames[0]
     if len(result)!=frames:
@@ -197,6 +212,8 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
              'seconds':frames/fps,'width':width,'height':height,'seed':seed,
              'gpu':torch.cuda.get_device_name(0),'gpu_memory_pooled':False,
              'compute_dtype':'float32','elapsed_s':round(time.monotonic()-start,2),
+             'inference_sigmas':SIGMAS,
+             'gpu_peak_allocated_gib':round(torch.cuda.max_memory_allocated()/1024**3,3),
              'sha256':_digest(dest),
              'character_motion_review':'pending','artistic_review':'pending','published':False}
     _json(dest.with_suffix('.receipt.json'),receipt)

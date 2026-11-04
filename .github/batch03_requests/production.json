@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nonce": "motion-cast-20261104-01",
+  "nonce": "motion-cast-20261104-02",
   "phase": "motion_batch",
   "story": "13",
   "count": 2,
@@ -18,4 +18,3 @@
   "model_kernel": "wolf19loner92/tw-batch03-motion-cpu-cache-20261104-01",
   "image_kernel": "wolf19loner92/tw-batch03-image-cast-20261104-01"
 }
-
