@@ -50,6 +50,13 @@ def main():
                                   capture_output=True, text=True, timeout=90)
             results['status:' + handle] = {'returncode': proc.returncode,
                                            'stdout': proc.stdout, 'stderr': proc.stderr}
+            if handle in requested:
+                try:
+                    log=subprocess.run(['kaggle','kernels','logs',handle],capture_output=True,text=True,timeout=60)
+                    results['logs:'+handle]={'returncode':log.returncode,
+                        'stdout':clean(log.stdout[-120000:]),'stderr':clean(log.stderr[-10000:])}
+                except subprocess.TimeoutExpired:
+                    results['logs:'+handle]={'returncode':-1,'error':'TIMEOUT'}
     private = out / 'diagnostics.json'
     private.write_text(json.dumps(results, indent=2))
     context = {'purpose': 'batch03-account-preflight', 'request': '20261104-v1'}
