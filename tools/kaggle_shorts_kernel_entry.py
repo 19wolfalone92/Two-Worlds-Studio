@@ -39,13 +39,25 @@ def main():
     # Optional explicit cache bootstrap. Defaults off: model weights should be
     # preattached via a private Kaggle model dataset to conserve GPU quota.
     model_root = Path(conf['model_path'])
+    if not conf.get('bootstrap') and phase in {'image', 'voice'} and not model_root.exists():
+        marker = 'model_index.json' if phase == 'image' else 'config.json'
+        candidates = [p.parent.parent for p in Path('/kaggle/input').rglob(marker)
+                      if p.parent.name == phase]
+        if len(candidates) == 1:
+            model_root = candidates[0]
     if conf.get('bootstrap') and phase in {'image', 'voice'}:
         from huggingface_hub import snapshot_download
         mapping = {'image': 'black-forest-labs/FLUX.2-klein-4B',
-                   'voice': 'Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice'}
+                   'voice': 'Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice'}
         dst = model_root / phase
         dst.mkdir(parents=True, exist_ok=True)
-        snapshot_download(repo_id=mapping[phase], local_dir=str(dst))
+        # FLUX publishes a duplicate 7.75GB single-file checkpoint at its root.
+        # Diffusers needs only its component directories (~16GB); do not fill
+        # the Notebook disk with a second copy of transformer weights.
+        patterns = (['model_index.json', 'scheduler/*', 'text_encoder/*',
+                     'tokenizer/*', 'transformer/*', 'vae/*', 'LICENSE.md']
+                    if phase == 'image' else None)
+        snapshot_download(repo_id=mapping[phase], local_dir=str(dst), allow_patterns=patterns)
     from studio.kaggle_shorts_worker import main as worker
     source_path = Path(conf['source_path'])
     if not source_path.exists():
@@ -65,11 +77,31 @@ def main():
             '--count', str(conf['max_scenes']), '--time-budget', str(conf['budget_s']),
             '--gpu-id', str(gpu_id), '--speaker', conf['speaker']]
     if conf.get('recovery_path'):
-        args += ['--recovery', conf['recovery_path']]
+        recovery = Path(conf['recovery_path'])
+        if not recovery.exists():
+            found = list(Path('/kaggle/input').rglob(recovery.name))
+            if len(found) == 1:
+                recovery = found[0]
+        args += ['--recovery', str(recovery)]
     code = worker(args)
     if code != 0:
         raise SystemExit(code)
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as exc:
+        receipt = OUT / 'two_worlds_kaggle_receipt.json'
+        if not receipt.exists():
+            gpu = {}
+            try:
+                import torch
+                gpu = {'cuda': torch.cuda.is_available(), 'device_count': torch.cuda.device_count(),
+                       'names': [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]}
+            except Exception:
+                pass
+            receipt.write_text(json.dumps({'success': False, 'reviewed': False, 'published': False,
+                'error_type': type(exc).__name__, 'message': str(exc),
+                'traceback': traceback.format_exc(), 'gpu': gpu}, indent=2))
+        raise

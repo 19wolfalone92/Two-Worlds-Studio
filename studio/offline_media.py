@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 
 MODEL_NAMES = {"image": "black-forest-labs/FLUX.2-klein-4B",
-               "voice": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"}
+               "voice": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"}
 MODEL_LICENSES = {"image": "Apache-2.0", "voice": "Apache-2.0"}
 VOICE_STYLES = {
     "neutral": "Speak in natural Russian with clear conversational phrasing.",

@@ -21,6 +21,26 @@ from .offline_media import (OfflineBlocked, accelerator_status, digest, local_mo
 from .shorts_factory import run as render_video, validate_project
 
 MOOD_FROM_CUE = {
+    'absence': 'sad', 'unease': 'tense', 'memory_sorrow': 'sad',
+    'discovery': 'mysterious', 'confession': 'sad', 'reckoning': 'tense',
+    'fragile_contact': 'hopeful', 'unresolved_tenderness': 'tender',
+    'warm_memory': 'tender', 'fracture': 'sad', 'family_memory': 'tender',
+    'fragility': 'sad', 'release': 'hopeful', 'quiet_new_morning': 'hopeful',
+    'night_watch': 'mysterious', 'approaching_danger': 'tense',
+    'contained_pressure': 'tense', 'waiting_for_help': 'tense',
+    'safety_without_triumph': 'tender', 'small_trust': 'tender',
+    'quiet_after_fear': 'hopeful', 'distant_routine': 'neutral',
+    'urgent_uncertainty': 'tense', 'words_in_silence': 'sad',
+    'unreachable_time': 'sad', 'ordinary_love': 'tender',
+    'continuing_with_grief': 'sad', 'answer_in_the_same_room': 'tender',
+    'ordinary_morning': 'neutral', 'concealed_anxiety': 'tense',
+    'pressure_building': 'tense', 'exposure': 'tense', 'hard_truth': 'sad',
+    'family_honesty': 'tender', 'tentative_steps': 'hopeful',
+    'belonging_without_answers': 'tender', 'clinical_uncertainty': 'mysterious',
+    'human_memory': 'sad', 'contradictory_evidence': 'mysterious',
+    'patient_investigation': 'mysterious', 'system_under_pressure': 'tense',
+    'grief_without_certainty': 'sad', 'recognition': 'tender',
+    'accountability_and_absence': 'sad',
     "mystery": "mysterious", "suspense": "tense", "fear": "tense",
     "tense": "tense", "dark": "mysterious", "sad": "sad",
     "grief": "sad", "emotional": "sad", "love": "tender",
@@ -84,6 +104,9 @@ def inventory(project_dir: Path) -> dict:
 
 
 def mood_of(shot: dict) -> str:
+    exact = str(shot.get('music_cue', '')).lower()
+    if exact in MOOD_FROM_CUE:
+        return MOOD_FROM_CUE[exact]
     cue = str(shot.get("music_cue", "") + " " + shot.get("music_direction_ru", "")).lower()
     for word, mood in MOOD_FROM_CUE.items():
         if word in cue:

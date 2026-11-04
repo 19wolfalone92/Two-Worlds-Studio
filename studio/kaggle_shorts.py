@@ -48,13 +48,16 @@ def build_kernel(root: Path, destination: Path, *, username: str, dataset: str,
                  model_path: str = "/kaggle/input/two-worlds-models",
                  recovery_dataset: str | None = None, recovery_path: str | None = None,
                  model_dataset: str | None = None,
+                 model_kernel: str | None = None, recovery_kernel: str | None = None,
                  install_deps: bool = False, bootstrap: bool = False) -> dict:
     root = Path(root).resolve()
     destination = Path(destination).resolve()
     if not USERNAME.fullmatch(username) or not SLUG.fullmatch(slug):
         raise ValueError("Invalid Kaggle owner/slug")
     if (not DATASET.fullmatch(dataset) or (recovery_dataset and not DATASET.fullmatch(recovery_dataset))
-            or (model_dataset and not DATASET.fullmatch(model_dataset))):
+            or (model_dataset and not DATASET.fullmatch(model_dataset))
+            or (model_kernel and not DATASET.fullmatch(model_kernel))
+            or (recovery_kernel and not DATASET.fullmatch(recovery_kernel))):
         raise ValueError("Invalid Kaggle dataset handle")
     if phase not in ALLOWED_PHASES or story not in {str(i) for i in range(13, 19)}:
         raise ValueError("Unknown project phase or story")
@@ -70,14 +73,14 @@ def build_kernel(root: Path, destination: Path, *, username: str, dataset: str,
     if not (model_path.startswith("/kaggle/working/") if bootstrap else
             model_path.startswith("/kaggle/input/")) or ".." in Path(model_path).parts:
         raise ValueError("Model path must point to an attached dataset, or writable work for bootstrap")
-    if recovery_path and (not recovery_dataset or not recovery_path.startswith("/kaggle/input/")
+    if recovery_path and (not (recovery_dataset or recovery_kernel) or not recovery_path.startswith("/kaggle/input/")
                           or ".." in Path(recovery_path).parts):
         raise ValueError("Recovery ZIP requires an attached private recovery dataset")
     if bootstrap and phase not in {"image", "voice"}:
         raise ValueError("Model bootstrap is only for generation phases")
     if bootstrap and not install_deps:
         raise ValueError("Bootstrap needs explicitly enabled dependency installation")
-    if phase in ("image", "voice") and not bootstrap and model_dataset is None:
+    if phase in ("image", "voice") and not bootstrap and model_dataset is None and model_kernel is None:
         raise ValueError("Generation requires a private mounted model dataset or explicit bootstrap")
     template = (root / "tools/kaggle_shorts_kernel_entry.py").read_text(encoding="utf-8")
     payload = {
@@ -101,7 +104,9 @@ def build_kernel(root: Path, destination: Path, *, username: str, dataset: str,
             "machine_shape": "NvidiaTeslaT4" if phase in {"image", "voice"} else "",
             "dataset_sources": [dataset] + ([model_dataset] if model_dataset else []) +
                                ([recovery_dataset] if recovery_dataset else []),
-            "competition_sources": [], "kernel_sources": [], "model_sources": []}
+            "competition_sources": [],
+            "kernel_sources": list(dict.fromkeys(x for x in [model_kernel, recovery_kernel] if x)),
+            "model_sources": []}
     destination.mkdir(parents=True,exist_ok=True)
     for filename in ("kernel_main.py","kernel-metadata.json"):
         if (destination/filename).exists():
