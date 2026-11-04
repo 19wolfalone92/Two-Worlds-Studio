@@ -1,0 +1,9 @@
+{
+  "schema": 1,
+  "nonce": "cpu-six-review-20261104-01",
+  "mode": "cpu_only_review",
+  "free_resources_only": true,
+  "dataset_slug": "two-worlds-private-batch03-20261104-repair-v6",
+  "source_sha256": "0bf78ddd15984ecd51287dc3140cd9b2b89192348fd95fd6e49edf4e95d0f061",
+  "notes": "Reuse existing PRIVATE Kaggle image and voice ZIPs for H264/AAC vertical MP4. No Kaggle GPU; never upload plaintext or publish without review."
+}
