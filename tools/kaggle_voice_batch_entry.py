@@ -32,6 +32,12 @@ def resolve_source(hint: Path, dataset_slug: str, input_root: Path = Path('/kagg
     raise FileNotFoundError('Locked private six-story source is missing or ambiguous')
 
 
+def find_recovery(input_root: Path, story: int, model_kernel_slug: str) -> list[Path]:
+    """Model caches may contain old story media; never import them as recovery."""
+    return [p for p in input_root.rglob(f'TwoWorlds_PRIVATE_{story}_voice.zip')
+            if model_kernel_slug not in p.parts]
+
+
 def main():
     conf = json.loads(base64.b64decode(CONFIG_B64))
     BASE.mkdir(parents=True, exist_ok=True)
@@ -74,12 +80,12 @@ def main():
         story = assignments[gpu].pop(0)
         out = OUT/f'story_{story}'
         out.mkdir(exist_ok=True)
-        recovery = list(Path('/kaggle/input').rglob(f'TwoWorlds_PRIVATE_{story}_voice.zip'))
+        recovery = find_recovery(Path('/kaggle/input'),story,conf['model_kernel_slug'])
         args = [sys.executable,'-m','studio.kaggle_shorts_worker',
                 '--source',str(source),'--story',str(story),'--phase','voice',
                 '--models',str(model_root),'--work',str(OUT/'private_projects'/str(story)),
                 '--out',str(out),'--start','1','--count','8','--gpu-id',str(gpu),
-                '--time-budget','4800','--speaker','Ryan' if story in [14,17] else 'Serena']
+                '--time-budget','4800','--speaker','Ryan' if story in [16,17] else 'Serena']
         if len(recovery)==1:
             args += ['--recovery',str(recovery[0])]
         env = os.environ.copy()

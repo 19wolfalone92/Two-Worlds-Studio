@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageOps,ImageEnhance
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_AUDIO = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
@@ -290,7 +290,7 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
     else:
         filt += ";[voice]alimiter=limit=0.92[a]"
     args += ["-filter_complex", filt, "-map", "[v]", "-map", "[a]",
-             "-frames:v", str(frames), "-c:v", "libx264", "-preset", "medium",
+             "-frames:v", str(frames), "-c:v", "libx264", "-threads", "2", "-preset", "medium",
              "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(fps),
              "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
              "-t", f"{frames/fps:.6f}", "-movflags", "+faststart", str(output)]
@@ -315,7 +315,7 @@ def qa(video: Path, w: int, h: int, fps: int) -> dict:
     if len(f) != 2 or not int(f[1]) or abs(int(f[0]) / int(f[1]) - fps) > .01:
         raise RuntimeError("Wrong output frame rate")
     decoded=subprocess.run(['ffmpeg','-hide_banner','-nostdin','-nostats','-v','info','-xerror',
-        '-i',str(video),'-vf','blackdetect=d=0.04:pix_th=0.025:pic_th=0.995','-f','null','-'],
+        '-i',str(video),'-vf','blackdetect=d=0:pix_th=0.025:pic_th=0.995','-f','null','-'],
         capture_output=True,text=True)
     if decoded.returncode:raise RuntimeError('Full final video decode failed: '+decoded.stderr[-1700:])
     black_intervals=[line.strip() for line in decoded.stderr.splitlines() if 'black_start:' in line]

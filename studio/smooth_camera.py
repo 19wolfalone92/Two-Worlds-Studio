@@ -54,7 +54,7 @@ def render_still(image_path: Path, target_path: Path, width: int, height: int, f
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
             "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
             "-r", str(fps), "-i", "pipe:0", "-an", "-frames:v", str(frames),
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+            "-c:v", "libx264", "-threads", "2", "-preset", "veryfast", "-crf", "18",
             "-pix_fmt", "yuv420p", "-r", str(fps), str(target_path)
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=error_file)
         try:
