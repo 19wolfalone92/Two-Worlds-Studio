@@ -20,7 +20,7 @@ def main():
     from faster_whisper import WhisperModel
     from studio.kaggle_shorts_worker import _safe_extract
     from studio.autonomous_factory import atomic_json
-    import re
+    import re,wave,numpy as np
     def words(text):return re.findall(r'[а-яa-z0-9]+',text.lower().replace('ё','е'))
     def distance(a,b):
         previous=list(range(len(b)+1))
@@ -43,7 +43,13 @@ def main():
         project=root/'production_queue'/str(sid);doc=json.loads((project/'project.json').read_text())
         shots={s['scene']:s for s in json.loads((project/'shot_plan.json').read_text())};results=[]
         for scene in doc['scenes']:
-            segments,info=model.transcribe(str(project/scene['voice']),language='ru',task='transcribe',
+            # Decode our own known PCM WAVs; avoid an installed PyAV ABI/API
+            # mismatch on the CPU image and retain their actual sample clock.
+            with wave.open(str(project/scene['voice']),'rb') as wav:
+                if wav.getsampwidth()!=2 or wav.getnchannels()!=1:raise ValueError('Expected original mono PCM16 narration')
+                rate=wav.getframerate();pcm=np.frombuffer(wav.readframes(wav.getnframes()),'<i2').astype(np.float32)/32768
+            samples=np.interp(np.arange(round(len(pcm)*16000/rate))*rate/16000,np.arange(len(pcm)),pcm).astype(np.float32)
+            segments,info=model.transcribe(samples,language='ru',task='transcribe',
                 beam_size=5,temperature=0,condition_on_previous_text=False,word_timestamps=True,vad_filter=False)
             observed=[];spans=[]
             for segment in segments:
