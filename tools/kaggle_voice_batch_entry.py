@@ -16,6 +16,22 @@ OUT = Path('/kaggle/working')
 BASE = OUT/'tw_voice_modules'
 
 
+def resolve_source(hint: Path, dataset_slug: str, input_root: Path = Path('/kaggle/input')) -> Path:
+    if hint.is_file():
+        return hint
+    found = [p for p in input_root.rglob(hint.name) if dataset_slug in p.parts and p.is_file()]
+    if len(found)==1:
+        return found[0]
+    projects = [p for p in input_root.rglob('project.json')
+                if p.parent.name=='13' and p.parent.parent.name=='production_queue'
+                and dataset_slug in p.parts]
+    if len(projects)==1:
+        root = projects[0].parent.parent.parent
+        if all((root/'production_queue'/str(i)/'project.json').is_file() for i in range(13,19)):
+            return root
+    raise FileNotFoundError('Locked private six-story source is missing or ambiguous')
+
+
 def main():
     conf = json.loads(base64.b64decode(CONFIG_B64))
     BASE.mkdir(parents=True, exist_ok=True)
@@ -34,12 +50,7 @@ def main():
     if gpu_count < 1:
         raise RuntimeError('Real voice batch requires CUDA, not a simulated backend')
     gpu_names = [torch.cuda.get_device_name(i) for i in range(gpu_count)]
-    source = Path(conf['source_path'])
-    if not source.exists():
-        found = list(Path('/kaggle/input').rglob(source.name))
-        if len(found) != 1:
-            raise FileNotFoundError('Locked private source ZIP is missing or ambiguous')
-        source = found[0]
+    source = resolve_source(Path(conf['source_path']), conf['dataset_slug'])
     model_root = Path(conf['model_root'])
     if not (model_root/'voice/config.json').is_file():
         found = [p.parent.parent for p in Path('/kaggle/input').rglob('config.json')

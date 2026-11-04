@@ -164,6 +164,7 @@ def produce():
                 raise ValueError('The full batch requires the already validated shared Qwen cache')
             from studio.kaggle_shorts import build_source
             batch_conf = {'source_path':'/kaggle/input/'+conf['dataset_slug']+'/batch03_source.zip',
+                          'dataset_slug':conf['dataset_slug'],
                           'model_root':'/kaggle/input/'+cached.split('/')[1]+'/private_models',
                           'model_kernel_slug':cached.split('/')[1]}
             template = (ROOT/'tools/kaggle_voice_batch_entry.py').read_text()
