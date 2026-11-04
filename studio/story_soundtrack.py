@@ -121,6 +121,7 @@ def prepare_story(project: Path,piano_path: Path,sound_bank: Path) -> dict:
         if not score.exists():
             info=compose_score(score,seconds+1,piano,mood=mood_of(shots[sid]),seed=int(story)*100+sid)
             atomic_json(score.with_suffix('.receipt.json'),info)
+        scene['music']=str(score.relative_to(root))
         scores.append(score)
         ambience=sound_bank/(ambience_for(story,sid)+'.wav')
         if not ambience.exists():raise FileNotFoundError(ambience)

@@ -17,6 +17,46 @@ INPUT=Path('/kaggle/input')
 BASE=OUT/'tw_motion_modules'
 
 
+def bounded_tasks(conf):
+    return [(str(story),scene,variant) for story in conf['stories']
+            for scene in range(conf['first_scene'],conf['first_scene']+conf['count'])
+            for variant in range(1,conf.get('variants',1)+1)]
+
+
+def worker(config):
+    """One independent model per visible card; VRAM is never pooled."""
+    sys.path.insert(0,str(BASE))
+    os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1'
+    import torch
+    torch.set_num_threads(2)
+    from studio.neural_motion import load_pipeline,render_clip,_json
+    pipe=load_pipeline(Path(config['model']))
+    state={'made':[],'errors':[],'gpu_memory_pooled':False,'reviewed':False}
+    status=Path(config['status'])
+    for story,scene,variant in config['tasks']:
+        dest=OUT/f'motion_outputs/{story}/motion/scene_{scene:02d}_{variant:02d}.mp4'
+        try:
+            if dest.exists() and dest.with_suffix('.receipt.json').exists():
+                info=json.loads(dest.with_suffix('.receipt.json').read_text())
+                from studio.neural_motion import _digest
+                if info['sha256']!=_digest(dest):raise ValueError('Recovered motion checksum mismatch')
+                info['reused']=True
+            else:
+                info=render_clip(pipe,Path(config['embeddings'])/f'{story}_{scene:02d}.safetensors',
+                    Path(config['images'][story])/f'images/scene_{scene:02d}.png',dest,
+                    seed=int(story)*100000+scene*100+variant,width=config['width'],
+                    height=config['height'],frames=config['frames'])
+            state['made'].append({'story':story,'scene':scene,'variant':variant,**info})
+        except Exception as exc:
+            state['errors'].append({'story':story,'scene':scene,'variant':variant,
+                'type':type(exc).__name__,'message':str(exc),'traceback':traceback.format_exc()})
+            if isinstance(exc,torch.cuda.OutOfMemoryError):
+                import gc
+                gc.collect();torch.cuda.empty_cache()
+        _json(status,state)
+    return 0
+
+
 def main():
     conf=json.loads(base64.b64decode(CONFIG_B64))
     BASE.mkdir(parents=True,exist_ok=True)
@@ -60,8 +100,9 @@ def main():
     if len(embeddings)!=1:raise FileNotFoundError('Private CPU-generated motion embeddings missing')
     import torch
     if not torch.cuda.is_available():raise RuntimeError('Real CUDA image-to-video requires an allocated GPU')
-    pipe=load_pipeline(model)
+    torch.set_num_threads(2)
     state={'success':False,'made':[],'errors':[],'reviewed':False,'published':False,'gpu_memory_pooled':False}
+    image_roots={}
     for story in conf['stories']:
         story=str(story)
         projects=[p for p in INPUT.rglob('project.json') if p.parent.name==story
@@ -75,33 +116,39 @@ def main():
             image_root=temp/'production_queue'/story
         if image_root is None:
             state['errors'].append({'story':story,'type':'IMAGE_SOURCE_MISSING'});continue
-        try:
-            for scene in range(conf['first_scene'],conf['first_scene']+conf['count']):
-                for variant in range(1,conf.get('variants',1)+1):
-                    image=image_root/f'images/scene_{scene:02d}.png'
-                    dest=OUT/f'motion_outputs/{story}/motion/scene_{scene:02d}_{variant:02d}.mp4'
-                    if dest.exists():continue
-                    info=render_clip(pipe,embeddings[0]/f'{story}_{scene:02d}.safetensors',image,dest,
-                        seed=int(story)*100000+scene*100+variant,width=conf.get('width',512),
-                        height=conf.get('height',896),frames=conf.get('frames',121))
-                    state['made'].append({'story':story,'scene':scene,'variant':variant,**info})
-                    _json(OUT/'batch_motion_status.json',state)
-        except Exception as exc:
-            state['errors'].append({'story':story,'type':type(exc).__name__,'message':str(exc),
-                                    'traceback':traceback.format_exc()})
-        finally:
-            folder=OUT/f'motion_outputs/{story}'
-            if folder.exists():
-                with zipfile.ZipFile(OUT/f'TwoWorlds_PRIVATE_{story}_motion.zip','w',zipfile.ZIP_STORED) as z:
-                    for f in folder.rglob('*'):
-                        if f.is_file():z.write(f,f'production_queue/{story}/'+str(f.relative_to(folder)))
-            _json(OUT/'batch_motion_status.json',state)
+        image_roots[story]=str(image_root)
+    tasks=[task for task in bounded_tasks(conf) if task[0] in image_roots]
+    devices=min(2,torch.cuda.device_count())
+    jobs=[]
+    for card in range(devices):
+        settings={'model':str(model),'embeddings':str(embeddings[0]),'images':image_roots,
+            'tasks':tasks[card::devices],'width':conf.get('width',512),'height':conf.get('height',896),
+            'frames':conf.get('frames',81),'status':str(OUT/f'motion_worker_{card}.json')}
+        path=OUT/f'motion_worker_{card}_config.json';_json(path,settings)
+        env={**os.environ,'CUDA_VISIBLE_DEVICES':str(card),'OMP_NUM_THREADS':'2','MKL_NUM_THREADS':'2'}
+        jobs.append(subprocess.Popen([sys.executable,'-u',__file__,'--worker',str(path)],env=env))
+    state['independent_gpu_workers']=devices
+    _json(OUT/'batch_motion_status.json',state)
+    for card,job in enumerate(jobs):
+        code=job.wait()
+        status=OUT/f'motion_worker_{card}.json'
+        if status.exists():
+            result=json.loads(status.read_text());state['made']+=result['made'];state['errors']+=result['errors']
+        if code:state['errors'].append({'worker':card,'type':'WORKER_EXIT','code':code})
+    for story in conf['stories']:
+        folder=OUT/f'motion_outputs/{story}'
+        if folder.exists():
+            with zipfile.ZipFile(OUT/f'TwoWorlds_PRIVATE_{story}_motion.zip','w',zipfile.ZIP_STORED) as z:
+                for f in folder.rglob('*'):
+                    if f.is_file():z.write(f,f'production_queue/{story}/'+str(f.relative_to(folder)))
     state['success']=len(state['errors'])==0 and len(state['made'])==len(conf['stories'])*conf['count']*conf.get('variants',1)
     _json(OUT/'batch_motion_status.json',state)
 
 
 if __name__=='__main__':
-    try:main()
+    try:
+        if len(sys.argv)==3 and sys.argv[1]=='--worker':worker(json.loads(Path(sys.argv[2]).read_text()))
+        else:main()
     except Exception as exc:
         (OUT/'batch_motion_failure.json').write_text(json.dumps({'success':False,'type':type(exc).__name__,
             'message':str(exc),'traceback':traceback.format_exc(),'reviewed':False,'published':False}))
