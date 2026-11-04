@@ -49,8 +49,9 @@ def scene_prompt(director: dict, shot: dict, repair: dict | None = None) -> tupl
         for i, key in enumerate(cast))
     prompt = (
         'Create ONE cinematic live-action movie frame, vertical composition. '
-        'Preserve each referenced face, age, hair and clothing exactly; '
-        'change the staging to the specified scene. Natural expressive faces, '
+        + ('Preserve each referenced face, age and hair exactly; follow the scene instructions for clothing. '
+           if repair.get('change_clothing') else 'Preserve each referenced face, age, hair and clothing exactly; ')
+        + 'change the staging to the specified scene. Natural expressive faces, '
         'physically credible anatomy and hands, motivated practical lighting, '
         'real skin texture, coherent reflections and shadows, restrained film grain, '
         'professional 35mm cinematography, not an illustration or collage. '
