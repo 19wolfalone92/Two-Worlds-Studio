@@ -203,7 +203,7 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
                 num_frames=frames,frame_rate=fps,guidance_scale=1.0,
                 num_inference_steps=len(SIGMAS),
                 decode_timestep=.05,decode_noise_scale=.025,
-                generator=torch.Generator(device='cpu').manual_seed(seed)).frames[0]
+                generator=torch.Generator(device='cuda:0').manual_seed(seed)).frames[0]
     if len(result)!=frames:
         raise RuntimeError('Neural model returned the wrong number of actual frames')
     samples=[np.asarray(result[i],dtype=np.float32)/255 for i in [0,len(result)//2,len(result)-1]]
