@@ -178,6 +178,31 @@ def write_srt(entries: list[dict], dest: Path, fps: int) -> None:
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def write_ass(entries: list[dict], dest: Path, fps: int) -> None:
+    """Explicit portrait canvas and margins keep captions above TikTok controls."""
+    header = ('[Script Info]\nScriptType: v4.00+\nPlayResX: 1080\nPlayResY: 1920\n'
+              'WrapStyle: 0\nScaledBorderAndShadow: yes\n\n[V4+ Styles]\n'
+              'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, '
+              'Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, '
+              'Alignment, MarginL, MarginR, MarginV, Encoding\n'
+              'Style: Narration,DejaVu Sans,54,&H00FFFFFF,&H00FFFFFF,&H19000000,&H70000000,'
+              '-1,0,0,0,100,100,0,0,1,3,1,2,76,156,320,1\n\n[Events]\n'
+              'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
+    def ass_time(value):
+        centis = round(value * 100)
+        hours, centis = divmod(centis, 360000)
+        minutes, centis = divmod(centis, 6000)
+        secs, centis = divmod(centis, 100)
+        return f'{hours}:{minutes:02}:{secs:02}.{centis:02}'
+    lines, offset = [header], 0.0
+    for scene in entries:
+        for cue in scene['cues']:
+            text = cue['text'].strip().replace('\\', '＼').replace('{', '(').replace('}', ')').replace('\n', ' ')
+            lines.append(f"Dialogue: 0,{ass_time(offset+cue['start'])},{ass_time(offset+cue['end'])},Narration,,0,0,0,,{text}\n")
+        offset += math.ceil(scene['seconds'] * fps)/fps
+    dest.write_text(''.join(lines), encoding='utf-8')
+
+
 def cover(image: Path, title: str, output: Path, w: int, h: int) -> None:
     with Image.open(image) as source:
         picture = ImageOps.fit(source.convert("RGB"), (w, h), method=Image.Resampling.LANCZOS)
@@ -305,12 +330,12 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0",
               "-i", str(playlist), "-c", "copy", str(staging / "joined.mp4")])
         write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
-        srt = (str(staging / "subtitles.srt").replace("\\", "\\\\")
+        write_ass(item['entries'], staging/'subtitles.ass', item['fps'])
+        srt = (str(staging / "subtitles.ass").replace("\\", "\\\\")
                .replace(":", "\\:").replace("'", "\\'"))
-        style = "FontName=DejaVu Sans,FontSize=17,Outline=2,Shadow=0,Alignment=2,MarginV=52"
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y",
               "-i", str(staging / "joined.mp4"),
-              "-vf", f"subtitles='{srt}':force_style='{style}'",
+              "-vf", f"ass='{srt}'",
               "-c:v", "libx264", "-preset", "medium", "-crf", "18",
               "-pix_fmt", "yuv420p", "-c:a", "copy",
               "-movflags", "+faststart", str(staging / "final.mp4")])

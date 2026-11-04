@@ -57,10 +57,12 @@ class KaggleShortsTests(unittest.TestCase):
         self.assertTrue((self.base/'out/run_status.json').exists())
 
     def test_resume_images_and_voice_timings(self):
+        (self.story/'visual_identity.json').write_text(json.dumps({'cast': 'CLARA: auburn hair, navy coat.'}))
         path=self.base/'source.zip';self._zip(path)
         work=prepare_input(path,self.base/'work','13')
         image_references = []
         def fake_image(prompt,dest,models,*,seed,width,height,references=None):
+            self.assertIn('CLARA: auburn hair, navy coat.', prompt)
             image_references.append(references)
             dest.parent.mkdir(parents=True,exist_ok=True)
             Image.new('RGB',(width,height),(90,100,130)).save(dest)
@@ -91,6 +93,7 @@ class KaggleShortsTests(unittest.TestCase):
         self.assertEqual(info['scenes'][0]['subtitles'][0]['text'],'Русский текст сцены.')
         self.assertTrue((new/'images/scene_01.png').exists())
         self.assertTrue((new/'voices/scene_01.wav').exists())
+        self.assertTrue((new/'visual_identity.json').exists())
         runreceipt=self.base/'check';runreceipt.mkdir()
         shutil.copy(self.base/'export.zip',runreceipt/'export.zip')
         (runreceipt/'two_worlds_kaggle_receipt.json').write_text(json.dumps({

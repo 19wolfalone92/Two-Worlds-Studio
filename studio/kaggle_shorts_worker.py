@@ -343,6 +343,34 @@ def run_job(workdir: Path, out: Path, model_root: Path, *, story: str, phase: st
                     checkpoint()
             finally:
                 release_gpu_models()
+            # Align against the actual produced waveform, after freeing Qwen.
+            align_home = Path(model_root) / 'alignment'
+            if not align_home.is_dir():
+                align_home = Path('/kaggle/working/private_models/alignment')
+            if backend is real_voice and (align_home / 'config.json').is_file():
+                from .subtitle_align import align_voice
+                from transformers import Wav2Vec2Processor, Wav2Vec2ForCTC
+                processor = Wav2Vec2Processor.from_pretrained(str(align_home), local_files_only=True)
+                aligner = Wav2Vec2ForCTC.from_pretrained(str(align_home), local_files_only=True).to('cuda').eval()
+                try:
+                    doc = json.loads((root/'project.json').read_text(encoding='utf-8'))
+                    for scene in doc['scenes']:
+                        path = root / scene['voice']
+                        if scene['id'] not in [s['id'] for s in selected] or not path.is_file() or not scene['subtitles']:
+                            continue
+                        try:
+                            aligned = align_voice(path, scene['subtitles'], align_home,
+                                                  processor=processor, model=aligner)
+                            atomic_json(root / f"voices/scene_{scene['id']:02d}.alignment.json", aligned)
+                            scene['subtitles'] = aligned['subtitles']
+                            scene['subtitle_alignment'] = aligned['alignment']
+                            atomic_json(root/'project.json', doc)
+                        except Exception as exc:
+                            status.setdefault('alignment_warnings', []).append({
+                                'scene': scene['id'], 'type': type(exc).__name__, 'message': str(exc)[:300]})
+                finally:
+                    del aligner
+                    release_gpu_models()
     elif phase == "music":
         for scene in selected:
             if clock()-started > time_budget_s:

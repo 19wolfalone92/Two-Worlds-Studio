@@ -6,7 +6,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: tw-private-batch03
+  group: tw-private-batch03-${{ github.sha }}
   cancel-in-progress: false
 jobs:
   production:

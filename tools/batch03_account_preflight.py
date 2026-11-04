@@ -16,6 +16,8 @@ def main():
         ('quota', ['kaggle', 'quota']),
         ('datasets', ['kaggle', 'datasets', 'list', '--mine', '--csv']),
         ('kernels', ['kaggle', 'kernels', 'list', '--mine', '--csv']),
+        ('public_flux_models', ['kaggle', 'models', 'list', '--search', 'FLUX.2-klein-4B', '--csv']),
+        ('public_qwen_models', ['kaggle', 'models', 'list', '--search', 'Qwen3-TTS', '--csv']),
     ):
         try:
             run = subprocess.run(args, capture_output=True, text=True, timeout=90)

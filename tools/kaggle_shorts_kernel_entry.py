@@ -58,6 +58,16 @@ def main():
                      'tokenizer/*', 'transformer/*', 'vae/*', 'LICENSE.md']
                     if phase == 'image' else None)
         snapshot_download(repo_id=mapping[phase], local_dir=str(dst), allow_patterns=patterns)
+    if phase == 'voice' and not (model_root / 'alignment/config.json').is_file():
+        # Optional forced alignment stays separate from narration synthesis.
+        # A missing aligner is recorded instead of inventing word timestamps.
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(repo_id='jonatasgrosman/wav2vec2-large-xlsr-53-russian',
+                              local_dir=str(Path('/kaggle/working/private_models/alignment')),
+                              allow_patterns=['*.json', '*.bin', '*.safetensors'])
+        except Exception:
+            pass
     from studio.kaggle_shorts_worker import main as worker
     source_path = Path(conf['source_path'])
     if not source_path.exists():

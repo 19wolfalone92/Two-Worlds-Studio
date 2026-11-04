@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "request": "20261104-v3-live-kernel-status",
+  "request": "20261104-v4-available-models",
   "phase": "account_preflight",
   "free_resources_only": true,
   "gpu_requested": false
