@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "nonce": "motion-source-v3-20261104",
-  "phase": "seed_only",
+  "nonce": "motion-cpu-cache-20261104-01",
+  "phase": "motion_prepare",
   "story": "13",
   "count": 8,
   "first_scene": 1,
@@ -9,4 +9,3 @@
   "dataset_slug": "two-worlds-private-batch03-20261104-motion-v3",
   "source_sha256": "d6662417e8b5ac0b9df653e7ec1f47d8f1efd4d2331d83fd6d23a5d71cc2cd14"
 }
-

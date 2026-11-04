@@ -57,6 +57,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: batch03-private-production-result
-          path: dist/private_batch03/production_result.twenc
+          path: dist/private_batch03/
           retention-days: 3
           if-no-files-found: error
