@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageOps,ImageEnhance
 
 VERSION = "1.0.0"
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
@@ -215,8 +215,13 @@ def write_ass(entries: list[dict], dest: Path, fps: int,disclosure: str | None =
 def cover(image: Path, title: str, output: Path, w: int, h: int) -> None:
     with Image.open(image) as source:
         picture = ImageOps.fit(source.convert("RGB"), (w, h), method=Image.Resampling.LANCZOS)
+    picture=ImageEnhance.Color(picture).enhance(1.10)
+    picture=ImageEnhance.Brightness(picture).enhance(1.05)
+    shade=Image.new('RGBA',(w,h),(0,0,0,0));sd=ImageDraw.Draw(shade)
+    edge=round(h*.32)
+    for y in range(edge):sd.line((0,y,w,y),fill=(2,7,15,round(145*(1-y/edge)**1.5)))
+    picture=Image.alpha_composite(picture.convert('RGBA'),shade).convert('RGB')
     dr = ImageDraw.Draw(picture, "RGBA")
-    dr.rectangle((0, 0, w, int(h * .28)), fill=(2, 7, 15, 125))
     font_size = max(20, round(w * .063))
     fonts = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
              "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"]
