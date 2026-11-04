@@ -235,6 +235,7 @@ def produce():
             batch_conf={'phase':phase,'dataset_slug':conf['dataset_slug'],
                         'model_kernel_slug':cached.split('/')[1] if cached else None,
                         'image_kernel_slug':conf.get('image_kernel','/').split('/')[1],
+                        'image_fallback_slug':conf.get('recovery_kernel','/').split('/')[1],
                         'stories':conf.get('stories',[13]),'first_scene':conf.get('first_scene',1),
                         'count':conf['count'],'variants':conf.get('variants',1),
                         'frames':conf.get('frames',121),'width':conf.get('width',512),'height':conf.get('height',896)}

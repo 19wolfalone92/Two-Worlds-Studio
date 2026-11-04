@@ -123,15 +123,19 @@ def main():
     image_roots={}
     for story in conf['stories']:
         story=str(story)
-        projects=[p for p in INPUT.rglob('project.json') if p.parent.name==story
-                  and conf['image_kernel_slug'] in p.parts and p.parent.parent.name=='production_queue']
-        image_root=projects[0].parent if len(projects)==1 else None
-        archive=[p for p in INPUT.rglob(f'TwoWorlds_PRIVATE_{story}_image.zip') if conf['image_kernel_slug'] in p.parts]
-        if image_root is None and len(archive)==1:
-            temp=OUT/f'image_inputs/{story}'
-            from studio.kaggle_shorts_worker import _safe_extract
-            with zipfile.ZipFile(archive[0]) as z:_safe_extract(z,temp)
-            image_root=temp/'production_queue'/story
+        image_root=None
+        for slug in dict.fromkeys([conf['image_kernel_slug'],conf.get('image_fallback_slug')]):
+            if not slug:continue
+            projects=[p for p in INPUT.rglob('project.json') if p.parent.name==story
+                      and slug in p.parts and p.parent.parent.name=='production_queue']
+            image_root=projects[0].parent if len(projects)==1 else None
+            archive=[p for p in INPUT.rglob(f'TwoWorlds_PRIVATE_{story}_image.zip') if slug in p.parts]
+            if image_root is None and len(archive)==1:
+                temp=OUT/f'image_inputs/{story}'
+                from studio.kaggle_shorts_worker import _safe_extract
+                with zipfile.ZipFile(archive[0]) as z:_safe_extract(z,temp)
+                image_root=temp/'production_queue'/story
+            if image_root is not None:break
         if image_root is None:
             state['errors'].append({'story':story,'type':'IMAGE_SOURCE_MISSING'});continue
         image_roots[story]=str(image_root)
