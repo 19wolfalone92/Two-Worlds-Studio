@@ -236,6 +236,7 @@ def produce():
                         'model_kernel_slug':cached.split('/')[1] if cached else None,
                         'image_kernel_slug':conf.get('image_kernel','/').split('/')[1],
                         'image_fallback_slug':conf.get('recovery_kernel','/').split('/')[1],
+                        'memory_mode':conf.get('motion_memory_mode','cpu_offload'),
                         'stories':conf.get('stories',[13]),'first_scene':conf.get('first_scene',1),
                         'count':conf['count'],'variants':conf.get('variants',1),
                         'frames':conf.get('frames',121),'width':conf.get('width',512),'height':conf.get('height',896)}
@@ -271,6 +272,8 @@ def produce():
             args += ['--accelerator', 'NvidiaTeslaT4']
         pushed = command(args)
         (result_dir / 'submission_response.txt').write_text(pushed)
+        if 'Kernel push error:' in pushed:
+            raise RuntimeError('Kaggle rejected this session request; no worker was submitted')
         urls = re.findall(r'https://www\.kaggle\.com/code/(wolf19loner92/[a-z0-9-]+)', pushed)
         if urls:
             prepared['kernel'] = urls[-1]

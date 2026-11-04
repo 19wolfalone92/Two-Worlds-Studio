@@ -31,7 +31,8 @@ def worker(config):
     import torch
     torch.set_num_threads(2)
     from studio.neural_motion import load_pipeline,render_clip,_json
-    pipe=load_pipeline(Path(config['model']))
+    pipe=load_pipeline(Path(config['model']),memory_mode=config.get('memory_mode','cpu_offload'))
+    _json(Path(config['ready']),{'model_loaded':True,'gpu_memory_pooled':False})
     state={'made':[],'errors':[],'gpu_memory_pooled':False,'reviewed':False}
     status=Path(config['status'])
     for story,scene,variant in config['tasks']:
@@ -56,6 +57,10 @@ def worker(config):
                 import gc
                 gc.collect();torch.cuda.empty_cache()
         _json(status,state)
+        import gc,ctypes
+        gc.collect()
+        try:ctypes.CDLL(None).malloc_trim(0)
+        except AttributeError:pass
     return 0
 
 
@@ -145,11 +150,16 @@ def main():
     for card in range(devices):
         settings={'model':str(model),'embeddings':str(embeddings[0]),'images':image_roots,
             'physical_card':card,
+            'memory_mode':conf.get('memory_mode','cpu_offload'),'ready':str(OUT/f'motion_worker_{card}.ready.json'),
             'tasks':tasks[card::devices],'width':conf.get('width',512),'height':conf.get('height',896),
             'frames':conf.get('frames',81),'status':str(OUT/f'motion_worker_{card}.json')}
         path=OUT/f'motion_worker_{card}_config.json';_json(path,settings)
         env={**os.environ,'CUDA_VISIBLE_DEVICES':str(card),'OMP_NUM_THREADS':'2','MKL_NUM_THREADS':'2'}
         jobs.append(subprocess.Popen([sys.executable,'-u',__file__,'--worker',str(path)],env=env))
+        # Avoid simultaneous large CPU conversion peaks on the 29GB host.
+        # Models still execute independently on their own physical T4s.
+        ready=Path(settings['ready']);deadline=time.monotonic()+600
+        while not ready.exists() and jobs[-1].poll() is None and time.monotonic()<deadline:time.sleep(2)
     state['independent_gpu_workers']=devices
     _json(OUT/'batch_motion_status.json',state)
     while any(job.poll() is None for job in jobs):

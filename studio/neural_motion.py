@@ -164,7 +164,7 @@ def encode_directions(source: Path, model_dir: Path, output: Path) -> dict:
     return {'scenes':count,'gpu_used':False}
 
 
-def load_pipeline(model_dir: Path):
+def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload'):
     import torch
     from diffusers import LTXImageToVideoPipeline,LTXVideoTransformer3DModel,AutoencoderKLLTXVideo,FlowMatchEulerDiscreteScheduler
     if not torch.cuda.is_available():
@@ -178,7 +178,18 @@ def load_pipeline(model_dir: Path):
     pipe=LTXImageToVideoPipeline(transformer=transformer,vae=vae,scheduler=scheduler,
                                 text_encoder=None,tokenizer=None)
     pipe.vae.enable_tiling()
-    pipe.enable_model_cpu_offload()
+    if memory_mode not in {'resident','cpu_offload'}:raise ValueError('Unknown bounded motion memory policy')
+    free,_=torch.cuda.mem_get_info()
+    if memory_mode=='resident' and free>=13.25*1024**3:
+        pipe.to('cuda:0');pipe._tw_memory_mode='resident'
+    else:
+        pipe.enable_model_cpu_offload();pipe._tw_memory_mode='cpu_offload'
+    gc.collect()
+    # Release large temporary FP16-to-FP32 conversion arenas before another
+    # independent worker loads its model in the same host RAM budget.
+    import ctypes
+    try:ctypes.CDLL(None).malloc_trim(0)
+    except AttributeError:pass
     return pipe
 
 
@@ -198,12 +209,22 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
     with Image.open(image) as im:
         reference=ImageOps.fit(im.convert('RGB'),(width,height),method=Image.Resampling.LANCZOS)
     start=time.monotonic()
-    result=pipe(image=reference,prompt_embeds=values['prompt_embeds'],
+    call_args=dict(image=reference,prompt_embeds=values['prompt_embeds'],
                 prompt_attention_mask=values['prompt_attention_mask'],width=width,height=height,
                 num_frames=frames,frame_rate=fps,guidance_scale=1.0,
                 num_inference_steps=len(SIGMAS),
                 decode_timestep=.05,decode_noise_scale=.025,
-                generator=torch.Generator(device='cuda:0').manual_seed(seed)).frames[0]
+                generator=torch.Generator(device='cuda:0').manual_seed(seed))
+    fallback=False
+    try:result=pipe(**call_args).frames[0]
+    except torch.cuda.OutOfMemoryError:
+        if getattr(pipe,'_tw_memory_mode',None)!='resident':raise
+        # A measured full-residency trial may return to the already proven
+        # offload path; never reduce frame count, size or source fidelity.
+        pipe.to('cpu');gc.collect();torch.cuda.empty_cache();pipe.enable_model_cpu_offload()
+        pipe._tw_memory_mode='cpu_offload';fallback=True
+        call_args['generator']=torch.Generator(device='cuda:0').manual_seed(seed)
+        result=pipe(**call_args).frames[0]
     if len(result)!=frames:
         raise RuntimeError('Neural model returned the wrong number of actual frames')
     samples=[np.asarray(result[i],dtype=np.float32)/255 for i in [0,len(result)//2,len(result)-1]]
@@ -216,6 +237,7 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
              'seconds':frames/fps,'width':width,'height':height,'seed':seed,
              'gpu':torch.cuda.get_device_name(0),'gpu_memory_pooled':False,
              'compute_dtype':'float32','elapsed_s':round(time.monotonic()-start,2),
+             'memory_mode':getattr(pipe,'_tw_memory_mode','cpu_offload'),'resident_trial_fell_back':fallback,
              'inference_sigmas':SIGMAS,
              'gpu_peak_allocated_gib':round(torch.cuda.max_memory_allocated()/1024**3,3),
              'sha256':_digest(dest),
