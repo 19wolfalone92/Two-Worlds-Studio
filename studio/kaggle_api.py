@@ -122,7 +122,7 @@ def poll_kernel(kernel: str, *, timeout_seconds: int = 3300,
                 interval_seconds: int = 45, runner=subprocess.run) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]+/[a-z0-9-]+", kernel):
         raise ValueError("Invalid Kaggle kernel handle")
-    if not 15 <= interval_seconds <= 300 or not 60 <= timeout_seconds <= 5400:
+    if not 15 <= interval_seconds <= 300 or not 60 <= timeout_seconds <= 10800:
         raise ValueError("Polling limits out of bounds")
     deadline = time.monotonic() + timeout_seconds
     last = ""
