@@ -45,6 +45,7 @@ python -m studio.production --episode episodes/WORK_LOCKED_EPISODE.json --qualit
 The initial Work lock requires a real human approval, rights-clear images and voices, and cannot be issued by software itself. GPU inference is not available on default GitHub-hosted CPU runners. A command cannot make absent equipment or references exist.
 
 ## Relevant docs
+- `docs/HUGGING_FACE_INTEGRATION.md` — secure HF_TOKEN handshake, vetted model metadata and Kaggle boundaries.
 - `docs/WORK_VISUAL_HANDOFF.md` — Work/Studio exchange contract, metadata and layer preparation.
 - `docs/VISUAL_QUALITY_GATES.md` — release checklist.
 - `docs/AI_STUDIO.md` — GPU art architecture and cost/hardware limits.
