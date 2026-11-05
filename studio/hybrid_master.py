@@ -88,6 +88,25 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         caption = item.get("caption", "")
         if not isinstance(caption, str) or len(caption) > 240:
             raise ValueError(f"Shot {i}: caption too long")
+        # Optional real, per-phrase timing supplied by an editor/aligner.
+        # Never infer word positions from the caption or invent speech timing.
+        subtitle_cues = item.get("subtitle_cues", [])
+        if not isinstance(subtitle_cues, list) or len(subtitle_cues) > 40:
+            raise ValueError(f"Shot {i}: invalid subtitle_cues list")
+        validated_cues = []
+        previous_cue_end = 0.0
+        for cue in subtitle_cues:
+            if not isinstance(cue, dict):
+                raise ValueError(f"Shot {i}: subtitle cue must be an object")
+            begin, end, txt = cue.get("start"), cue.get("end"), cue.get("text")
+            if (type(begin) not in (float, int) or type(end) not in (float, int)
+                or not math.isfinite(begin) or not math.isfinite(end)
+                or begin < previous_cue_end or end <= begin
+                or end > frames / fps + 0.00001
+                or not isinstance(txt, str) or not txt.strip() or len(txt) > 120):
+                raise ValueError(f"Shot {i}: invalid/overlapping subtitle cue timing")
+            validated_cues.append({"start": float(begin), "end": float(end), "text": txt.strip()})
+            previous_cue_end = end
         approved = item.get("approved") is True
         if master and not approved:
             raise ValueError(f"Shot {i}: asset not explicitly approved")
@@ -103,7 +122,8 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                 raise ValueError(f"Shot {i}: voice must be explicitly approved")
         normalized.append(dict(kind=kind, path=media, frames=frames,
                                duration=frames / fps, start=start / fps, camera=camera, strength=strength,
-                               caption=caption.strip(), voice=voice, approved=approved))
+                               caption=caption.strip(), voice=voice, approved=approved,
+                               subtitle_cues=validated_cues))
         start += frames
     if start / fps > 600:
         raise ValueError("Video longer than 10 minutes")
@@ -151,13 +171,20 @@ def timestamp(t: float) -> str:
 
 
 def subtitles(shots: list[dict]) -> str:
-    lines = []
+    """Prefer explicit measured phrase cues, otherwise one whole-shot caption."""
+    rows = []
     for shot in shots:
-        if shot["caption"]:
-            n = len(lines) + 1
-            lines.append(f"{n}\n{timestamp(shot['start'])} --> "
-                         f"{timestamp(shot['start'] + shot['duration'])}\n{shot['caption']}\n")
-    return "\n".join(lines) + ("\n" if lines else "")
+        cues = shot.get("subtitle_cues") or []
+        if cues:
+            for cue in cues:
+                rows.append((shot["start"] + cue["start"],
+                             shot["start"] + cue["end"], cue["text"]))
+        elif shot["caption"]:
+            rows.append((shot["start"], shot["start"] + shot["duration"], shot["caption"]))
+    result = []
+    for number, (start, end, line) in enumerate(rows, 1):
+        result.append(f"{number}\\n{timestamp(start)} --> {timestamp(end)}\\n{line}\\n")
+    return "\\n".join(result) + ("\\n" if result else "")
 
 
 def add_audio(video: Path, output: Path, plan: dict) -> None:
