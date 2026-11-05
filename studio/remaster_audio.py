@@ -50,16 +50,26 @@ def scene_wave(path:Path,words:list[dict],*,first:bool=False,last:bool=False,
     return result,adjusted,{'removed_head_s':begin/rate,'removed_tail_s':(len(raw)-end)/rate,
                           'duration_s':len(result)/SR,'speech_speed_factor':1.0}
 
-def normalize(source:Path,dest:Path,*,lufs:float,tp:float=-1.7)->dict:
-    base=['ffmpeg','-v','info','-nostdin','-i',str(source),'-af',f'loudnorm=I={lufs}:LRA=9:TP={tp}:print_format=json','-f','null','-']
+def normalize(source:Path,dest:Path,*,lufs:float,tp:float=-1.7,channels:int|None=None)->dict:
+    if (not math.isfinite(lufs) or not -30<=lufs<=-10 or not math.isfinite(tp)
+            or not -9<=tp<=-1 or channels not in (None,1,2)):
+        raise ValueError('Invalid audio mastering target')
+    if Path(source).resolve()==Path(dest).resolve():raise ValueError('Do not normalize audio in place')
+    dest.parent.mkdir(parents=True,exist_ok=True)
+    prefix=('aformat=channel_layouts='+('stereo' if channels==2 else 'mono')+',') if channels else ''
+    prefix+='aresample=48000,'
+    base=['ffmpeg','-v','info','-nostdin','-i',str(source),'-map','0:a:0','-vn','-af',
+          prefix+f'loudnorm=I={lufs}:LRA=9:TP={tp}:print_format=json','-f','null','-']
     first=subprocess.run(base,capture_output=True,text=True,check=True)
     match=re.findall(r'\{\s*"input_i".*?\}',first.stderr,re.S)
     if not match:raise RuntimeError('Loudness measurement unavailable')
     measured=json.loads(match[-1])
-    filt=(f'loudnorm=I={lufs}:LRA=9:TP={tp}:measured_I={measured["input_i"]}:'
+    if not all(math.isfinite(float(measured[k])) for k in ('input_i','input_lra','input_tp','input_thresh','target_offset')):
+        raise ValueError('Silent or non-finite source cannot be mastered as narration')
+    filt=(prefix+f'loudnorm=I={lufs}:LRA=9:TP={tp}:measured_I={measured["input_i"]}:'
           f'measured_LRA={measured["input_lra"]}:measured_TP={measured["input_tp"]}:'
           f'measured_thresh={measured["input_thresh"]}:offset={measured["target_offset"]}:linear=true')
-    subprocess.run(['ffmpeg','-v','error','-nostdin','-y','-i',str(source),'-af',filt,
+    subprocess.run(['ffmpeg','-v','error','-nostdin','-y','-i',str(source),'-map','0:a:0','-vn','-af',filt,
                     '-ar',str(SR),'-c:a','pcm_s16le',str(dest)],check=True)
     return measured
 

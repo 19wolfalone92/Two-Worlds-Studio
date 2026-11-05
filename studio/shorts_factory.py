@@ -16,9 +16,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageStat, ImageOps,ImageEnhance
+from PIL import Image, ImageDraw, ImageStat, ImageOps,ImageEnhance
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_AUDIO = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
@@ -121,8 +121,24 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
         try:
             with Image.open(image) as im:
                 im.verify()
+            with Image.open(image) as im:
+                source_size = ImageOps.exif_transpose(im).size
         except Exception as exc:
             raise Blocked(f"Broken scene image {image.name}") from exc
+        source_scale = max(width / source_size[0], height / source_size[1])
+        if not smoke and source_scale > 2.0:
+            raise Blocked(f"Scene {scene['id']}: source is a thumbnail; canvas-fill upscale exceeds 2x")
+        from .smooth_camera import camera_pose, validate_framing
+        try:
+            camera_pose(0, 2, scene.get('camera', 'push_in'), scene.get('camera_strength', .35))
+            framing = validate_framing(scene.get('framing'))
+        except (ValueError, TypeError) as exc:
+            raise Blocked(f"Scene {scene['id']}: invalid camera/framing: {exc}") from exc
+        if framing and (scene.get('motion_video') or scene.get('motion_clips')):
+            raise Blocked('Source focus applies to photographic scenes; author motion-clip crops separately')
+        caption_position = scene.get('caption_position', 'bottom')
+        if caption_position not in ('bottom', 'upper'):
+            raise Blocked('Caption position must be bottom or upper')
         length = duration(voice)
         motion = asset(base, scene["motion_video"], ALLOWED_VIDEO) if scene.get("motion_video") else None
         if motion and video_duration(motion) + .05 < length:
@@ -154,15 +170,36 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
                     or end > length + .06):
                 raise Blocked(f'Invalid real subtitle timestamp in scene {scene["id"]}')
             previous = end
+        source_text = scene.get('source_text')
+        if source_text is not None:
+            if (not isinstance(source_text, str) or not source_text.strip()
+                    or ' '.join(source_text.split()) !=
+                    ' '.join(' '.join(c['text'] for c in cues).split())):
+                raise Blocked(f"Scene {scene['id']}: captions changed or omitted source words")
+        from .caption_layout import audit_cues
+        try:
+            caption_audit = audit_cues(cues)
+        except ValueError as exc:
+            raise Blocked(f"Scene {scene['id']}: {exc}") from exc
         entries.append({"id": scene["id"], "image": image, "voice": voice,
                         "music": music, "motion_video": motion, "motion_clips":takes,"seconds": length,
                         "foreground_soft_focus":focus,"cues": cues,
                         "camera":scene.get("camera","push_in"),
-                        "camera_strength":scene.get("camera_strength",.35)})
+                        "camera_strength":scene.get("camera_strength",.35),
+                        "framing":framing,"caption_position":caption_position,
+                        "source_upscale":round(source_scale, 4),"caption_audit":caption_audit,
+                        "caption_source_verified":source_text is not None})
+    cover_scene = doc.get('cover_scene_id', entries[0]['id'])
+    cover_text = doc.get('cover_text', title)
+    if type(cover_scene) is not int or cover_scene not in seen:
+        raise Blocked('Cover scene must name an existing scene id')
+    if not isinstance(cover_text, str) or len(cover_text) > 120:
+        raise Blocked('Cover text must be an authored string of at most 120 characters')
     return {"id": doc["id"], "title": title, "base": base, "script": script,
             "digest": digest, "width": width, "height": height,
             "fps": fps, "entries": entries, "smoke": smoke,
             "ai_disclosure":doc.get('ai_disclosure'), "intro_hook":doc.get('intro_hook'),
+            "cover_scene_id":cover_scene,"cover_text":cover_text,
             "master_audio": asset(base,doc['master_audio'],ALLOWED_AUDIO) if doc.get('master_audio') else None}
 
 
@@ -191,13 +228,14 @@ def frame_count(seconds: float, fps: int) -> int:
 
 
 def write_srt(entries: list[dict], dest: Path, fps: int) -> None:
+    from .caption_layout import layout
     lines = []
     offset = 0.0
     for scene in entries:
         for cue in scene["cues"]:
             lines += [str(len(lines) // 4 + 1),
                       f'{stamp(offset + cue["start"])} --> {stamp(offset + cue["end"])}',
-                      cue["text"].strip().replace("-->", "→").replace("\n", " "), ""]
+                      '\n'.join(layout(cue['text'])['lines']).replace("-->", "→"), ""]
         offset += frame_count(scene["seconds"], fps) / fps
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -219,14 +257,17 @@ def write_ass(entries: list[dict], dest: Path, fps: int,disclosure: str | None =
         secs, centis = divmod(centis, 100)
         return f'{hours}:{minutes:02}:{secs:02}.{centis:02}'
     lines, offset = [header], 0.0
+    from .caption_layout import ass_text
     for scene in entries:
         for cue in scene['cues']:
-            text = cue['text'].strip().replace('\\', '＼').replace('{', '(').replace('}', ')').replace('\n', ' ')
+            text = ass_text(cue['text'])
+            if scene.get('caption_position') == 'upper':
+                text = r'{\an8\pos(500,380)}' + text
             lines.append(f"Dialogue: 0,{ass_time(offset+cue['start'])},{ass_time(offset+cue['end'])},Narration,,0,0,0,,{text}\n")
         offset += frame_count(scene['seconds'], fps)/fps
     if hook_text:
-        text=hook_text.replace('\\','＼').replace('{','(').replace('}',')').replace('\n',' ')
-        lines.append(f"Dialogue: 2,0:00:00.00,{ass_time(min(2.0,offset))},Narration,,0,0,0,,{{\\an8\\fs64\\bord3\\pos(500,185)}}{text}\n")
+        text=ass_text(hook_text,preferred_size=64)
+        lines.append(f"Dialogue: 2,0:00:00.00,{ass_time(min(2.0,offset))},Narration,,0,0,0,,{{\\an8\\bord3\\pos(500,185)}}{text}\n")
     if disclosure:
         text=disclosure.replace('\\','＼').replace('{','(').replace('}',')').replace('\n',' ')
         lines.append(f"Dialogue: 1,{ass_time(max(0,offset-4))},{ass_time(offset)},Narration,,0,0,0,,{{\\an8\\fs30\\bord1\\pos(500,115)}}{text}\n")
@@ -244,24 +285,42 @@ def cover(image: Path, title: str, output: Path, w: int, h: int) -> None:
     picture=Image.alpha_composite(picture.convert('RGBA'),shade).convert('RGB')
     dr = ImageDraw.Draw(picture, "RGBA")
     font_size = max(20, round(w * .063))
-    fonts = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-             "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf"]
-    font = next((ImageFont.truetype(p, font_size) for p in fonts if Path(p).is_file()),
-                ImageFont.load_default())
-    words, rows, line = title.split(), [], ""
-    for word in words:
-        trial = f"{line} {word}".strip()
-        if dr.textbbox((0, 0), trial, font=font)[2] > w * .86 and line:
-            rows.append(line)
-            line = word
-        else:
-            line = trial
-    rows.append(line)
-    for index, text in enumerate(rows[:3]):
+    from .caption_layout import layout,font as caption_font
+    plan = (layout(title, preferred_size=font_size, minimum_size=max(16,round(w*.04)),
+                   max_width=round(w*.86)) if title.strip() else
+            {'lines':[],'font_size':font_size})
+    font_size=plan['font_size'];font=caption_font(font_size)
+    for index, text in enumerate(plan['lines']):
         x, y = round(w * .06), round(h * .07) + index * round(font_size * 1.2)
         dr.text((x, y), text, font=font, fill="white", stroke_width=3,
                 stroke_fill=(0, 0, 0, 210))
     picture.save(output, quality=94, subsampling=0)
+
+
+def editorial_report(entries: list[dict], fps: int) -> dict:
+    """Expose pacing tradeoffs without inventing events or approving a story."""
+    lengths = [frame_count(s['seconds'], fps)/fps for s in entries]
+    seconds = sum(lengths)
+    notes = []
+    if seconds < 40:
+        notes.append('Below the 40-second story target; check that the ending is complete')
+    elif seconds > 75:
+        notes.append('Above the 75-second ceiling; adapt the script, never accelerate the narrator')
+    elif seconds > 65:
+        notes.append('65-75 seconds: retain only if shorter writing would break the story')
+    if not 8 <= len(entries) <= 12:
+        notes.append('Outside the 8-12-scene guide; check whether each scene carries new information')
+    long_holds = [s['id'] for s, length in zip(entries, lengths)
+                  if length > 9 and not (s.get('motion_clips') or s.get('motion_video'))]
+    if long_holds:
+        notes.append('Photographic scenes longer than 9 seconds need editorial review, not automatic random cuts')
+    if (len(entries) > 3 and len({s.get('camera','push_in') for s in entries}) == 1
+            and all(s.get('camera','push_in') != 'static' and s.get('camera_strength',.35) > 0 for s in entries)):
+        notes.append('Every photograph uses the same continuous camera move; consider authored rests or reframing')
+    return {'seconds':round(seconds,6),'scene_count':len(entries),'long_photographic_scenes':long_holds,
+            'notes':notes,'first_two_seconds_review_required':True,
+            'character_and_prop_continuity_review_required':True,
+            'ending_review_required':True,'automated_story_approval':False}
 
 
 def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
@@ -279,7 +338,8 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
     else:
         from .smooth_camera import render_still
         camera_clip = output.with_suffix('.camera.mp4')
-        render_still(scene['image'], camera_clip, w, h, fps, frames, scene.get('camera','push_in'), strength=scene.get('camera_strength',.35))
+        render_still(scene['image'], camera_clip, w, h, fps, frames, scene.get('camera','push_in'),
+                     strength=scene.get('camera_strength',.35), framing=scene.get('framing'))
         args += ['-i', str(camera_clip)]
     args += ["-i", str(scene["voice"])]
     with_music = scene["music"] is not None
@@ -287,9 +347,9 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
         args += ["-stream_loop", "-1", "-i", str(scene["music"])]
     if scene["motion_video"]:
         motion_filter = (f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
-                         f"crop={w}:{h},fps={fps},format=yuv420p[v]")
+                         f"crop={w}:{h},setsar=1,fps={fps},format=yuv420p[v]")
     else:
-        motion_filter = '[0:v]format=yuv420p[v]'
+        motion_filter = '[0:v]setsar=1,format=yuv420p[v]'
     if subtitles_path:
         escaped=str(subtitles_path).replace('\\','\\\\').replace(':','\\:').replace("'","\\'")
         motion_filter=motion_filter.replace('[v]',f",ass='{escaped}'[v]")
@@ -316,7 +376,7 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
             camera_clip.unlink(missing_ok=True)
 
 
-def qa(video: Path, w: int, h: int, fps: int) -> dict:
+def qa(video: Path, w: int, h: int, fps: int, *, entries: list[dict] | None = None) -> dict:
     info = probe(video)
     streams = info.get("streams", [])
     v = next((s for s in streams if s.get("codec_type") == "video"), None)
@@ -330,8 +390,8 @@ def qa(video: Path, w: int, h: int, fps: int) -> dict:
     if len(f) != 2 or not int(f[1]) or abs(int(f[0]) / int(f[1]) - fps) > .01:
         raise RuntimeError("Wrong output frame rate")
     decoded=subprocess.run(['ffmpeg','-hide_banner','-nostdin','-nostats','-v','info','-xerror',
-        '-i',str(video),'-vf','blackdetect=d=0:pix_th=0.025:pic_th=0.995','-f','null','-'],
-        capture_output=True,text=True)
+        '-i',str(video),'-vf','blackdetect=d=0:pix_th=0.025:pic_th=0.995,freezedetect=n=-60dB:d=1.2','-f','null','-'],
+        capture_output=True,text=True,timeout=180)
     if decoded.returncode:raise RuntimeError('Full final video decode failed: '+decoded.stderr[-1700:])
     black_intervals=[line.strip() for line in decoded.stderr.splitlines() if 'black_start:' in line]
     if black_intervals:raise RuntimeError('Final video contains black frames: '+'; '.join(black_intervals))
@@ -342,11 +402,23 @@ def qa(video: Path, w: int, h: int, fps: int) -> dict:
             mean = sum(ImageStat.Stat(im.convert("RGB")).mean) / 3
         if mean < 9:
             raise RuntimeError(f"First frame is near-black: brightness={mean:.1f}")
+    from .delivery_qc import inspect_av, freeze_intervals
+    av = inspect_av(video, info, fps)
+    holds, offset = [], 0.
+    for scene in entries or []:
+        end = offset + frame_count(scene['seconds'], fps) / fps
+        if not (scene.get('motion_video') or scene.get('motion_clips')) and (
+                scene.get('camera') == 'static' or scene.get('camera_strength') == 0):
+            holds.append((offset, end))
+        offset = end
+    freezes = freeze_intervals(decoded.stderr, av['video_clock_seconds'], holds)
     return {"technical_pass": True, "full_decode_pass": True,
             'full_timeline_black_frame_check':True,'black_intervals':[],
             "first_frame_mean": round(mean, 2),
             "width": w, "height": h, "fps": fps,
             "duration_s": float(info.get("format", {}).get("duration", 0)),
+            "av_delivery": av, "measured_holds": freezes,
+            "unexplained_holds_require_review": any(f['requires_visual_review'] for f in freezes),
             "human_artistic_review": "pending", "rights_review": "pending",
             "approved_for_publication": False}
 
@@ -393,7 +465,8 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
             fingerprint_data={'renderer':VERSION,'width':item['width'],'height':item['height'],
                 'fps':item['fps'],'source_hashes':[sha(p) for p in sources if p],
                 'captions':scene_captions.read_text(),'seconds':scene['seconds'],
-                'camera':scene.get('camera','push_in'),'camera_strength':scene.get('camera_strength',.35)}
+                'camera':scene.get('camera','push_in'),'camera_strength':scene.get('camera_strength',.35),
+                'framing':scene.get('framing')}
             if scene.get('foreground_soft_focus'):fingerprint_data['foreground_soft_focus']=scene['foreground_soft_focus']
             fingerprint=hashlib.sha256(json.dumps(fingerprint_data,sort_keys=True).encode()).hexdigest()
             cached=cache/f'{index:03d}_{fingerprint[:24]}.mp4';proof=cached.with_suffix('.cache.json')
@@ -422,17 +495,35 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
               "-i", str(playlist), "-c", "copy", str(staging / "joined.mp4")])
         # Captions were burned once per scene; the full portrait movie does
         # not need a second costly H.264 encode with the same subtitle pixels.
-        args=['ffmpeg','-v','error','-nostdin','-y','-i',str(staging/'joined.mp4')]
-        if item['master_audio']:
-            args+=['-i',str(item['master_audio']),'-map','0:v:0','-map','1:a:0',
-                   '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-ac','2']
-        else:
-            args+=['-c','copy']
+        from .remaster_audio import normalize
+        mastering = normalize(item['master_audio'] or staging/'joined.mp4', staging/'mastered.wav',
+                              lufs=-16, tp=-1.7, channels=2)
+        args=['ffmpeg','-v','error','-nostdin','-y','-i',str(staging/'joined.mp4'),
+              '-i',str(staging/'mastered.wav'),'-map','0:v:0','-map','1:a:0',
+              '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-ac','2']
         args+=['-movflags','+faststart',str(staging/'final.mp4')]
         _run(args)
-        cover(item["entries"][0]["image"], item["title"], staging / "cover.jpg",
-              item["width"], item["height"])
-        report = qa(staging / "final.mp4", item["width"], item["height"], item["fps"])
+        # Use the actual rendered composition. A separately center-cropped
+        # JPG could otherwise lose the very prop the focal camera preserved.
+        cover_time = 0.
+        for scene in item['entries']:
+            if scene['id'] == item['cover_scene_id']:break
+            cover_time += frame_count(scene['seconds'],item['fps'])/item['fps']
+        _run(['ffmpeg','-v','error','-nostdin','-y','-ss',f'{cover_time:.6f}',
+              '-i',str(staging/'final.mp4'),'-frames:v','1',str(staging/'cover_source.png')])
+        cover(staging/'cover_source.png',item['cover_text'],staging/'cover.jpg',item['width'],item['height'])
+        report = qa(staging / "final.mp4", item["width"], item["height"], item["fps"], entries=item['entries'])
+        from .delivery_qc import inspect_cover
+        report['cover'] = inspect_cover(staging/'cover.jpg') if not smoke else {'smoke_only':True}
+        report['audio_mastering'] = {'target_lufs':-16,'target_true_peak_dbtp':-1.7,
+                                    'speech_speed_factor':1.0,'input_measurements':mastering}
+        report['captions'] = [{'scene':s['id'],**s['caption_audit'],
+                              'source_verified':s['caption_source_verified']} for s in item['entries']]
+        report['composition'] = [{'scene':s['id'],'framing':s['framing'],
+                                  'source_upscale':s['source_upscale']} for s in item['entries']]
+        report['editorial'] = editorial_report(item['entries'],item['fps'])
+        report['cover_source'] = {'encoded_final_frame':True,'scene':item['cover_scene_id'],
+                                  'timestamp_s':round(cover_time,6)}
         expected=sum(frame_count(s['seconds'],item['fps'])/item['fps'] for s in item['entries'])
         if abs(report['duration_s']-expected)>.10:raise RuntimeError('Final movie changed the full original narration duration')
         report['full_original_narration_clock_s']=expected
@@ -453,6 +544,8 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
             json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
         shutil.rmtree(clips)
         (staging / "joined.mp4").unlink()
+        (staging / "mastered.wav").unlink()
+        (staging / "cover_source.png").unlink()
         playlist.unlink()
         os.rename(staging, target)
     return {"status": "REVIEW_REQUIRED", "story": item["id"],

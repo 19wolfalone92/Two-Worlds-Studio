@@ -38,7 +38,7 @@ class PrivateBatchReconcileTests(unittest.TestCase):
                        "script_sha256": sha(content), "scenes": scenes}
             (folder / "project.json").write_text(json.dumps(project))
 
-    def make(self, phase, *, bad_checksum=False, hostile=False):
+    def make(self, phase, *, bad_checksum=False, hostile=False, image_size=(576,1024)):
         folder = self.source / "production_queue" / "13"
         original = json.loads((folder / "project.json").read_text())
         archived = json.loads(json.dumps(original))
@@ -46,7 +46,7 @@ class PrivateBatchReconcileTests(unittest.TestCase):
                  "story.txt": (folder / "story.txt").read_bytes()}
         for j in range(1, 9):
             if phase == "image":
-                image = Image.new("RGB", (200, 360), (60, 130, 90))
+                image = Image.new("RGB", image_size, (60, 130, 90))
                 buffer = io.BytesIO()
                 image.save(buffer, format="PNG")
                 files["images/scene_%02d.png" % j] = buffer.getvalue()
@@ -105,3 +105,10 @@ class PrivateBatchReconcileTests(unittest.TestCase):
         result = reconcile(self.source, self.media, self.root / "queue")
         self.assertEqual(result["production"]["counts"]["ASSETS_PENDING"], 6)
         self.assertEqual(result["production"]["technical_exports_ready_for_review"], 0)
+
+    def test_thumbnail_recovery_is_not_misreported_as_ready_for_mastering(self):
+        self.make('image',image_size=(200,360))
+        self.make('voice')
+        result=reconcile(self.source,self.media,self.root/'queue')
+        self.assertEqual(result['production']['counts']['READY_TO_RENDER'],0)
+        self.assertEqual(result['production']['counts']['INPUT_BLOCKED'],1)

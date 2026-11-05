@@ -20,15 +20,8 @@ def main():
     from faster_whisper import WhisperModel
     from studio.kaggle_shorts_worker import _safe_extract
     from studio.autonomous_factory import atomic_json
-    import re,wave,numpy as np
-    def words(text):return re.findall(r'[а-яa-z0-9]+',text.lower().replace('ё','е'))
-    def distance(a,b):
-        previous=list(range(len(b)+1))
-        for i,left in enumerate(a,1):
-            current=[i]
-            for j,right in enumerate(b,1):current.append(min(current[-1]+1,previous[j]+1,previous[j-1]+(left!=right)))
-            previous=current
-        return previous[-1]
+    from studio.voice_audit import audit_transcript
+    import wave,numpy as np
     selected=conf.get('qa_scenes')
     if selected is not None and (not isinstance(selected,dict) or not selected or
         any(k not in {str(i) for i in range(13,19)} or not isinstance(v,list) or not v or
@@ -76,9 +69,10 @@ def main():
                         'words':[{'word':w.word,'start':offset+w.start,'end':offset+w.end,'probability':w.probability} for w in segment.words or []]})
                 cursor=end
             transcript=' '.join(observed);expected=shots[scene['id']]['exact_source_text']
-            reference=words(expected);recognized=words(transcript);wer=distance(reference,recognized)/max(1,len(reference))
+            critical=shots[scene['id']].get('critical_terms',[])
+            audit=audit_transcript(expected,transcript,critical_terms=critical,review_wer=.12)
             results.append({'scene':scene['id'],'reference':expected,'recognized':transcript,
-                'word_error_rate':round(wer,4),'requires_review':wer>.12,'segments':spans,'source_text_changed':False})
+                           'segments':spans,**audit})
             state['stories'][str(sid)]=results;state['elapsed_s']=round(time.monotonic()-started,2)
             atomic_json(OUT/'batch_voice_whisper_qa.json',state)
         print('Completed independent CPU Whisper speech audit for story',sid,flush=True)
