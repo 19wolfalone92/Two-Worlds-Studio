@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from studio.hybrid_master import check_manifest, produce, subtitles
+from studio.hybrid_master import check_manifest, produce, subtitles, ass_subtitles
 
 
 class HybridMasterTests(unittest.TestCase):
@@ -92,6 +92,43 @@ class HybridMasterTests(unittest.TestCase):
         self.assertEqual(info["duration_seconds"], 2)
         self.assertTrue((self.root / "final.mp4").stat().st_size > 10_000)
         self.assertIn("00:00:02,000", (self.root / "final.srt").read_text())
+
+    def test_ass_captions_escape_override_tags(self):
+        self.data["shots"][0]["caption"] = "{\\pos(4,5)}Тайна"
+        plan = check_manifest(self.data, self.root)
+        ass = ass_subtitles(plan["shots"], plan["width"], plan["height"])
+        self.assertIn("PlayResX: 360", ass)
+        self.assertIn("Тайна", ass)
+        self.assertNotIn("{\\pos", ass)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg not installed")
+    def test_real_burned_cyrillic_subtitles_and_music_ducking(self):
+        # Actual FFmpeg render; inputs are synthetic tests, never production art.
+        wav = self.root / "voice.wav"
+        music = self.root / "music.wav"
+        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+                        "-f", "lavfi", "-i", "sine=frequency=330:duration=0.7",
+                        "-ar", "48000", str(wav)], check=True)
+        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-y",
+                        "-f", "lavfi", "-i", "sine=frequency=220:duration=1.5",
+                        "-ar", "48000", str(music)], check=True)
+        self.data.update(burn_subtitles=True, music="music.wav", music_volume=.28)
+        self.data["shots"][0]["voice"] = "voice.wav"
+        self.data["shots"][0]["caption"] = "Не открывай дверь"
+        self.write()
+        receipt = produce(self.path, self.root / "burned.mp4")
+        self.assertTrue(receipt["captions_burned_in"])
+        self.assertTrue(receipt["automatic_music_ducking"])
+        self.assertTrue((self.root / "burned.srt").is_file())
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "stream=codec_name,codec_type", "-of", "json", str(self.root / "burned.mp4")],
+            capture_output=True, text=True, check=True,
+        )
+        codecs = {row["codec_name"] for row in json.loads(probe.stdout)["streams"]}
+        self.assertIn("h264", codecs)
+        self.assertIn("aac", codecs)
+        self.assertGreater((self.root / "burned.mp4").stat().st_size, 10000)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg not installed")
     def test_silent_output_has_audio_stream(self):

@@ -75,6 +75,8 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
         # The existing hybrid editor enforces scene durations, media existence,
         # voice timings, source path boundaries and individual rights flags.
         plan = check_manifest(manifest, asset.parent, master=master)
+        if plan["burn_subtitles"] is not True:
+            raise ValueError(f"Part {part['part']}: required baked vertical subtitles are disabled")
         count = len(plan["shots"])
         expected = part.get("expected_shots", 8)
         if type(expected) is not int or expected < 1 or expected > 80 or count != expected:

@@ -105,6 +105,7 @@ def fake_production(root: Path) -> Path:
         Image.new("RGB", (540, 960), (45+i*16, 64+i*20, 100+i*9)).save(src / f"cover{i}.png")
         content = {
             "schema": 1, "width": 1080, "height": 1920, "fps": 30,
+            "burn_subtitles": True,
             "shots": [
                 {
                     "image": "images/scene.png", "duration": 1.5,

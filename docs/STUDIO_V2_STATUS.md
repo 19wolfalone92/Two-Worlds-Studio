@@ -13,7 +13,7 @@ keeps Williams Bot / Williams AI completely independent.
 - ARCHIVE 17: 30 episodes, first pilot “ДЕВОЧКА НА ФОТОГРАФИИ” is
   **3 parts / 24 original shots** (8 per part), publish sequentially only
   after complete production, rights review and actual approval.
-- Film: **1080x1920 / 30 fps / H.264 + AAC / UTF-8 Russian SRT**;
+- Film: **1080x1920 / 30 fps / H.264 + AAC / UTF-8 Russian SRT + baked Russian subtitles**;
   three separate MP4s and **distinct color covers**, plus an immutable
   receipt and one review ZIP.
 - Camera: restrained cinematic Ken Burns with subpixel interpolation,
@@ -40,7 +40,7 @@ keeps Williams Bot / Williams AI completely independent.
 | Kaggle model cache | `studio.model_cache` | Bounded verified transient copy of mounted weights; no persistent duplicate |
 
 | English TTS | `studio.kokoro_tts` | Optional Kokoro for approved English text |
-| Montage | `studio.hybrid_master`, `studio.smooth_camera` | Frame-accurate, FFmpeg + Pillow, soundtrack/voice, SRT |
+| Montage | `studio.hybrid_master`, `studio.smooth_camera` | Frame-accurate, FFmpeg + Pillow, optional large burnt-in ASS captions, safe-zone placement, speech-triggered music ducking, SRT |
 | Three-part batch | `studio.triptych_batch` | 3 × 8 shots, separate covers, ordered 1/3–3/3, atomic all-or-nothing ZIP |
 | Release gate | `studio.release_gate` | Real H.264/AAC 1080x1920/30, SRT timing, first **three seconds** and cover, optional full decode |
 | Publication | **Not automatic** | Only approved, reviewed MP4s; existing schedules unchanged |
@@ -91,7 +91,7 @@ Example `private/ARCHIVE17/pilot.json`:
 
 Each `shot_manifest.json` uses the **existing**
 `docs/HYBRID_VIDEO_STUDIO.md` schema, with width 1080, height 1920, fps 30,
-8 image/clip shots, real Russian voice WAV tracks, captions, individual source
+8 image/clip shots, real Russian voice WAV tracks, \`burn_subtitles: true\` for all parts, captions, individual source
 checksums (`media_sha256` and `voice_sha256`), optional
 `requires_voice: true`, optional truthful phrase-level `subtitle_cues`
 with local `start/end/text` offsets measured from real audio,
@@ -153,3 +153,20 @@ python -m unittest discover -s tests -v
 Human creative QA remains mandatory: face identity, story prop continuity,
 natural Russian acting, emotional progression, frame jitter and hooks,
 first 3 seconds, background integration, licenses, cover typography.
+
+## Added cinematic audio and mobile captions
+
+The three-part pilot requires `burn_subtitles: true` in every source shot manifest.
+FFmpeg burns a legible Cyrillic-capable ASS overlay into the H.264 frames,
+positioned above the bottom platform UI (approximately 16.5% screen height),
+with pale text and a contrasting outline. An independent UTF-8 SRT is always
+written for review/reuse. When editor/CTC-measured `subtitle_cues` exist,
+these exact timestamps are used; otherwise, whole-shot captions are used
+without pretending word-level alignment.
+
+If an approved music track and narration WAVs are both supplied, FFmpeg now
+applies **sidechain compression** to lower the soundtrack during actual speech,
+followed by peak limiting. Neither background music nor source voice WAVs are
+changed or fetched. This is a technical approximation, not a substitute for
+listening to the final Russian mix on a phone. The ordinary hybrid editor
+keeps `burn_subtitles: false` by default for backwards compatibility.

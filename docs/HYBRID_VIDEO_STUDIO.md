@@ -56,3 +56,29 @@ Feedback on the original 9-second pilot revealed visible jitter from aggressivel
 - This fixes camera stepping on *stills*; it does not stabilize shakes already baked into imported motion clips. Those need separate motion analysis and stabilization.
 
 Existing master review/rights gates remain unchanged; no premium credits or GPU inference involved.
+
+## Embedded Russian subtitles & ducked soundtrack (Studio v2)
+
+Set `"burn_subtitles": true` in an otherwise valid hybrid manifest to
+render TikTok-safe, large, outlined Unicode Cyrillic captions directly into
+the H.264 frames. A separate SRT is **still** exported. The composer uses
+local FFmpeg/libass and installed fonts; without libass the render reports
+failure (never falsely claims embedded text).
+
+Each shot optionally accepts exact measured timings instead of a full-shot
+caption:
+
+```json
+{"subtitle_cues":[{"start":0.12,"end":1.21,"text":"Она вернулась."},{"start":1.31,"end":2.40,"text":"Но дверь была открыта."}]}
+```
+
+Cue start/end are seconds **relative to that shot**, must not overlap and
+must fit the real shot clock. No sentence segmentation or guessed speech
+timing is performed by the subtitle renderer. The ARCHIVE 17 triptych builder
+requires burnt-in captions in all three episodes.
+
+When both licensed music and real voice tracks are provided, speech-triggered
+FFmpeg sidechain compression automatically ducks the music without changing
+source WAVs. The receipt records `automatic_music_ducking` and
+`captions_burned_in`; human review of tone, loudness and coverage is still
+necessary. No external API or GPU involved.
