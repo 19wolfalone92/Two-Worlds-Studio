@@ -2,6 +2,22 @@
 
 **Status:** tested technical motion-comic engine; professional illustrated master is **not yet produced**. Independently maintained from Williams Bot and Williams AI.
 
+## STORY GLITCH Studio v2 — production handoff (2026-11-06)
+
+The existing engine now includes a **verified offline 3-part review assembler**
+(`studio.triptych_batch`), strict vertical MP4 / first-three-second / cover
+quality gate (`studio.release_gate`), safe Kaggle ComfyUI PNG receipt importer
+(`studio.gpu_asset_handoff`), optional **Russian Qwen3-TTS**, CTC alignment of
+actual speech, a Hugging Face read-only connection check, verified model cache
+and actor-performance checks. The entire workflow preserves Work-authored
+screenplays and stays free of mandatory paid services.
+
+**See [docs/STUDIO_V2_STATUS.md](docs/STUDIO_V2_STATUS.md) for exact contracts,
+commands, real status and limitations.** In particular, code-level CI success
+is not an invented 24-frame ARCHIVE 17 art delivery or three finished films;
+real approved media/voices still need to be staged privately. No CI job can
+post unfinished videos.
+
 ## Ownership
 - **ChatGPT Work:** the only story/script/dialogue author. Once reviewed, Work delivers a locked episode JSON and scene descriptions.
 - **This repository:** consistent-body artwork reference registry, compositing, shot direction, licensed recorded voice/audio, quality checks, review bundles and MP4 exports.
