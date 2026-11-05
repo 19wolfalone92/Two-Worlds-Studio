@@ -1,0 +1,25 @@
+name: TWO WORLDS - Stop oversized legacy Kaggle download
+
+on:
+  push:
+    branches: ["feat/comfyui-kaggle-api-20261106"]
+    paths: ["ops/comfy_cancel.trigger"]
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cancel-one-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OLD_RUN: "42119260927"
+    steps:
+      - name: Stop only the previously launched oversized Kaggle output download
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${OLD_RUN}/cancel"
+          echo "Cancelled obsolete download attempt; GPU job was already COMPLETE."
