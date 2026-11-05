@@ -1,0 +1,66 @@
+name: TWO WORLDS - Verify private Kaggle ComfyUI output
+
+on:
+  push:
+    branches: ["feat/comfyui-kaggle-api-20261106"]
+    paths: ["ops/comfy_verify.trigger"]
+  workflow_dispatch:
+    inputs:
+      nonce:
+        description: "Exact nonce from an already completed private ComfyUI GPU run"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  readback-without-gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      EXPECTED_NONCE: ${{ inputs.nonce || 'comfy-42119260927-1' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Authenticate to the existing private Kaggle kernel
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m pip install -r requirements.txt "kaggle>=2.2.4" "six>=1.16,<2"
+          kaggle quota >/dev/null
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+
+      - name: Download only the two proof files, excluding large GPU model files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/comfy_result
+          kaggle kernels output "$KAGGLE_USERNAME/two-worlds-comfy-sdxl" \
+            -p dist/comfy_result --force \
+            --file-pattern "^(TWO_WORLDS_ARTIFACTS[.]zip|two_worlds_job_receipt[.]json)$"
+
+      - name: Verify PNG bytes, dimensions, model provenance, nonce and SHA
+        run: |
+          python -m studio.comfy_kaggle verify \
+            --nonce "$EXPECTED_NONCE" \
+            --output-dir dist/comfy_result
+
+      - name: Return private outputs to private-repo owner only
+        if: ${{ github.event.repository.private }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: two-worlds-comfy-readback-${{ github.run_number }}
+          path: |
+            dist/comfy_result/TWO_WORLDS_ARTIFACTS.zip
+            dist/comfy_result/two_worlds_job_receipt.json
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Public repository - never release unpublished art
+        if: ${{ !github.event.repository.private }}
+        run: echo "::notice::Private image remains available only in the owner's private Kaggle kernel."
