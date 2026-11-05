@@ -104,7 +104,7 @@ def main():
                 '--models',str(model_root),'--work',str(OUT/'private_projects'/str(story)),
                 '--out',str(out),'--start',str(task['first_scene']),
                 '--count',str(task['count']),'--gpu-id',str(gpu),
-                '--time-budget','4800','--speaker','Ryan' if story == 16 else 'Serena']
+                '--time-budget','4800','--speaker',conf.get('speakers',{}).get(str(story),'Ryan' if story == 16 else 'Serena')]
         if len(recovery)==1:
             args += ['--recovery',str(recovery[0])]
         env = os.environ.copy()

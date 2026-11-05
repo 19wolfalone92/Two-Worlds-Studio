@@ -1,0 +1,63 @@
+name: TWO WORLDS - Private Batch02 Remaster
+on:
+  push:
+    branches: ['remaster/batch02-20261105']
+    paths: ['.github/remaster02_requests/production.json']
+env:
+  TW_REQUEST_DIR: .github/remaster02_requests
+  TW_RELAY_BRANCH: remaster/batch02-20261105
+permissions:
+  contents: read
+concurrency:
+  group: tw-remaster02-${{ contains(github.event.head_commit.message, '[voice]') && 'voice' || contains(github.event.head_commit.message, '[image]') && 'image' || 'source' }}
+  cancel-in-progress: false
+jobs:
+  production:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.ref == 'refs/heads/remaster/batch02-20261105'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - id: requested
+        name: Run only an explicit changed production request
+        run: |
+          if git diff --name-only HEAD^ HEAD -- .github/remaster02_requests/production.json | grep -q production.json; then
+            echo 'execute=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'execute=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.requested.outputs.execute == 'true'
+        with:
+          python-version: '3.11'
+      - name: Install existing private production transport
+        if: steps.requested.outputs.execute == 'true'
+        run: python -m pip install 'kaggle==2.2.5' six cryptography Pillow numpy
+      - name: Prepare input handshake
+        if: steps.requested.outputs.execute == 'true'
+        run: python -m tools.batch03_production_relay prepare
+      - name: Return input public key only
+        if: steps.requested.outputs.execute == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: remaster02-input-public-key
+          path: dist/handshake/
+          retention-days: 1
+      - name: Produce with existing free Kaggle resources
+        if: steps.requested.outputs.execute == 'true'
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: wolf19loner92
+          GH_READ_TOKEN: ${{ github.token }}
+        run: python -m tools.batch03_production_relay produce
+      - name: Return encrypted result
+        if: ${{ always() && steps.requested.outputs.execute == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: remaster02-private-production-result
+          path: dist/private_batch03/
+          retention-days: 3
+          if-no-files-found: error
