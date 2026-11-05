@@ -40,9 +40,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/comfy_result
-          kaggle kernels output "$KAGGLE_USERNAME/two-worlds-comfy-sdxl" \
-            -p dist/comfy_result --force \
-            --file-pattern "^(TWO_WORLDS_ARTIFACTS[.]zip|two_worlds_job_receipt[.]json)$"
+          for delay in 0 60 120 180; do
+            sleep "$delay"
+            if kaggle kernels output "$KAGGLE_USERNAME/two-worlds-comfy-sdxl" \
+              -p dist/comfy_result --force \
+              --file-pattern "^(TWO_WORLDS_ARTIFACTS[.]zip|two_worlds_job_receipt[.]json)$" \
+              2>dist/comfy_result/kaggle_download_error.log; then
+              exit 0
+            fi
+            if ! grep -Eiq "429|Too Many Requests|rate limited" dist/comfy_result/kaggle_download_error.log; then
+              tail -n 15 dist/comfy_result/kaggle_download_error.log
+              exit 1
+            fi
+            echo "::warning::Kaggle API temporarily rate-limited the private readback."
+          done
+          echo "::error::Kaggle API rate limit persisted after bounded retries."
+          exit 1
 
       - name: Verify PNG bytes, dimensions, model provenance, nonce and SHA
         run: |
