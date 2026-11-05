@@ -50,7 +50,7 @@ class KaggleComfyTests(unittest.TestCase):
     def test_receipt_check_proves_real_png(self):
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp)
-            image = Image.new("RGB", (640, 1152), (100, 120, 150))
+            image = Image.effect_noise((640, 1152), 40).convert("RGB")
             data = io.BytesIO()
             image.save(data, "PNG")
             png = data.getvalue()
