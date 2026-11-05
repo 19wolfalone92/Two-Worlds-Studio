@@ -173,6 +173,26 @@ class TriptychSafety(unittest.TestCase):
                 self.assertEqual(make_bundle(spec, out)["status"], "cached_verified")
                 self.assertEqual(produce_mock.call_count, 3)
                 self.assertEqual(check_mock.call_count, 6)
+                # Cache must NEVER reuse an old video after external art changes.
+                Image.new("RGB", (540, 960), "#316bb2").save(
+                    root / "images" / "cover1.png")
+                with self.assertRaisesRegex(FileExistsError, "incomplete or has different"):
+                    make_bundle(spec, out)
+
+    def test_master_requires_actual_locked_work_screenplay(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            spec = fake_production(root)
+            raw = json.loads(spec.read_text(encoding="utf-8"))
+            raw["editorial_approved"] = True
+            raw["rights_approved"] = True
+            raw["final_human_review_approved"] = True
+            raw["work_script_sha256"] = "0" * 64
+            raw["work_script_file"] = "locked.md"
+            (root / "locked.md").write_text("Work-approved script unchanged", encoding="utf-8")
+            spec.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "locked SHA256"):
+                read_package_manifest(spec, master=True)
 
 
 if __name__ == "__main__":
