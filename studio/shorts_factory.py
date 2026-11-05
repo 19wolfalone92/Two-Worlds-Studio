@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageStat, ImageOps,ImageEnhance
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 ALLOWED_IMAGE = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_AUDIO = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
@@ -35,6 +35,15 @@ def sha(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def asset_hashes(item: dict) -> dict:
+    paths = [p for scene in item['entries'] for p in (
+        scene['image'], scene['voice'], scene['music'], scene['motion_video'],
+        *scene['motion_clips']) if p]
+    if item['master_audio']:
+        paths.append(item['master_audio'])
+    return {p.relative_to(item['base']).as_posix(): sha(p) for p in paths}
 
 
 def asset(base: Path, value: str, allowed: set[str]) -> Path:
@@ -84,7 +93,8 @@ def video_duration(path: Path) -> float:
 def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
     manifest = Path(manifest).resolve()
     base = manifest.parent
-    doc = json.loads(manifest.read_text(encoding="utf-8"))
+    manifest_bytes = manifest.read_bytes()
+    doc = json.loads(manifest_bytes)
     if (doc.get("schema") != 1 or not isinstance(doc.get("id"), str)
             or not SLUG.fullmatch(doc["id"])):
         raise Blocked("Invalid manifest schema or story id")
@@ -196,6 +206,7 @@ def validate_project(manifest: Path, *, smoke: bool = False) -> dict:
     if not isinstance(cover_text, str) or len(cover_text) > 120:
         raise Blocked('Cover text must be an authored string of at most 120 characters')
     return {"id": doc["id"], "title": title, "base": base, "script": script,
+            'project_sha256':hashlib.sha256(manifest_bytes).hexdigest(),
             "digest": digest, "width": width, "height": height,
             "fps": fps, "entries": entries, "smoke": smoke,
             "ai_disclosure":doc.get('ai_disclosure'), "intro_hook":doc.get('intro_hook'),
@@ -361,13 +372,14 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
                  "[bed][keyvoice]sidechaincompress=threshold=0.025:ratio=8:"
                  "attack=30:release=350[ducked];"
                  "[mainvoice][ducked]amix=inputs=2:duration=first:"
-                 "normalize=0,alimiter=limit=0.92[a]")
+                 "normalize=0,alimiter=limit=0.92:latency=1[a]")
     else:
-        filt += ";[voice]alimiter=limit=0.92[a]"
+        filt += ";[voice]alimiter=limit=0.92:latency=1[a]"
     args += ["-filter_complex", filt, "-map", "[v]", "-map", "[a]",
              "-frames:v", str(frames), "-c:v", "libx264", "-threads", "2", "-preset", "medium",
              "-crf", "18", "-pix_fmt", "yuv420p", "-r", str(fps),
-             "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+             "-c:a", "pcm_s16le" if output.suffix == ".mov" else "aac",
+             "-b:a", "192k", "-ar", "48000", "-ac", "2",
              "-t", f"{frames/fps:.6f}", "-movflags", "+faststart", str(output)]
     try:
         _run(args)
@@ -433,16 +445,12 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
     target = Path(destination).resolve() / item["id"]
     if target.exists():
         raise Blocked(f"Output exists; refuse silent overwrite: {target}")
-    assets = {str(p.relative_to(item["base"])): sha(p)
-              for scene in item["entries"]
-              for p in (scene["image"], scene["voice"], scene["music"], scene["motion_video"]) if p}
-    assets.update({str(p.relative_to(item['base'])):sha(p) for scene in item['entries'] for p in scene['motion_clips']})
+    assets = asset_hashes(item)
     if item['master_audio']:
         length=duration(item['master_audio'])
         expected=sum(frame_count(s['seconds'],item['fps'])/item['fps'] for s in item['entries'])
         if abs(length-expected)>.08:
             raise Blocked('Mixed story audio differs from the full original narration timeline')
-        assets[str(item['master_audio'].relative_to(item['base']))]=sha(item['master_audio'])
     if dry_run:
         return {"status": "ASSETS_READY", "dry_run": True,
                 "story": item["id"], "scenes": len(item["entries"]),
@@ -469,19 +477,21 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
                 'framing':scene.get('framing')}
             if scene.get('foreground_soft_focus'):fingerprint_data['foreground_soft_focus']=scene['foreground_soft_focus']
             fingerprint=hashlib.sha256(json.dumps(fingerprint_data,sort_keys=True).encode()).hexdigest()
-            cached=cache/f'{index:03d}_{fingerprint[:24]}.mp4';proof=cached.with_suffix('.cache.json')
+            # QuickTime keeps the exact video time base and lossless PCM.
+            # AAC is encoded only once, when the complete film is delivered.
+            cached=cache/f'{index:03d}_{fingerprint[:24]}.mov';proof=cached.with_suffix('.cache.json')
             valid=False
             if cached.is_file() and proof.is_file():
                 saved=json.loads(proof.read_text())
                 valid=(saved.get('fingerprint')==fingerprint and saved.get('sha256')==sha(cached)
                        and abs(video_duration(cached)-frame_count(scene['seconds'],item['fps'])/item['fps'])<.006)
             if not valid:
-                building=cached.with_suffix('.building.mp4')
+                building=cached.with_suffix('.building.mov')
                 render_scene(scene,building,item['width'],item['height'],item['fps'],subtitles_path=scene_captions)
                 os.replace(building,cached)
                 if building.with_suffix('.edit.json').is_file():os.replace(building.with_suffix('.edit.json'),cached.with_suffix('.edit.json'))
                 proof.write_text(json.dumps({'fingerprint':fingerprint,'sha256':sha(cached),'complete':True}))
-            os.link(cached,clips/f'{index:03d}.mp4')
+            os.link(cached,clips/f'{index:03d}.mov')
             if cached.with_suffix('.edit.json').is_file():shutil.copy2(cached.with_suffix('.edit.json'),clips/f'{index:03d}.edit.json')
         if cache_only:
             return {'status':'SCENES_CACHED','story':item['id'],
@@ -489,17 +499,17 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
                     'final_movie_created':False,'approved_for_publication':False}
         playlist = staging / "clips.txt"
         playlist.write_text(
-            "".join(f"file '{p.resolve()}'\n" for p in sorted(clips.glob("*.mp4"))),
+            "".join(f"file '{p.resolve()}'\n" for p in sorted(clips.glob("*.mov"))),
             encoding="utf-8")
         _run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-f", "concat", "-safe", "0",
-              "-i", str(playlist), "-c", "copy", str(staging / "joined.mp4")])
+              "-i", str(playlist), "-c", "copy", str(staging / "joined.mov")])
         # Captions were burned once per scene; the full portrait movie does
         # not need a second costly H.264 encode with the same subtitle pixels.
         from .remaster_audio import normalize
-        mastering = normalize(item['master_audio'] or staging/'joined.mp4', staging/'mastered.wav',
+        mastering = normalize(item['master_audio'] or staging/'joined.mov', staging/'audio_master.wav',
                               lufs=-16, tp=-1.7, channels=2)
-        args=['ffmpeg','-v','error','-nostdin','-y','-i',str(staging/'joined.mp4'),
-              '-i',str(staging/'mastered.wav'),'-map','0:v:0','-map','1:a:0',
+        args=['ffmpeg','-v','error','-nostdin','-y','-i',str(staging/'joined.mov'),
+              '-i',str(staging/'audio_master.wav'),'-map','0:v:0','-map','1:a:0',
               '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-ac','2']
         args+=['-movflags','+faststart',str(staging/'final.mp4')]
         _run(args)
@@ -516,7 +526,10 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         from .delivery_qc import inspect_cover
         report['cover'] = inspect_cover(staging/'cover.jpg') if not smoke else {'smoke_only':True}
         report['audio_mastering'] = {'target_lufs':-16,'target_true_peak_dbtp':-1.7,
-                                    'speech_speed_factor':1.0,'input_measurements':mastering}
+                                    'speech_speed_factor':1.0,'input_measurements':mastering,
+                                    'scene_audio_codec':'pcm_s16le',
+                                    'final_aac_generations':1,
+                                    'limiter_latency_compensated':True}
         report['captions'] = [{'scene':s['id'],**s['caption_audit'],
                               'source_verified':s['caption_source_verified']} for s in item['entries']]
         report['composition'] = [{'scene':s['id'],'framing':s['framing'],
@@ -535,22 +548,34 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         report["music_for_all_scenes"] = all(s["music"] for s in item["entries"])
         (staging / "qa_report.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        from .shorts_review import create_review, join_narration
+        shutil.copyfile(item['script'],staging/'script_ru.txt')
+        join_narration(item['entries'],staging/'narration_ru.wav',item['fps'])
+        review = create_review(item,staging)
+        if (sha(item['script']) != item['digest'] or sha(Path(manifest)) != item['project_sha256']
+                or asset_hashes(item) != assets):
+            raise Blocked('Source material or project changed during rendering; final export was not committed')
         receipt = {"schema": 1, "engine": VERSION, "story_id": item["id"],
+                   'project_sha256':item['project_sha256'],
                    "script_sha256": item["digest"], "assets_sha256": assets,
                    "final_sha256": sha(staging / "final.mp4"),
                    "review_status": "REVIEW_REQUIRED",
-                   "approved_for_publication": False}
+                   "approved_for_publication": False,
+                   'review':review,
+                   'delivery_sha256':{p.relative_to(staging).as_posix():sha(p)
+                       for p in sorted(staging.rglob('*')) if p.is_file()
+                       and p.parent != clips and p.name not in ('joined.mov','clips.txt','cover_source.png')}}
         (staging / "receipt.json").write_text(
             json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8")
         shutil.rmtree(clips)
-        (staging / "joined.mp4").unlink()
-        (staging / "mastered.wav").unlink()
+        (staging / "joined.mov").unlink()
         (staging / "cover_source.png").unlink()
         playlist.unlink()
         os.rename(staging, target)
     return {"status": "REVIEW_REQUIRED", "story": item["id"],
             "files": [str(target / fn) for fn in (
-                "final.mp4", "cover.jpg", "subtitles.srt", "qa_report.json", "receipt.json")],
+                "final.mp4", "cover.jpg", "subtitles.srt", "qa_report.json", "receipt.json",
+                'script_ru.txt','narration_ru.wav','audio_master.wav','timeline.json','review.html')],
             "qa": report}
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from zipfile import ZipFile, ZIP_DEFLATED
 
 from .autonomous_factory import inventory, run_story, atomic_json
 
@@ -46,37 +45,23 @@ def run_batch(queue_root: Path, out: Path, models: Path, *,
 
 
 def package_review(queue_root: Path, out: Path, zip_path: Path) -> dict:
-    """Publish ZIP only when all video files exist and their SHA receipts match."""
-    from .offline_media import digest
+    """Package complete private review deliveries after verifying every receipt."""
+    from .shorts_review import write_review_archive
     jobs = batch_status(queue_root)["jobs"]
     out = Path(out)
-    zip_path = Path(zip_path)
-    if zip_path.exists():
-        raise FileExistsError("Do not overwrite previous delivery archive")
-    assets = []
+    folders = []
     for job in jobs:
         folder = out / job["id"]
         receipt_path = folder / "receipt.json"
         if not receipt_path.is_file():
             raise ValueError(f"Missing finished reviewed-file bundle: {job['id']}")
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-        if receipt.get("approved_for_publication") is not False:
-            raise ValueError("Do not treat human review as auto-approval")
-        names = ("final.mp4", "cover.jpg", "subtitles.srt", "qa_report.json", "receipt.json")
-        if any(not (folder / name).is_file() for name in names):
-            raise ValueError(f"Incomplete video output for {job['id']}")
-        if digest(folder/"final.mp4") != receipt.get("final_sha256"):
-            raise ValueError("Video checksum mismatch before packaging")
-        qa = json.loads((folder/"qa_report.json").read_text(encoding="utf-8"))
-        if not qa.get("technical_pass"):
-            raise ValueError("Technical QA failed")
-        assets.extend((folder / name, f"{job['id']}/{name}") for name in names)
-    zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with ZipFile(zip_path,"x",compression=ZIP_DEFLATED,compresslevel=4) as z:
-        for path, arcname in assets:
-            z.write(path,arcname)
-    return {"status":"REVIEW_BUNDLE_ONLY", "videos":len(jobs),"zip":str(zip_path),
-            "published":False}
+        project = json.loads((Path(job['project_dir']) / 'project.json').read_text(encoding='utf-8'))
+        if (receipt.get('story_id') != job['id'] or
+                receipt.get('script_sha256') != project['script_sha256']):
+            raise ValueError('Delivery does not match the current original story')
+        folders.append(folder)
+    return write_review_archive(folders, Path(zip_path))
 
 
 def main(argv=None):

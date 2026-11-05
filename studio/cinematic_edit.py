@@ -100,21 +100,24 @@ def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | Non
         filters.append(f'[voice]asplit=2[main][key];[{voice_index+1}:a]aresample=48000,'
             'aformat=channel_layouts=stereo,volume=0.22[bed];'
             '[bed][key]sidechaincompress=threshold=0.025:ratio=8:attack=30:release=350[duck];'
-            '[main][duck]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.92[a]')
-    else:filters.append('[voice]alimiter=limit=0.92[a]')
+            '[main][duck]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.92:latency=1[a]')
+    else:filters.append('[voice]alimiter=limit=0.92:latency=1[a]')
     frames=frame_count(scene['seconds'],fps)
     args+=['-filter_complex',';'.join(filters),'-map','[v]','-map','[a]',
         '-frames:v',str(frames),'-t',f'{frames/fps:.9f}','-c:v','libx264','-preset','veryfast',
         '-progress',str(output.with_suffix('.progress.txt')),'-stats_period','5',
-        '-crf','18','-threads','3','-pix_fmt','yuv420p','-r',str(fps),'-c:a','aac',
+        '-crf','18','-threads','3','-pix_fmt','yuv420p','-r',str(fps),'-c:a',
+        'pcm_s16le' if output.suffix == '.mov' else 'aac',
         '-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709',
         '-b:a','192k','-ar','48000','-ac','2','-movflags','+faststart',str(output)]
     result=subprocess.run(args,capture_output=True,text=True,timeout=1800)
     if result.returncode:raise RuntimeError('Real scene edit failed: '+result.stderr[-2400:])
     if abs(video_duration(output)-frames/fps)>.08:raise RuntimeError('Rendered scene lost narration frames')
     unique={sha(p):length for p,length in zip(paths,lengths)}
+    used=[sha(paths[s['clip']]) for s in shots if s['kind']=='motion']
     return {'unique_neural_input_seconds':sum(unique.values()),
         'neural_shot_screen_seconds':sum(s['frames']/fps for s in shots if s['kind']=='motion'),
         'photographic_insert_seconds':sum(s['frames']/fps for s in shots if s['kind']=='photo'),
-        'takes_reused':True,'photographs_are_not_character_animation':True,
+        'takes_reused':len(used)>len(set(used)),
+        'photographs_are_not_character_animation':True,
         'shots':shots,'input_sha256':{str(p):sha(p) for p in paths}}
