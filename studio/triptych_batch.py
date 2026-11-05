@@ -56,6 +56,7 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
     planned = []
     seen_paths = set()
     shot_total = 0
+    all_inputs = []
     for part in refs:
         asset = inside(base, part.get("manifest"))
         cover = inside(base, part.get("cover"))
@@ -73,6 +74,8 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
         if type(expected) is not int or expected < 1 or expected > 80 or count != expected:
             raise ValueError(f"Part {part['part']}: expected {expected} real shots, got {count}")
         shot_total += count
+        all_inputs.append((f"part-{part['part']}-manifest", sha256(asset)))
+        all_inputs.append((f"part-{part['part']}-cover", sha256(cover)))
         if (plan["width"], plan["height"], plan["fps"]) != (1080, 1920, 30):
             raise ValueError("All episodes must be 1080x1920 at 30fps")
         voice_count = 0
@@ -80,7 +83,9 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
             if any(token in str(shot["path"]).lower() for token in ("/placeholder", "/dummy", "/fake_", "/demo_art")):
                 raise ValueError(f"Part {part['part']} shot {ix}: procedural placeholder not allowed")
             media_hash = raw.get("media_sha256")
-            if media_hash is not None and (not CHECKSUM.fullmatch(media_hash) or sha256(shot["path"]) != media_hash):
+            actual_media_hash = sha256(shot["path"])
+            all_inputs.append((f"part-{part['part']}-shot-{ix}-media", actual_media_hash))
+            if media_hash is not None and (not CHECKSUM.fullmatch(media_hash) or actual_media_hash != media_hash):
                 raise ValueError(f"Part {part['part']} shot {ix}: image/clip SHA256 differs from manifest")
             if shot["kind"] == "image":
                 with Image.open(shot["path"]) as image:
@@ -91,8 +96,10 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
             if shot["voice"] is not None:
                 voice_count += 1
                 voice_hash = raw.get("voice_sha256")
+                actual_voice_hash = sha256(shot["voice"])
+                all_inputs.append((f"part-{part['part']}-shot-{ix}-voice", actual_voice_hash))
                 if voice_hash is not None and (not CHECKSUM.fullmatch(voice_hash)
-                                               or sha256(shot["voice"]) != voice_hash):
+                                               or actual_voice_hash != voice_hash):
                     raise ValueError("Narration SHA256 differs from manifest")
             if raw.get("requires_voice") is True and shot["voice"] is None:
                 raise ValueError(f"Part {part['part']} shot {ix}: required WAV is missing")
@@ -114,6 +121,8 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
         "shots": shot_total, "language": source.get("language", "ru"),
         "story_lock_sha256": source.get("work_script_sha256"),
         "master": bool(master), "source_manifest_sha256": sha256(path),
+        "source_assets_fingerprint": hashlib.sha256(
+            json.dumps(all_inputs, sort_keys=True).encode("utf-8")).hexdigest(),
     }
 
 
@@ -127,7 +136,8 @@ def make_bundle(spec_file: Path, out_root: Path, *, master: bool = False,
         marker = target / "delivery.json"
         if marker.is_file():
             manifest = json.loads(marker.read_text(encoding="utf-8"))
-            if manifest.get("source_manifest_sha256") == spec["source_manifest_sha256"]:
+            if (manifest.get("source_manifest_sha256") == spec["source_manifest_sha256"]
+                    and manifest.get("source_assets_fingerprint") == spec["source_assets_fingerprint"]):
                 # Never trust a stale marker without checking actual files.
                 for row in manifest.get("parts", []):
                     check_video(target / row["mp4"], target / row["srt"],
@@ -143,6 +153,7 @@ def make_bundle(spec_file: Path, out_root: Path, *, master: bool = False,
         delivery = {
             "schema": 1, "story_title": spec["story_title"], "job_id": spec["job_id"],
             "source_manifest_sha256": spec["source_manifest_sha256"],
+            "source_assets_fingerprint": spec["source_assets_fingerprint"],
             "work_script_sha256": spec["story_lock_sha256"],
             "parts": [], "shot_total": spec["shots"], "published": False,
             "quality": "technical_review_required",
