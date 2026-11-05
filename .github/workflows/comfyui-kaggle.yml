@@ -43,7 +43,7 @@ jobs:
             echo "::error::KAGGLE_API_TOKEN is missing from GitHub Actions secrets"
             exit 2
           fi
-          python -m pip install "kaggle>=2.2.4"
+          python -m pip install "kaggle>=2.2.4" "six>=1.16,<2"
           kaggle quota >/dev/null
           python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
 
