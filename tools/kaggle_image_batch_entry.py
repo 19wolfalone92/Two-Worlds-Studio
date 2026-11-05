@@ -47,6 +47,23 @@ def scene_prompt(director: dict, shot: dict, repair: dict | None = None) -> tupl
         f"Reference image {i+1} identifies {director['people'][key]['name']}: "
         f"{director['people'][key]['description']}"
         for i, key in enumerate(cast))
+    # Put the actual shot before generic portrait/continuity language. On a
+    # long multi-cast prompt, the old ordering could bury object-only staging
+    # and produce an irrelevant portrait instead of the requested story prop.
+    if director.get('shot_first_prompt'):
+        staging=repair.get('staging',shot['visual_prompt_ru'])
+        prompt=('ONE vertical photorealistic film frame. EXACT SHOT: '+staging+' '
+                +director.get('scene_notes',{}).get(str(shot['scene']),'')+' ')
+        if cast:
+            prompt+=('Use the reference images only to identify the listed people. '
+                     'Honor the framing: never widen a hands-only or object-detail shot into a face portrait. '
+                     +descriptions+' ')
+        else:
+            prompt+='This is strictly an object or environment shot. ZERO PEOPLE, ZERO FACES, ZERO HUMAN BODY PARTS. '
+        prompt+=('Lighting and color: '+director['palette']+'. Realistic anatomy, real materials, '
+                 'natural skin and practical cinematic lighting. One coherent image, no montage, '
+                 'extra people, captions, logos or watermarks. Leave requested blank paper blank.')
+        return prompt,cast
     prompt = (
         'Create ONE cinematic live-action movie frame, vertical composition. '
         + ('Preserve each referenced face, age and hair exactly; follow the scene instructions for clothing. '

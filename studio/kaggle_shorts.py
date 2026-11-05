@@ -17,6 +17,8 @@ import zipfile
 from pathlib import Path
 
 SOURCES = ("studio/__init__.py", "studio/offline_media.py", "studio/smooth_camera.py", "studio/subtitle_align.py", "studio/neural_motion.py", "studio/model_cache.py",
+           "studio/caption_layout.py", "studio/delivery_qc.py", "studio/remaster_audio.py",
+           "studio/cinematic_edit.py", "studio/voice_audit.py", "studio/shorts_review.py",
            "studio/autonomous_factory.py", "studio/shorts_factory.py",
            "studio/kaggle_shorts_worker.py")
 ALLOWED_PHASES = {"preflight", "image", "voice", "music", "render"}

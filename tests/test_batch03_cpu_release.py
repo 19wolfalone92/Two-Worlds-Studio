@@ -39,6 +39,11 @@ class CpuReviewRelayTests(unittest.TestCase):
             for name in ("final.mp4","cover.jpg","subtitles.srt",
                          "qa_report.json","receipt.json"):
                 (p/name).write_bytes(b"test-only")
+            (p/'receipt.json').write_text(json.dumps({
+                'approved_for_publication':False,
+                'final_sha256':hashlib.sha256((p/'final.mp4').read_bytes()).hexdigest()}))
+            (p/'qa_report.json').write_text(json.dumps({
+                'technical_pass':True,'full_decode_pass':True,'approved_for_publication':False}))
             (p/"story.txt").write_text("PRIVATE SOURCE MUST NOT BE INCLUDED")
             result=root/"encrypted_input.zip"
             safe_package(root,result)

@@ -8,18 +8,6 @@ SOURCE_B64='__TW_VOICE_QA_SOURCE__'
 OUT=Path('/kaggle/working');INPUT=Path('/kaggle/input');BASE=OUT/'tw_voice_qa_modules'
 
 
-def words(text):return re.findall(r'[а-яa-z0-9]+',text.lower().replace('ё','е'))
-
-
-def distance(a,b):
-    previous=list(range(len(b)+1))
-    for i,left in enumerate(a,1):
-        current=[i]
-        for j,right in enumerate(b,1):current.append(min(current[-1]+1,previous[j]+1,previous[j-1]+(left!=right)))
-        previous=current
-    return previous[-1]
-
-
 def main():
     conf=json.loads(base64.b64decode(CONFIG_B64));BASE.mkdir(parents=True,exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(base64.b64decode(SOURCE_B64))) as z:
@@ -35,6 +23,7 @@ def main():
     from studio.model_cache import stage_cached_tree
     from studio.kaggle_shorts_worker import _safe_extract
     from studio.autonomous_factory import atomic_json
+    from studio.voice_audit import audit_transcript
     torch.set_num_threads(min(8,torch.get_num_threads()))
     candidates=[p.parent for p in INPUT.rglob('config.json') if p.parent.name=='alignment'
                 and conf['model_kernel_slug'] in p.parts]
@@ -69,12 +58,10 @@ def main():
                 with torch.inference_mode():ids=model(value).logits.argmax(-1)
                 transcript.append(processor.batch_decode(ids)[0]);cursor=end
             recognized=' '.join(transcript)
-            expected=shots[scene['id']]['exact_source_text'];reference=words(expected);observed=words(recognized)
-            errors=distance(reference,observed);wer=errors/max(len(reference),1)
-            results.append({'scene':scene['id'],'reference':expected,'recognized':recognized,
-                            'reference_words':len(reference),'recognized_words':len(observed),
-                            'word_error_rate':round(wer,4),'requires_review':wer>.18,
-                            'source_text_changed':False})
+            expected=shots[scene['id']]['exact_source_text']
+            critical=shots[scene['id']].get('critical_terms',[])
+            audit=audit_transcript(expected,recognized,critical_terms=critical,review_wer=.18)
+            results.append({'scene':scene['id'],'reference':expected,'recognized':recognized,**audit})
             state['stories'][str(sid)]=results;state['elapsed_s']=round(time.monotonic()-started,2)
             atomic_json(OUT/'batch_voice_qa.json',state)
         print('Completed independent CPU speech audit for story',sid,flush=True)

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "nonce": "remaster02-voicefix-qa-20261105-v1",
+  "phase": "voice_qa",
+  "story": "13",
+  "count": 8,
+  "first_scene": 1,
+  "free_resources_only": true,
+  "dataset_slug": "two-worlds-private-batch03-remaster02-20261105-v1",
+  "source_sha256": "4ef19ac11d8da00c80b1dcc31a7c858ba54d4aac62d97f29ed1b90f74202ca77",
+  "model_kernel": "wolf19loner92/tw-batch03-remaster02-whisper-20261105-v1",
+  "recovery_kernel": "wolf19loner92/tw-batch03-remaster02-voicefix-20261105-v1",
+  "qa_engine": "whisper_cpu",
+  "qa_scenes": {
+    "15": [
+      6
+    ]
+  }
+}

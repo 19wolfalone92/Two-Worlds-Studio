@@ -23,11 +23,11 @@ from studio.sealed_artifacts import generate_keys, seal, unseal
 ROOT = Path(__file__).resolve().parents[1]
 REQUEST_DIR = os.environ.get('TW_REQUEST_DIR', '.github/batch03_requests')
 RELAY_BRANCH = os.environ.get('TW_RELAY_BRANCH', 'integration/story-glitch-batch03-20261104')
-if REQUEST_DIR not in {'.github/batch03_requests', '.github/shortform04_requests'}:
+if REQUEST_DIR not in {'.github/batch03_requests', '.github/shortform04_requests', '.github/remaster02_requests'}:
     raise ValueError('Unsupported private request directory')
-if RELAY_BRANCH not in {'integration/story-glitch-batch03-20261104', 'production/story-glitch-batch04-20261105'}:
+if RELAY_BRANCH not in {'integration/story-glitch-batch03-20261104', 'production/story-glitch-batch04-20261105', 'remaster/batch02-20261105'}:
     raise ValueError('Unsupported production branch')
-TEMP = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / ('tw-shortform04-relay' if 'shortform04' in REQUEST_DIR else 'tw-batch03-relay')
+TEMP = Path(os.environ.get('RUNNER_TEMP', '/tmp')) / ('tw-remaster02-relay' if 'remaster02' in REQUEST_DIR else 'tw-shortform04-relay' if 'shortform04' in REQUEST_DIR else 'tw-batch03-relay')
 
 
 def request():
@@ -101,11 +101,23 @@ def receive(conf):
     while time.monotonic() < deadline:
         req = urllib.request.Request(endpoint, headers={
             'Authorization': 'Bearer ' + os.environ['GH_READ_TOKEN'],
-            'Accept': 'application/vnd.github+json', 'Cache-Control': 'no-cache'})
+            'Accept': 'application/vnd.github.raw+json' if 'remaster02' in REQUEST_DIR else 'application/vnd.github+json', 'Cache-Control': 'no-cache'})
         try:
-            with urllib.request.urlopen(req, timeout=30) as response:
-                payload = json.load(response)
-            encrypted = base64.b64decode(base64.b64decode(payload['content']))
+            if 'remaster02' in REQUEST_DIR:
+                count=conf.get('input_part_count',1)
+                if type(count) is not int or not 1<=count<=128:
+                    raise ValueError('Invalid bounded encrypted source part count')
+                parts=[]
+                for index in range(count):
+                    part_name='input_'+conf['nonce']+f'.part{index:04d}.twenc.b64'
+                    part_req=urllib.request.Request(endpoint.replace(name,part_name),headers=dict(req.headers))
+                    with urllib.request.urlopen(part_req,timeout=30) as response:
+                        parts.append(base64.b64decode(response.read(),validate=True))
+                encrypted=b''.join(parts)
+            else:
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    payload = json.load(response)
+                    encrypted = base64.b64decode(base64.b64decode(payload['content']))
             sealed = TEMP / 'input.twenc'
             sealed.write_bytes(encrypted)
             source = TEMP / 'batch03_source.zip'
@@ -167,7 +179,8 @@ def produce():
                                  '-p', str(result_dir / f'progress_{index}'), '--force',
                                  '--file-pattern', r'(batch_(image|voice)_status\.json|TwoWorlds_PRIVATE_.*\.zip)$'],
                                 timeout=180)
-                        summary['progress_queries'][kernel] = 'AVAILABLE'
+                        found=[p for p in (result_dir/f'progress_{index}').rglob('*') if p.is_file()]
+                        summary['progress_queries'][kernel] = 'AVAILABLE' if found else 'NO_FILES_YET'
                     except Exception as exc:
                         summary['progress_queries'][kernel] = type(exc).__name__
             summary['gpu_requested'] = False
@@ -242,6 +255,12 @@ def produce():
             if 'tasks' in conf:
                 from tools.kaggle_voice_batch_entry import voice_tasks
                 batch_conf['tasks'] = voice_tasks(conf)
+            if 'speakers' in conf:
+                from studio.offline_media import SPEAKERS
+                if any(str(k) not in {str(i) for i in range(13,19)} or v not in SPEAKERS
+                       for k,v in conf['speakers'].items()):
+                    raise ValueError('Invalid bounded narrator cast')
+                batch_conf['speakers'] = conf['speakers']
             template = (ROOT/'tools/kaggle_voice_batch_entry.py').read_text()
             rendered = template.replace('__TW_VOICE_BATCH_CONFIG__',base64.b64encode(json.dumps(batch_conf).encode()).decode())
             rendered = rendered.replace('__TW_VOICE_BATCH_SOURCE__',base64.b64encode(build_source(ROOT)).decode())
@@ -335,7 +354,8 @@ def produce():
                 if path.is_file():
                     z.write(path, str(path.relative_to(result_dir)))
         # NEVER include runner input private key, account environment, or credentials.
-        seal_return(archive,ROOT/'.github/batch03_requests/recipient_public.pem',
+        recipient_dir = REQUEST_DIR if 'remaster02' in REQUEST_DIR else '.github/batch03_requests'
+        seal_return(archive,ROOT/recipient_dir/'recipient_public.pem',
                     ROOT/'dist/private_batch03',conf['nonce'])
         print(json.dumps({k: summary[k] for k in ['nonce', 'phase', 'story', 'paid_services', 'published']}))
 

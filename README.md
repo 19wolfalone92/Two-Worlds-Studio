@@ -1,6 +1,28 @@
 # TWO WORLDS — Visual Production Studio
 
-**Status:** tested technical motion-comic engine; professional illustrated master is **not yet produced**. Independently maintained from Williams Bot and Williams AI.
+**Production branch status:** six Russian photographic shorts have been rendered and checked on real production media. The separate illustrated character-acting engine still needs its own artistic acceptance. Independently maintained from Williams Bot and Williams AI.
+
+## Story Glitch production engine 1.4
+
+The current production stack reuses the existing FLUX/Qwen, camera, sampled
+score and renderer modules. New CPU-only improvements keep an authored face
+or prop in frame, fit Cyrillic captions into two measured lines, master and
+measure the encoded AAC, check every decoded frame timestamp, and flag lost
+negations/numbers/names in independent speech transcripts. Covers are taken
+from the actual encoded composition; a local JPG never counts as destination
+cover verification. Scene and audio caches track changed source material.
+
+Scene caches now retain lossless PCM in a QuickTime container, so final AAC
+is encoded once. Every new delivery includes an unmixed narration WAV, a
+mastered WAV, the locked script and a local scene-aware review player with
+actual MP4 frames, full-resolution detail images and source comparisons.
+Complete review archives verify every delivered file and are committed
+atomically. See [the Russian 1.4 guide](docs/STUDIO_1_4_RU.md).
+
+New story queues default to 1080x1920 at 30 FPS. Existing projects are not
+rewritten. See [the Russian 1.3 production guide](docs/STUDIO_1_3_RU.md) for
+authored focal points, subtitle placement, commands, tests and remaining
+visual/listening review. No new paid service or automatic posting is added.
 
 ## Ownership
 - **ChatGPT Work:** the only story/script/dialogue author. Once reviewed, Work delivers a locked episode JSON and scene descriptions.

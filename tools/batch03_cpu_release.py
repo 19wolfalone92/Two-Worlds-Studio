@@ -82,17 +82,14 @@ def index_private_outputs() -> dict[tuple[str, str], str]:
 
 
 def safe_package(input_root: Path, dest: Path) -> None:
-    """Final ZIP contains actual finished review files, never raw source."""
-    with zipfile.ZipFile(dest, "x", zipfile.ZIP_DEFLATED, compresslevel=1) as z:
-        for story in STORIES:
-            folder = input_root / f"work_{story}"
-            if not folder.is_dir():
-                continue
-            for name in ("final.mp4", "cover.jpg", "subtitles.srt", "qa_report.json", "receipt.json"):
-                p = folder / name
-                if not p.is_file() or p.is_symlink():
-                    raise ReleaseBlocked("Incomplete reviewed render package")
-                z.write(p, f"review/work_{story}/{name}")
+    """Final ZIP contains verified review deliverables, never raw source folders."""
+    from studio.shorts_review import write_review_archive
+    folders = [input_root / f'work_{story}' for story in STORIES
+               if (input_root / f'work_{story}').is_dir()]
+    try:
+        write_review_archive(folders,dest,prefix='review')
+    except (OSError,ValueError,KeyError,TypeError) as exc:
+        raise ReleaseBlocked('Incomplete or changed private review delivery') from exc
 
 
 def source_location(folder: Path) -> Path:

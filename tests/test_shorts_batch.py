@@ -33,6 +33,8 @@ class StoryImportTests(unittest.TestCase):
         project = json.loads((self.base / "out/13/project.json").read_text(encoding="utf-8"))
         self.assertEqual(project["language"], "ru")
         self.assertEqual(project["scenes"][0]["subtitles"], [])
+        self.assertEqual(project['fps'],30)
+        self.assertEqual(project['scenes'][0]['source_text'],'Русский исходный текст сцены')
         self.assertFalse((self.base / "out/13/images").exists())
         with self.assertRaises(FileExistsError):
             create(self.kit, self.base / "out")

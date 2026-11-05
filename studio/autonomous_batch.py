@@ -49,7 +49,8 @@ def _verified_cover(path: Path) -> bool:
         return False
 
 
-def _review_package(folder: Path, project: dict, source_hash: str) -> tuple[bool, str]:
+def _review_package(folder: Path, project: dict, source_hash: str, *,
+                    current_sources: dict | None = None) -> tuple[bool, str]:
     if folder.is_symlink() or not folder.is_dir():
         return False, "OUTPUT_MISSING"
     if any(not (folder / name).is_file() or (folder / name).is_symlink()
@@ -72,6 +73,13 @@ def _review_package(folder: Path, project: dict, source_hash: str) -> tuple[bool
             and qa["first_frame_mean"] >= 9
             and _verified_cover(folder / "cover.jpg")
         )
+        if valid and ('delivery_sha256' in receipt or str(receipt.get('engine','')).startswith('1.4.')):
+            from .shorts_review import delivery_files
+            delivery_files(folder)
+            if current_sources is not None:
+                from .shorts_factory import asset_hashes
+                valid = (receipt.get('assets_sha256') == asset_hashes(current_sources)
+                         and receipt.get('project_sha256') == current_sources['project_sha256'])
     except (OSError, ValueError, TypeError, KeyError):
         valid = False
     return (True, "REVIEW_REQUIRED") if valid else (False, "INVALID_OR_BLACK_OUTPUT")
@@ -112,6 +120,7 @@ def inspect_story(queue_root: Path, export_root: Path, number: str) -> dict:
             missing["voices"] += not voice.is_file()
             missing["subtitles"] += not isinstance(scene.get("subtitles"), list) or not scene["subtitles"]
         answer["missing"] = missing
+        validated = None
         if missing["images"]:
             answer.update(status="ASSETS_PENDING", next_action="GENERATE_IMAGES_PRIVATE_GPU")
         elif missing["voices"]:
@@ -120,11 +129,12 @@ def inspect_story(queue_root: Path, export_root: Path, number: str) -> dict:
             answer.update(status="ASSETS_PENDING", next_action="ALIGN_VOICE_TO_SUBTITLES")
         else:
             from .shorts_factory import validate_project
-            validate_project(manifest)
+            validated = validate_project(manifest)
             answer.update(status="READY_TO_RENDER", next_action="RENDER_OFFLINE_CPU")
         output = export_root / f"work_{number}"
         if output.exists() or output.is_symlink():
-            verified, why = _review_package(output, project, original_sha)
+            verified, why = _review_package(output, project, original_sha,
+                                            current_sources=validated)
             if verified and not any(missing.values()):
                 answer.update(status="REVIEW_REQUIRED", next_action="HUMAN_REVIEW_BEFORE_UPLOAD")
             else:
