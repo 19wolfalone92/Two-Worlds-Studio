@@ -1,40 +1,22 @@
 {
   "schema": 1,
-  "nonce": "remaster02-whisper-20261105-v1",
-  "phase": "voice_qa",
-  "story": "13",
-  "count": 8,
-  "first_scene": 1,
+  "nonce": "remaster02-voicefix-20261105-v1",
+  "phase": "voice_batch",
+  "story": "15",
+  "count": 1,
+  "first_scene": 6,
   "free_resources_only": true,
   "dataset_slug": "two-worlds-private-batch03-remaster02-20261105-v1",
   "source_sha256": "4ef19ac11d8da00c80b1dcc31a7c858ba54d4aac62d97f29ed1b90f74202ca77",
   "model_kernel": "wolf19loner92/tw-batch03-voice-20261104-14-01",
-  "recovery_kernel": "wolf19loner92/tw-batch03-remaster02-voice-20261105-v1",
-  "qa_engine": "whisper_cpu",
-  "qa_scenes": {
-    "13": [
-      4,
-      5
-    ],
-    "15": [
-      3,
-      4,
-      6
-    ],
-    "16": [
-      1,
-      3,
-      7
-    ],
-    "17": [
-      2,
-      7
-    ],
-    "18": [
-      3,
-      4,
-      6,
-      8
-    ]
-  }
+  "speakers": {
+    "15": "Serena"
+  },
+  "tasks": [
+    {
+      "story": 15,
+      "first_scene": 6,
+      "count": 1
+    }
+  ]
 }
