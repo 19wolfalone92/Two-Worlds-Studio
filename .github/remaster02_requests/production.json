@@ -1,12 +1,14 @@
 {
   "schema": 1,
-  "nonce": "remaster02-repair-seed-20261105-v2",
-  "phase": "seed_only",
+  "nonce": "remaster02-asr-20261105-v1",
+  "phase": "voice_qa",
   "story": "13",
   "count": 8,
   "first_scene": 1,
   "free_resources_only": true,
-  "dataset_slug": "two-worlds-private-batch03-remaster02-20261105-v2",
-  "source_sha256": "00994772d9dd17385f94e145e3ed1392a3900ea4e9c900bdd5cd1f315fdc03c3",
-  "input_part_count": 31
+  "dataset_slug": "two-worlds-private-batch03-remaster02-20261105-v1",
+  "source_sha256": "4ef19ac11d8da00c80b1dcc31a7c858ba54d4aac62d97f29ed1b90f74202ca77",
+  "model_kernel": "wolf19loner92/tw-batch03-voice-20261104-14-01",
+  "recovery_kernel": "wolf19loner92/tw-batch03-remaster02-voice-20261105-v1",
+  "qa_engine": "wav2vec2"
 }
