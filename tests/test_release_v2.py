@@ -82,10 +82,11 @@ def fake_production(root: Path) -> Path:
     img = Image.new("RGB", (640, 1152), "#2d4965")
     ImageDraw.Draw(img).ellipse((110, 170, 520, 720), fill="#ddba91")
     img.save(src / "scene.png")
-    Image.new("RGB", (540, 960), "#79517e").save(src / "cover.png")
+    
     wav(src / "speech.wav")
     parts = []
     for i in range(1, 4):
+        Image.new("RGB", (540, 960), (45+i*16, 64+i*20, 100+i*9)).save(src / f"cover{i}.png")
         content = {
             "schema": 1, "width": 1080, "height": 1920, "fps": 30,
             "shots": [
@@ -98,7 +99,7 @@ def fake_production(root: Path) -> Path:
         }
         path = root / f"part{i}.json"
         path.write_text(json.dumps(content, ensure_ascii=False), encoding="utf-8")
-        parts.append({"part": i, "manifest": path.name, "cover": "images/cover.png",
+        parts.append({"part": i, "manifest": path.name, "cover": f"images/cover{i}.png",
                       "expected_shots": 8})
     spec = root / "production.json"
     spec.write_text(json.dumps({
