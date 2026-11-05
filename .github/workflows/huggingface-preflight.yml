@@ -1,0 +1,31 @@
+name: STORY GLITCH - Hugging Face connection check (read-only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["feature/studio-v2-free-autonomy-20261106"]
+    paths: ["ops/huggingface_connection.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-huggingface:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check Hub connection without downloading weights or calling inference
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${HF_TOKEN:-}" ]]; then
+            echo 'HF_TOKEN repository secret is missing or unavailable.' >&2
+            exit 1
+          fi
+          python -m studio.hf_hub --check

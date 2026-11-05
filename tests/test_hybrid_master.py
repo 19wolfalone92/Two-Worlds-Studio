@@ -35,6 +35,22 @@ class HybridMasterTests(unittest.TestCase):
         self.assertIn("00:00:01,000", subtitles(p["shots"]))
         self.assertEqual(p["duration"], 1)
 
+    def test_real_phrase_timestamps_win_over_full_shot_caption(self):
+        self.data["shots"][0]["caption"] = "Весь кадр"
+        self.data["shots"][0]["subtitle_cues"] = [
+            {"start": 0.1, "end": 0.3, "text": "Мама"},
+            {"start": 0.4, "end": 0.8, "text": "Смотри сюда"},
+        ]
+        plan = check_manifest(self.data, self.root)
+        text = subtitles(plan["shots"])
+        self.assertIn("00:00:00,100 --> 00:00:00,300", text)
+        self.assertIn("00:00:00,400 --> 00:00:00,800", text)
+        self.assertNotIn("Весь кадр", text)
+        self.assertIn("Смотри сюда", text)
+        self.data["shots"][0]["subtitle_cues"][1]["start"] = 0.2
+        with self.assertRaisesRegex(ValueError, "overlapping"):
+            check_manifest(self.data, self.root)
+
     def test_wrong_aspect_and_duration_rejected(self):
         self.data["width"] = 640
         with self.assertRaisesRegex(ValueError, "9:16"):
