@@ -257,39 +257,70 @@ def burn_ass_captions(source: Path, dest: Path, plan: dict, *, folder: Path) -> 
 
 
 def add_audio(video: Path, output: Path, plan: dict) -> None:
+    """Mix genuine speech with an automatically ducked licensed music bed."""
+    length = plan["duration"]
     inputs = ["-i", str(video)]
-    audio_inputs = []
+    music_index = None
+    voices = []
     if plan["music"]:
-        inputs += ["-stream_loop", "-1", "-i", str(plan["music"])]
-        audio_inputs.append((len(audio_inputs) + 1, "music", None))
+        music_index = len(inputs) // 2 + 1
+        inputs.extend(["-stream_loop", "-1", "-i", str(plan["music"])])
     for shot in plan["shots"]:
         if shot["voice"]:
-            inputs += ["-i", str(shot["voice"])]
-            audio_inputs.append((len(audio_inputs) + 1, "voice", shot))
-    if not audio_inputs:
-        inputs += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
-        graph = f"[1:a]atrim=duration={plan['duration']},asetpts=PTS-STARTPTS[aout]"
+            # Count input descriptors, not CLI argument list items.
+            index = 1 + (music_index is not None) + len(voices)
+            inputs.extend(["-i", str(shot["voice"])])
+            voices.append((index, shot))
+    filters = []
+    if music_index is not None:
+        filters.append(
+            f"[{music_index}:a]aresample=48000,aformat=channel_layouts=stereo,"
+            f"volume={plan['music_volume']},apad,atrim=duration={length},"
+            "asetpts=PTS-STARTPTS[bed]"
+        )
+    for i, (index, shot) in enumerate(voices):
+        delay = round(shot["start"] * 1000)
+        filters.append(
+            f"[{index}:a]aresample=48000,aformat=channel_layouts=stereo,"
+            f"atrim=duration={shot['duration']},asetpts=PTS-STARTPTS,"
+            f"adelay={delay}:all=1,apad,atrim=duration={length}[v{i}]"
+        )
+    if voices:
+        voice_labels = "".join(f"[v{i}]" for i in range(len(voices)))
+        if len(voices) == 1:
+            filters.append(f"{voice_labels}anull[voice]")
+        else:
+            filters.append(f"{voice_labels}amix=inputs={len(voices)}:"
+                           f"duration=longest:normalize=0[voice]")
+        if music_index is not None:
+            filters.append("[voice]asplit=2[voice_main][voice_key]")
+            filters.append(
+                "[bed][voice_key]sidechaincompress=threshold=0.04:"
+                "ratio=6:attack=25:release=380[ducked]"
+            )
+            filters.append(
+                f"[voice_main][ducked]amix=inputs=2:duration=longest:"
+                f"normalize=0,atrim=duration={length},"
+                "alimiter=limit=0.90[aout]"
+            )
+        else:
+            filters.append(
+                f"[voice]atrim=duration={length},alimiter=limit=0.90[aout]"
+            )
+    elif music_index is not None:
+        filters.append("[bed]alimiter=limit=0.90[aout]")
     else:
-        labels, steps = [], []
-        for idx, kind, shot in audio_inputs:
-            label = f"s{idx}"
-            if kind == "music":
-                steps.append(f"[{idx}:a]aresample=48000,volume={plan['music_volume']},"
-                             f"atrim=duration={plan['duration']},asetpts=PTS-STARTPTS[{label}]")
-            else:
-                delay = round(shot["start"] * 1000)
-                steps.append(f"[{idx}:a]aresample=48000,"
-                             f"atrim=duration={shot['duration']},adelay={delay}:all=1,"
-                             f"volume=1.0[{label}]")
-            labels.append(f"[{label}]")
-        steps.append(f"{''.join(labels)}amix=inputs={len(labels)}:duration=longest:"
-                     f"normalize=0,atrim=duration={plan['duration']},"
-                     "alimiter=limit=0.90[aout]")
-        graph = ";".join(steps)
-    run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-         *inputs, "-filter_complex", graph, "-map", "0:v:0", "-map", "[aout]",
-         "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ar", "48000",
-         "-t", f"{plan['duration']:.5f}", "-movflags", "+faststart", str(output)])
+        inputs += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+        filters.append(
+            f"[1:a]atrim=duration={length},asetpts=PTS-STARTPTS[aout]"
+        )
+    run([
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        *inputs, "-filter_complex", ";".join(filters),
+        "-map", "0:v:0", "-map", "[aout]",
+        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+        "-t", f"{length:.5f}", "-movflags", "+faststart", str(output)
+    ])
 
 
 def produce(manifest: Path, output: Path, *, master: bool = False) -> dict:
@@ -345,6 +376,8 @@ def produce(manifest: Path, output: Path, *, master: bool = False) -> dict:
         "static_camera_shots": sum(s["kind"] == "image" for s in plan["shots"]),
         "audio_tracks": len([s for s in plan["shots"] if s["voice"]]) + bool(plan["music"]),
         "captions_burned_in": plan["burn_subtitles"],
+        "automatic_music_ducking": bool(plan["music"] and any(
+            shot["voice"] for shot in plan["shots"])),
         "review_status": "asset_approved_not_published" if master else "preview_unreviewed",
         "published": False,
     }
