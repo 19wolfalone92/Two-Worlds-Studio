@@ -183,8 +183,8 @@ def subtitles(shots: list[dict]) -> str:
             rows.append((shot["start"], shot["start"] + shot["duration"], shot["caption"]))
     result = []
     for number, (start, end, line) in enumerate(rows, 1):
-        result.append(f"{number}\\n{timestamp(start)} --> {timestamp(end)}\\n{line}\\n")
-    return "\\n".join(result) + ("\\n" if result else "")
+        result.append(f"{number}\n{timestamp(start)} --> {timestamp(end)}\n{line}\n")
+    return "\n".join(result) + ("\n" if result else "")
 
 
 def add_audio(video: Path, output: Path, plan: dict) -> None:
