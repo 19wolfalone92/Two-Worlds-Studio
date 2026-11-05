@@ -1,0 +1,94 @@
+name: TWO WORLDS - ComfyUI private Kaggle GPU proof
+
+on:
+  # Exactly one intentional push of ops/comfy_launch.trigger; source commits
+  # and pull-request updates alone MUST NOT consume GPU quota.
+  push:
+    branches: ["feat/comfyui-kaggle-api-20261106"]
+    paths: ["ops/comfy_launch.trigger"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-private-comfyui
+  cancel-in-progress: false
+
+jobs:
+  comfyui-sdxl-one-shot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      RUN_NONCE: comfy-${{ github.run_id }}-${{ github.run_attempt }}
+      KERNEL_SLUG: two-worlds-comfy-sdxl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate source and offline adapter tests
+        run: |
+          python -m pip install -r requirements.txt
+          python -m unittest tests.test_comfy_kaggle -v
+
+      - name: Verify private Kaggle API authentication and account
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${KAGGLE_API_TOKEN}" ]]; then
+            echo "::error::KAGGLE_API_TOKEN is missing from GitHub Actions secrets"
+            exit 2
+          fi
+          python -m pip install "kaggle>=2.2.4"
+          kaggle quota >/dev/null
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+
+      - name: Package one private GPU job, never including credentials
+        run: |
+          python -m studio.comfy_kaggle prepare \
+            --username "$KAGGLE_USERNAME" \
+            --nonce "$RUN_NONCE" \
+            --output-dir dist/comfy_submission
+
+      - name: Execute ComfyUI inside private Kaggle GPU session
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p dist/comfy_submission \
+            --timeout 3600 --accelerator NvidiaTeslaT4
+
+      - name: Poll actual GPU completion
+        run: |
+          python -m studio.comfy_kaggle poll \
+            --kernel "$KAGGLE_USERNAME/$KERNEL_SLUG" --timeout 3300
+
+      - name: Download output privately into temporary CI runner
+        run: |
+          mkdir -p dist/comfy_result
+          kaggle kernels output "$KAGGLE_USERNAME/$KERNEL_SLUG" \
+            -p dist/comfy_result --force
+
+      - name: Verify REAL ComfyUI PNG, dimensions, hash and run nonce
+        run: |
+          python -m studio.comfy_kaggle verify \
+            --nonce "$RUN_NONCE" --output-dir dist/comfy_result
+
+      - name: Make files downloadable only if GitHub repository is private
+        if: ${{ github.event.repository.private }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: two-worlds-private-comfyui-${{ github.run_number }}
+          path: |
+            dist/comfy_result/TWO_WORLDS_ARTIFACTS.zip
+            dist/comfy_result/two_worlds_job_receipt.json
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Public repository - avoid exposing unpublished art
+        if: ${{ !github.event.repository.private }}
+        run: |
+          echo "::notice::Output is retained in the user's PRIVATE Kaggle kernel, not in public GitHub Actions artifacts."
