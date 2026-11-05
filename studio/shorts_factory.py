@@ -170,6 +170,11 @@ def _run(args: list[str]) -> None:
     p = subprocess.run(args, text=True, capture_output=True)
     if p.returncode:
         raise RuntimeError(f"FFmpeg failed ({p.returncode}): {p.stderr[-1700:]}")
+    # Make the completed artifact durable before a following probe/transfer.
+    # Intermediates and final MP4s must never be exposed with pending data.
+    output=Path(args[-1])
+    if output.is_file():
+        with output.open('rb') as stream:os.fsync(stream.fileno())
 
 
 def stamp(seconds: float) -> str:
@@ -180,6 +185,11 @@ def stamp(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"
 
 
+def frame_count(seconds: float, fps: int) -> int:
+    """Ceil real durations without adding a frame for ffprobe microsecond rounding."""
+    return max(1, math.ceil(seconds * fps - .0001))
+
+
 def write_srt(entries: list[dict], dest: Path, fps: int) -> None:
     lines = []
     offset = 0.0
@@ -188,7 +198,7 @@ def write_srt(entries: list[dict], dest: Path, fps: int) -> None:
             lines += [str(len(lines) // 4 + 1),
                       f'{stamp(offset + cue["start"])} --> {stamp(offset + cue["end"])}',
                       cue["text"].strip().replace("-->", "→").replace("\n", " "), ""]
-        offset += math.ceil(scene["seconds"] * fps) / fps
+        offset += frame_count(scene["seconds"], fps) / fps
     dest.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -213,7 +223,7 @@ def write_ass(entries: list[dict], dest: Path, fps: int,disclosure: str | None =
         for cue in scene['cues']:
             text = cue['text'].strip().replace('\\', '＼').replace('{', '(').replace('}', ')').replace('\n', ' ')
             lines.append(f"Dialogue: 0,{ass_time(offset+cue['start'])},{ass_time(offset+cue['end'])},Narration,,0,0,0,,{text}\n")
-        offset += math.ceil(scene['seconds'] * fps)/fps
+        offset += frame_count(scene['seconds'], fps)/fps
     if hook_text:
         text=hook_text.replace('\\','＼').replace('{','(').replace('}',')').replace('\n',' ')
         lines.append(f"Dialogue: 2,0:00:00.00,{ass_time(min(2.0,offset))},Narration,,0,0,0,,{{\\an8\\fs64\\bord3\\pos(500,185)}}{text}\n")
@@ -262,7 +272,7 @@ def render_scene(scene: dict, output: Path, w: int, h: int, fps: int,
         output.with_suffix('.edit.json').write_text(json.dumps(receipt,ensure_ascii=False,indent=2))
         return
     # Smooth photographic push-in, not an artificial skeleton/cutout animation.
-    frames = math.ceil(scene["seconds"] * fps)
+    frames = frame_count(scene["seconds"], fps)
     args = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y"]
     if scene["motion_video"]:
         args += ["-i", str(scene["motion_video"])]
@@ -342,8 +352,12 @@ def qa(video: Path, w: int, h: int, fps: int) -> dict:
 
 
 def run(manifest: Path, destination: Path, *, smoke: bool = False,
-        dry_run: bool = False) -> dict:
+        dry_run: bool = False, cache_only: bool = False,
+        cache_scenes: set[int] | None = None) -> dict:
     item = validate_project(manifest, smoke=smoke)
+    if cache_scenes is not None and (not cache_only or not cache_scenes or
+            not cache_scenes.issubset({s['id'] for s in item['entries']})):
+        raise Blocked('An explicit existing scene set is only valid for cache-only rendering')
     target = Path(destination).resolve() / item["id"]
     if target.exists():
         raise Blocked(f"Output exists; refuse silent overwrite: {target}")
@@ -353,7 +367,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
     assets.update({str(p.relative_to(item['base'])):sha(p) for scene in item['entries'] for p in scene['motion_clips']})
     if item['master_audio']:
         length=duration(item['master_audio'])
-        expected=sum(math.ceil(s['seconds']*item['fps'])/item['fps'] for s in item['entries'])
+        expected=sum(frame_count(s['seconds'],item['fps'])/item['fps'] for s in item['entries'])
         if abs(length-expected)>.08:
             raise Blocked('Mixed story audio differs from the full original narration timeline')
         assets[str(item['master_audio'].relative_to(item['base']))]=sha(item['master_audio'])
@@ -371,6 +385,8 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         write_srt(item["entries"], staging / "subtitles.srt", item["fps"])
         write_ass(item['entries'], staging/'subtitles.ass', item['fps'],item['ai_disclosure'],item['intro_hook'])
         for index, scene in enumerate(item["entries"], 1):
+            if cache_only and cache_scenes is not None and scene['id'] not in cache_scenes:
+                continue
             scene_captions=clips/f'{index:03d}.ass'
             write_ass([scene],scene_captions,item['fps'],item['ai_disclosure'] if index==len(item['entries']) else None,item['intro_hook'] if index==1 else None)
             sources=[scene['image'],scene['voice'],scene['music'],scene['motion_video'],*scene['motion_clips']]
@@ -385,7 +401,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
             if cached.is_file() and proof.is_file():
                 saved=json.loads(proof.read_text())
                 valid=(saved.get('fingerprint')==fingerprint and saved.get('sha256')==sha(cached)
-                       and abs(video_duration(cached)-math.ceil(scene['seconds']*item['fps'])/item['fps'])<.08)
+                       and abs(video_duration(cached)-frame_count(scene['seconds'],item['fps'])/item['fps'])<.006)
             if not valid:
                 building=cached.with_suffix('.building.mp4')
                 render_scene(scene,building,item['width'],item['height'],item['fps'],subtitles_path=scene_captions)
@@ -394,6 +410,10 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
                 proof.write_text(json.dumps({'fingerprint':fingerprint,'sha256':sha(cached),'complete':True}))
             os.link(cached,clips/f'{index:03d}.mp4')
             if cached.with_suffix('.edit.json').is_file():shutil.copy2(cached.with_suffix('.edit.json'),clips/f'{index:03d}.edit.json')
+        if cache_only:
+            return {'status':'SCENES_CACHED','story':item['id'],
+                    'scenes':sorted(cache_scenes) if cache_scenes is not None else [s['id'] for s in item['entries']],
+                    'final_movie_created':False,'approved_for_publication':False}
         playlist = staging / "clips.txt"
         playlist.write_text(
             "".join(f"file '{p.resolve()}'\n" for p in sorted(clips.glob("*.mp4"))),
@@ -413,7 +433,7 @@ def run(manifest: Path, destination: Path, *, smoke: bool = False,
         cover(item["entries"][0]["image"], item["title"], staging / "cover.jpg",
               item["width"], item["height"])
         report = qa(staging / "final.mp4", item["width"], item["height"], item["fps"])
-        expected=sum(math.ceil(s['seconds']*item['fps'])/item['fps'] for s in item['entries'])
+        expected=sum(frame_count(s['seconds'],item['fps'])/item['fps'] for s in item['entries'])
         if abs(report['duration_s']-expected)>.10:raise RuntimeError('Final movie changed the full original narration duration')
         report['full_original_narration_clock_s']=expected
         report['duration_matches_full_original_narration']=True
