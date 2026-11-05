@@ -1,20 +1,16 @@
 {
   "schema": 1,
-  "nonce": "remaster02-voice-20261105-v1",
-  "phase": "voice_batch",
+  "nonce": "remaster02-status-20261105-v1",
+  "phase": "status",
   "story": "13",
   "count": 8,
   "first_scene": 1,
   "free_resources_only": true,
   "dataset_slug": "two-worlds-private-batch03-remaster02-20261105-v1",
   "source_sha256": "4ef19ac11d8da00c80b1dcc31a7c858ba54d4aac62d97f29ed1b90f74202ca77",
-  "model_kernel": "wolf19loner92/tw-batch03-voice-20261104-14-01",
-  "speakers": {
-    "13": "Serena",
-    "14": "Vivian",
-    "15": "Serena",
-    "16": "Ryan",
-    "17": "Aiden",
-    "18": "Ryan"
-  }
+  "kernels": [
+    "wolf19loner92/tw-batch03-remaster02-image-20261105-v1",
+    "wolf19loner92/tw-batch03-remaster02-voice-20261105-v1"
+  ],
+  "query_progress": true
 }
