@@ -2,6 +2,9 @@ name: STORY GLITCH - Hugging Face connection check (read-only)
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["feature/studio-v2-free-autonomy-20261106"]
+    paths: ["ops/huggingface_connection.trigger"]
 
 permissions:
   contents: read
