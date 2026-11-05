@@ -57,6 +57,9 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
             and width % 2 == 0 and height % 2 == 0 and abs(width / height - 9 / 16) < .001
             and 12 <= fps <= 30):
         raise ValueError("Expected an even 9:16 resolution and 12-30 fps")
+    burn_subtitles = data.get("burn_subtitles", False)
+    if type(burn_subtitles) is not bool:
+        raise ValueError("burn_subtitles must be a boolean")
     shots = data.get("shots")
     if not isinstance(shots, list) or not (1 <= len(shots) <= 80):
         raise ValueError("Provide 1-80 shots")
@@ -137,12 +140,12 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         raise ValueError("music_volume must be between 0 and 0.5")
     return dict(width=width, height=height, fps=fps, shots=normalized,
                 frames=start, duration=start / fps, music=music, music_volume=volume,
-                approved=master)
+                approved=master, burn_subtitles=burn_subtitles)
 
 
-def run(command: list[str]) -> None:
+def run(command: list[str], *, cwd: Path | None = None) -> None:
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL,
-                   stderr=subprocess.PIPE, timeout=1200)
+                   stderr=subprocess.PIPE, timeout=1200, cwd=cwd)
 
 
 def render_segment(shot: dict, path: Path, width: int, height: int, fps: int) -> None:
@@ -185,6 +188,72 @@ def subtitles(shots: list[dict]) -> str:
     for number, (start, end, line) in enumerate(rows, 1):
         result.append(f"{number}\n{timestamp(start)} --> {timestamp(end)}\n{line}\n")
     return "\n".join(result) + ("\n" if result else "")
+
+
+
+def _ass_time(t: float) -> str:
+    # ASS supports centiseconds; video rendering is frame-accurate at fps.
+    centiseconds = round(t * 100)
+    h, r = divmod(centiseconds, 360000)
+    m, r = divmod(r, 6000)
+    sec, cs = divmod(r, 100)
+    return f"{h}:{m:02}:{sec:02}.{cs:02}"
+
+
+def _ass_text(value: str) -> str:
+    # ASS override tags, if present in source text, must not execute.
+    return (value.replace(chr(92), r"\\")
+                 .replace("{", r"\{").replace("}", r"\}")
+                 .replace("\n", r"\N"))
+
+
+def ass_subtitles(shots: list[dict], width: int, height: int) -> str:
+    """Create a TikTok-safe Cyrillic-capable caption track above UI overlays."""
+    font = max(22, min(76, round(width * .056)))
+    margin = max(70, round(height * .165))
+    header = (
+        "[Script Info]\nScriptType: v4.00+\n"
+        f"PlayResX: {width}\nPlayResY: {height}\n"
+        "WrapStyle: 0\nScaledBorderAndShadow: yes\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour,"
+        " OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut,"
+        " ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow,"
+        " Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Story,DejaVu Sans,{font},&H00FFFFFF,&H0000FFFF,"
+        f"&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,2,"
+        f"{max(22,width//13)},{max(22,width//13)},{margin},1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
+    events = []
+    for shot in shots:
+        cues = shot.get("subtitle_cues") or []
+        if not cues and shot.get("caption"):
+            cues = [{"start": 0.0, "end": shot["duration"], "text": shot["caption"]}]
+        for cue in cues:
+            start, end = shot["start"] + cue["start"], shot["start"] + cue["end"]
+            events.append(
+                f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},"
+                f"Story,,0,0,0,,{_ass_text(cue['text'])}"
+            )
+    return header + "\n".join(events) + ("\n" if events else "")
+
+
+def burn_ass_captions(source: Path, dest: Path, plan: dict, *, folder: Path) -> None:
+    """Render large text into video frames; preserve the existing AAC audio."""
+    if not any(s["caption"] or s.get("subtitle_cues") for s in plan["shots"]):
+        raise ValueError("Cannot burn an empty subtitle track")
+    path = folder / "captions.ass"
+    path.write_text(ass_subtitles(plan["shots"], plan["width"], plan["height"]),
+                    encoding="utf-8")
+    run([
+        "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+        "-i", str(source), "-vf", "ass=captions.ass",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
+        "-pix_fmt", "yuv420p", "-r", str(plan["fps"]),
+        "-c:a", "copy", "-movflags", "+faststart", str(dest)
+    ], cwd=folder)
 
 
 def add_audio(video: Path, output: Path, plan: dict) -> None:
@@ -250,6 +319,10 @@ def produce(manifest: Path, output: Path, *, master: bool = False) -> dict:
              "-c:v", "copy", str(silent)])
         staged = temp / "mixed.mp4"
         add_audio(silent, staged, plan)
+        if plan["burn_subtitles"]:
+            burnt = temp / "burned_in.mp4"
+            burn_ass_captions(staged, burnt, plan, folder=temp)
+            staged = burnt
         measured = probe(staged)
         streams = measured.get("streams", [])
         videos = [s for s in streams if s.get("codec_type") == "video"]
@@ -271,6 +344,7 @@ def produce(manifest: Path, output: Path, *, master: bool = False) -> dict:
         "motion_clips": sum(s["kind"] == "clip" for s in plan["shots"]),
         "static_camera_shots": sum(s["kind"] == "image" for s in plan["shots"]),
         "audio_tracks": len([s for s in plan["shots"] if s["voice"]]) + bool(plan["music"]),
+        "captions_burned_in": plan["burn_subtitles"],
         "review_status": "asset_approved_not_published" if master else "preview_unreviewed",
         "published": False,
     }
