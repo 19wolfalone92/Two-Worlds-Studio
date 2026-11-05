@@ -202,8 +202,8 @@ def _ass_time(t: float) -> str:
 
 def _ass_text(value: str) -> str:
     # ASS override tags, if present in source text, must not execute.
-    return (value.replace(chr(92), r"\\")
-                 .replace("{", r"\{").replace("}", r"\}")
+    return (value.replace(chr(92), "＼")
+                 .replace("{", "｛").replace("}", "｝")
                  .replace("\n", r"\N"))
 
 
@@ -263,7 +263,7 @@ def add_audio(video: Path, output: Path, plan: dict) -> None:
     music_index = None
     voices = []
     if plan["music"]:
-        music_index = len(inputs) // 2 + 1
+        music_index = 1
         inputs.extend(["-stream_loop", "-1", "-i", str(plan["music"])])
     for shot in plan["shots"]:
         if shot["voice"]:
