@@ -35,10 +35,14 @@ keeps Williams Bot / Williams AI completely independent.
 | Hugging Face | `studio.hf_hub` | Read-only token + license metadata check (no paid inference) |
 | Private GPU output | `studio.gpu_asset_handoff` | Verify nonce, ComfyUI job ID, hash, PNG, image size, stage **unreviewed** |
 | Russian TTS (optional) | `studio.russian_qwen_tts`, `studio.narration_batch` | Qwen3-TTS, no script editing or cloning, WAV SHA/timing, private GPU required |
+| Measured subtitles (optional) | `studio.subtitle_align`, `studio.hybrid_master` | Real CTC-spoken word timestamps with a staged model, or editor-entered `subtitle_cues`; never guessed timings |
+| Performance quality gate | `studio.animation_quality` | Reviewer-signoff and actual character motion/grounding data; warns/rejects sticker overlays |
+| Kaggle model cache | `studio.model_cache` | Bounded verified transient copy of mounted weights; no persistent duplicate |
+
 | English TTS | `studio.kokoro_tts` | Optional Kokoro for approved English text |
 | Montage | `studio.hybrid_master`, `studio.smooth_camera` | Frame-accurate, FFmpeg + Pillow, soundtrack/voice, SRT |
 | Three-part batch | `studio.triptych_batch` | 3 × 8 shots, separate covers, ordered 1/3–3/3, atomic all-or-nothing ZIP |
-| Release gate | `studio.release_gate` | Real H.264/AAC 1080x1920/30, SRT timing, first frame and cover, optional full decode |
+| Release gate | `studio.release_gate` | Real H.264/AAC 1080x1920/30, SRT timing, first **three seconds** and cover, optional full decode |
 | Publication | **Not automatic** | Only approved, reviewed MP4s; existing schedules unchanged |
 
 ## Ingest REAL ComfyUI image
@@ -89,7 +93,9 @@ Each `shot_manifest.json` uses the **existing**
 `docs/HYBRID_VIDEO_STUDIO.md` schema, with width 1080, height 1920, fps 30,
 8 image/clip shots, real Russian voice WAV tracks, captions, individual source
 checksums (`media_sha256` and `voice_sha256`), optional
-`requires_voice: true`, subtle camera moves, and no placeholders.
+`requires_voice: true`, optional truthful phrase-level `subtitle_cues`
+with local `start/end/text` offsets measured from real audio,
+subtle camera moves, and no placeholders.
 `--master` additionally requires explicit per-shot/editorial/rights/voice
 approvals and locked Work screenplay hash. No code can fabricate approval.
 
