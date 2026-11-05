@@ -49,6 +49,23 @@ def render_still(image_path: Path, target_path: Path, width: int, height: int, f
         iw, ih = math.ceil(width * 1.12), math.ceil(height * 1.12)
         src = ImageOps.fit(img, (iw, ih), method=Image.Resampling.LANCZOS)
     target_path.parent.mkdir(parents=True, exist_ok=True)
+    if camera == 'static':
+        # Clone the same bicubic composition inside FFmpeg. Sampling it again
+        # for every frame wastes CPU and cannot add movement to a held shot.
+        frame = src.transform((width,height),Image.Transform.AFFINE,
+                    (1.,0.,(iw-width)/2,0.,1.,(ih-height)/2),
+                    resample=Image.Resampling.BICUBIC)
+        with tempfile.TemporaryDirectory(prefix='tw-static-') as temp:
+            picture=Path(temp)/'frame.png';frame.save(picture)
+            result=subprocess.run(['ffmpeg','-nostdin','-hide_banner','-loglevel','error','-y',
+                '-framerate',str(fps),'-i',str(picture),'-vf',f'tpad=stop_mode=clone:stop={frames-1}',
+                '-an','-frames:v',str(frames),'-c:v','libx264','-threads','2','-preset','veryfast',
+                '-crf','18','-pix_fmt','yuv420p','-r',str(fps),str(target_path)],
+                stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=120)
+            if result.returncode:
+                target_path.unlink(missing_ok=True)
+                raise RuntimeError(f'FFmpeg static export failed: {result.stderr[-2000:]!r}')
+        return
     with tempfile.TemporaryFile() as error_file:
         proc = subprocess.Popen([
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",

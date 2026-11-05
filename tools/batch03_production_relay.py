@@ -179,7 +179,8 @@ def produce():
                                  '-p', str(result_dir / f'progress_{index}'), '--force',
                                  '--file-pattern', r'(batch_(image|voice)_status\.json|TwoWorlds_PRIVATE_.*\.zip)$'],
                                 timeout=180)
-                        summary['progress_queries'][kernel] = 'AVAILABLE'
+                        found=[p for p in (result_dir/f'progress_{index}').rglob('*') if p.is_file()]
+                        summary['progress_queries'][kernel] = 'AVAILABLE' if found else 'NO_FILES_YET'
                     except Exception as exc:
                         summary['progress_queries'][kernel] = type(exc).__name__
             summary['gpu_requested'] = False
