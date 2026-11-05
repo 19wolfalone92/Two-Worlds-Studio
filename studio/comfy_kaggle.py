@@ -54,7 +54,7 @@ def build_job(username: str, nonce: str, *, output_dir: Path,
         raise ValueError("Invalid revision")
     metadata = {
         "id": f"{username}/{SLUG}",
-        "title": "Two Worlds - Private ComfyUI SDXL integration check",
+        "title": "Two Worlds Comfy SDXL",
         "code_file": "kernel_main.py",
         "language": "python",
         "kernel_type": "script",
