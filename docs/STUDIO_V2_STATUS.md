@@ -97,7 +97,10 @@ checksums (`media_sha256` and `voice_sha256`), optional
 with local `start/end/text` offsets measured from real audio,
 subtle camera moves, and no placeholders.
 `--master` additionally requires explicit per-shot/editorial/rights/voice
-approvals and locked Work screenplay hash. No code can fabricate approval.
+approvals, a private `work_script_file` path and its real matching
+`work_script_sha256`. No code can fabricate approval. Cache fingerprints
+**every** input source image, WAV, cover and manifest: a changed byte invalidates
+the cached film, even when the JSON manifest itself was not edited.
 
 CPU preflight (no render):
 
