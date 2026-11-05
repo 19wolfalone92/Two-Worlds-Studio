@@ -53,6 +53,12 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
         if not CHECKSUM.fullmatch(source.get("work_script_sha256", "")):
             raise ValueError("Master requires the locked Work screenplay SHA256")
     base = path.resolve().parent
+    if master:
+        screenplay = inside(base, source.get("work_script_file"))
+        if screenplay.suffix.lower() not in {".md", ".json", ".txt", ".docx"}:
+            raise ValueError("Unsupported locked Work screenplay file type")
+        if sha256(screenplay) != source["work_script_sha256"]:
+            raise ValueError("Work screenplay bytes differ from locked SHA256")
     planned = []
     seen_paths = set()
     shot_total = 0
