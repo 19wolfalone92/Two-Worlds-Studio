@@ -1,0 +1,45 @@
+name: STORY GLITCH V2 - CPU production contract
+
+on:
+  pull_request:
+    paths:
+      - "studio/**"
+      - "tests/**"
+      - ".github/workflows/studio-v2-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU-only dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Confirm FFmpeg is available without fetching models
+        run: |
+          ffmpeg -version | head -n 1
+          ffprobe -version | head -n 1
+      - name: Verify exact render quality, source integrity and narration contracts
+        run: |
+          python -m unittest \
+            tests.test_release_v2 \
+            tests.test_gpu_asset_handoff \
+            tests.test_hybrid_master \
+            tests.test_russian_qwen_tts \
+            tests.test_narration_batch \
+            tests.test_hf_hub -v
+      - name: Dry-run preflight for both Hugging Face and Russian TTS
+        run: |
+          python -m studio.hf_hub --dry-run
+          python -m studio.russian_qwen_tts \
+            --text "Тест безопасного производственного движка." \
+            --voice Serena --style neutral \
+            --output /tmp/two_worlds_not_written.wav --dry-run
+          test ! -e /tmp/two_worlds_not_written.wav
