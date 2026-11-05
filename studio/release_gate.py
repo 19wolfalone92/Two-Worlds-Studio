@@ -125,6 +125,41 @@ def first_frame_check(video: Path) -> dict:
     return stats
 
 
+def opening_three_seconds(video: Path) -> dict:
+    """Inspect actual decoded opening frames, not a fabricated thumbnail."""
+    width, height, rate = 96, 170, 2
+    command = [
+        "ffmpeg", "-nostdin", "-hide_banner", "-v", "error",
+        "-i", str(video), "-t", "3.0", "-vf",
+        f"fps={rate},scale={width}:{height},format=gray",
+        "-f", "rawvideo", "-pix_fmt", "gray", "-"
+    ]
+    proc = subprocess.run(command, check=True, capture_output=True, timeout=60)
+    framesize = width * height
+    if not proc.stdout or len(proc.stdout) % framesize:
+        raise ValueError("Opening frames are missing or truncated")
+    count = len(proc.stdout) // framesize
+    averages = []
+    fully_dark = 0
+    for index in range(count):
+        frame = proc.stdout[index*framesize:(index+1)*framesize]
+        mean = sum(frame) / framesize
+        dark = sum(value < 12 for value in frame) / framesize
+        averages.append(mean)
+        if dark >= .965:
+            fully_dark += 1
+    if fully_dark >= 3 and fully_dark / count >= .5:
+        raise ValueError("Opening three seconds contain sustained black frames")
+    jumps = [abs(a-b) for a,b in zip(averages, averages[1:])]
+    return {
+        "frames_sampled": count,
+        "black_frames": fully_dark,
+        "maximum_mean_luma_jump": round(max(jumps, default=0), 2),
+        "abrupt_lighting_change_review": bool(jumps and max(jumps) > 85),
+        "human_hook_and_flicker_review_required": True,
+    }
+
+
 def check_video(video: Path, srt: Path, cover: Path,
                 *, require_russian: bool = True, full_decode: bool = False) -> dict:
     for asset in (video, srt, cover):
@@ -144,6 +179,7 @@ def check_video(video: Path, srt: Path, cover: Path,
     subtitle_info = inspect_subtitles(srt, duration, require_russian=require_russian)
     cover_info = cover_check(cover)
     first = first_frame_check(video)
+    opening = opening_three_seconds(video)
     if full_decode:
         subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-v", "error",
                         "-xerror", "-i", str(video), "-map", "0:v:0",
@@ -155,7 +191,7 @@ def check_video(video: Path, srt: Path, cover: Path,
         "duration_seconds": round(duration, 3), "resolution": list(TARGET[:2]),
         "fps": round(float(fps), 3), "video_codec": "h264", "audio_codec": "aac",
         "subtitles": subtitle_info, "cover": cover_info, "first_frame": first,
-        "full_decode_tested": bool(full_decode),
+        "opening_three_seconds": opening, "full_decode_tested": bool(full_decode),
         "human_visual_audio_rights_approval_required": True,
         "published": False
     }
