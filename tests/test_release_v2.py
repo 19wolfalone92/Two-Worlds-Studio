@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from studio.release_gate import cover_check, inspect_subtitles, check_video
+from studio.release_gate import cover_check, inspect_subtitles, check_video, opening_three_seconds
 from studio.triptych_batch import read_package_manifest, make_bundle
 
 
@@ -45,6 +45,21 @@ class ReleaseQA(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "cover"):
                 cover_check(cover)
 
+    def test_opening_three_second_black_frame_gate(self):
+        from types import SimpleNamespace
+        size = 96 * 170
+        fully_black = bytes(size) * 4
+        with patch("studio.release_gate.subprocess.run",
+                   return_value=SimpleNamespace(stdout=fully_black)):
+            with self.assertRaisesRegex(ValueError, "sustained black"):
+                opening_three_seconds(Path("mock.mp4"))
+        mostly_visible = bytes([55]) * size * 5 + bytes([120]) * size
+        with patch("studio.release_gate.subprocess.run",
+                   return_value=SimpleNamespace(stdout=mostly_visible)):
+            response = opening_three_seconds(Path("mock.mp4"))
+            self.assertEqual(response["frames_sampled"], 6)
+            self.assertEqual(response["black_frames"], 0)
+
     def test_check_video_requires_true_h264_aac_30_fps(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td)
@@ -61,7 +76,8 @@ class ReleaseQA(unittest.TestCase):
             with patch("studio.release_gate.ffprobe", return_value=probe), \
                  patch("studio.release_gate.inspect_subtitles", return_value={"cues": 1}), \
                  patch("studio.release_gate.cover_check", return_value={"first_frame_valid": True}), \
-                 patch("studio.release_gate.first_frame_check", return_value={"first_frame_valid": True}):
+                 patch("studio.release_gate.first_frame_check", return_value={"first_frame_valid": True}), \
+                 patch("studio.release_gate.opening_three_seconds", return_value={"frames_sampled": 6}):
                 self.assertEqual(check_video(p / "test.mp4", p / "test.srt", p / "cover.png")["status"], "technical_pass")
                 probe["streams"][0]["avg_frame_rate"] = "24/1"
                 with self.assertRaisesRegex(ValueError, "30 FPS"):
