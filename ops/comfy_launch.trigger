@@ -1,4 +1,4 @@
-run=2026-11-06-retry-cli-six
+run=2026-11-06-retry-kaggle-kernel-slug
 intent=one-private-kaggle-comfyui-sdxl-gpu-smoke-test
 scene=public-fixture:E01/S01
 max_image_count=1
