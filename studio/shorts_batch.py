@@ -49,7 +49,12 @@ def create(kit: Path, out: Path) -> dict:
                 "image": f"images/scene_{idx:02d}.png",
                 "voice": f"voices/scene_{idx:02d}.wav",
                 "subtitles": [],
+                "source_text": scene["text"],
             })
+            # Preserve authored composition; never invent a repeated camera
+            # pattern merely to make a production queue look more dynamic.
+            for field in ('camera','camera_strength','framing','caption_position'):
+                if field in scene:scenes[-1][field]=scene[field]
             shots.append({
                 "scene": idx, "exact_source_text": scene["text"],
                 "visual_prompt_ru": scene.get("visual_prompt_ru", ""),
@@ -57,12 +62,15 @@ def create(kit: Path, out: Path) -> dict:
                 "music_cue": scene.get("music_cue", ""),
                 "status": "NOT_GENERATED",
             })
+            if 'critical_terms' in scene:shots[-1]['critical_terms']=scene['critical_terms']
         project = {
             "schema": 1, "id": f"work_{number}", "title": story["title"],
             "language": "ru", "script_file": "story.txt",
             "script_sha256": hashlib.sha256(target_text.read_bytes()).hexdigest(),
-            "width": 1080, "height": 1920, "fps": 24, "scenes": scenes,
+            "width": 1080, "height": 1920, "fps": 30, "scenes": scenes,
         }
+        for field in ('intro_hook','cover_text','cover_scene_id','ai_disclosure'):
+            if field in story:project[field]=story[field]
         (folder / "project.json").write_text(
             json.dumps(project, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8")

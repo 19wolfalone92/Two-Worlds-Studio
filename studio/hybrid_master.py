@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from studio.smooth_camera import CAMERAS, render_still
+from studio.smooth_camera import CAMERAS, render_still, validate_framing
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}
 CLIPS = {".mp4", ".mov", ".mkv", ".webm"}
 AUDIO = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
@@ -85,6 +85,9 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         strength = item.get("camera_strength", 0.45)
         if type(strength) not in (float, int) or not math.isfinite(strength) or not 0 <= strength <= 1:
             raise ValueError(f"Shot {i}: camera_strength must be between 0 and 1")
+        framing = validate_framing(item.get('framing'))
+        if framing and kind != 'image':
+            raise ValueError(f'Shot {i}: source_focus is for still images, not ignored clip crops')
         caption = item.get("caption", "")
         if not isinstance(caption, str) or len(caption) > 240:
             raise ValueError(f"Shot {i}: caption too long")
@@ -103,7 +106,8 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                 raise ValueError(f"Shot {i}: voice must be explicitly approved")
         normalized.append(dict(kind=kind, path=media, frames=frames,
                                duration=frames / fps, start=start / fps, camera=camera, strength=strength,
-                               caption=caption.strip(), voice=voice, approved=approved))
+                               caption=caption.strip(), voice=voice, approved=approved,
+                               framing=framing))
         start += frames
     if start / fps > 600:
         raise ValueError("Video longer than 10 minutes")
@@ -128,7 +132,7 @@ def run(command: list[str]) -> None:
 def render_segment(shot: dict, path: Path, width: int, height: int, fps: int) -> None:
     if shot["kind"] == "image":
         render_still(shot["path"], path, width, height, fps,
-                     shot["frames"], shot["camera"], shot["strength"])
+                     shot["frames"], shot["camera"], shot["strength"], framing=shot.get('framing'))
         return
     inputs = ["-i", str(shot["path"])]
     # Existing AI clips are normalized to target frame rate, hold last frame
