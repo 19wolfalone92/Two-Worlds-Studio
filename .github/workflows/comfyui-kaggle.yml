@@ -70,7 +70,8 @@ jobs:
         run: |
           mkdir -p dist/comfy_result
           kaggle kernels output "$KAGGLE_USERNAME/$KERNEL_SLUG" \
-            -p dist/comfy_result --force
+            -p dist/comfy_result --force \
+            --file-pattern "^(TWO_WORLDS_ARTIFACTS[.]zip|two_worlds_job_receipt[.]json)$"
 
       - name: Verify REAL ComfyUI PNG, dimensions, hash and run nonce
         run: |
