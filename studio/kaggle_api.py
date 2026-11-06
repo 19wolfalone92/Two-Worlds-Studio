@@ -102,7 +102,7 @@ def parse_status(stdout: str) -> str:
     return match.group(1)
 
 def poll_kernel(kernel: str, *, timeout_seconds: int = 3300,
-                interval_seconds: int = 45, runner=subprocess.run) -> str:
+                interval_seconds: int = 180, runner=subprocess.run) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]+/[a-z0-9-]+", kernel):
         raise ValueError("Invalid Kaggle kernel handle")
     if not 15 <= interval_seconds <= 300 or not 60 <= timeout_seconds <= 5400:
@@ -110,8 +110,13 @@ def poll_kernel(kernel: str, *, timeout_seconds: int = 3300,
     deadline = time.monotonic() + timeout_seconds
     last = ""
     while time.monotonic() < deadline:
-        proc = runner(["kaggle", "kernels", "status", kernel], check=True,
-                      capture_output=True, text=True, timeout=60)
+        try:
+            proc = runner(["kaggle", "kernels", "status", kernel], check=True,
+                          capture_output=True, text=True, timeout=60)
+        except subprocess.CalledProcessError as exc:
+            from studio.kaggle_api_limits import _classify_cli_error
+            code, detail = _classify_cli_error(str(exc.stderr or ""), str(exc.stdout or ""))
+            raise RuntimeError("Kaggle status check failed (" + code + "): " + detail) from None
         status = parse_status(proc.stdout)
         if status != last:
             print(f"Kaggle status: {status}", flush=True)
@@ -158,7 +163,7 @@ def main():
     poll = cmd.add_parser("poll")
     poll.add_argument("--kernel", required=True)
     poll.add_argument("--timeout", type=int, default=3300)
-    poll.add_argument("--interval", type=int, default=45)
+    poll.add_argument("--interval", type=int, default=180)
     verify = cmd.add_parser("verify")
     verify.add_argument("--output-dir", type=Path, required=True)
     verify.add_argument("--run-nonce", required=True)
