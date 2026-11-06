@@ -70,3 +70,22 @@ real PNG verifier is not accepted as generation success.
 Once this smoke test works, use locked Work scene manifests, approved source
 portraits with reference conditioning, batch generation and `studio.asset_ingest`
 to move *reviewed* visuals into the existing hybrid MP4 assembly pipeline.
+
+## Reference conditioning proof (code-level, not a likeness guarantee)
+
+`studio.comfy_reference_guard` now rejects an unused reference image:
+an approved `LoadImage.image = "__REFERENCE_IMAGE__"` must feed an enabled
+`IPAdapterAdvanced` / supported IP-Adapter *application* node, with a
+nonzero weight and a connected `ipadapter` weights input. Its conditioned
+model must feed the `KSampler` that actually flows through `VAEDecode` to
+`SaveImage` node 9. Simple reference uploading, unconnected LoadImage
+nodes, an adapter with weight 0, or a sampler using the unconditioned
+checkpoint fail closed **before uploading owner-approved character art**.
+
+To use reference conditioning in real GPU production, a tested custom
+ComfyUI graph, compatible IP-Adapter nodes and properly licensed/pinned
+weights still need to be installed on the actual Kaggle GPU runtime.
+This check proves only *graph topology*; it does **not** prove custom
+nodes installed, model weight availability, human/fictional-face identity,
+or image quality. The existing unconditioned SDXL smoke-test continues
+to run with its original workflow.
