@@ -55,9 +55,18 @@ def probe(service, detected):
                                text=True, timeout=40, check=False)
             if p.returncode == 0:
                 return service, "AUTH_OK", "read_only_quota"
-            if "429" in p.stderr or "Too Many Requests" in p.stderr:
-                return service, "RATE_LIMITED", "HTTP_429"
-            return service, "CHECK_FAILED", "CLI auth or quota check failed"
+            log = (p.stderr + "\\n" + p.stdout).lower()
+            for code in ("429", "401", "403", "500", "502", "503", "504"):
+                if ("http "+code in log or "error "+code in log
+                    or "status code: "+code in log or "("+code+")" in log):
+                    return service, ("RATE_LIMITED" if code=="429" else "HTTP_ERROR"), "HTTP_"+code
+            if "too many requests" in log or "rate limit" in log:
+                return service, "RATE_LIMITED", "Too many requests"
+            if "unauthorized" in log or "invalid token" in log or "authentication" in log:
+                return service, "AUTH_FAILURE_SUSPECTED", "CLI reported an authentication problem"
+            if "quota" in log and ("not found" in log or "unknown" in log):
+                return service, "CLI_COMMAND_ERROR", "Kaggle quota command not supported"
+            return service, "CHECK_FAILED", "Kaggle read-only quota CLI failed; cause unclassified"
         if service == "HUGGING_FACE":
             st, note = http_probe("https://huggingface.co/api/whoami-v2",
                 {"Authorization": "Bearer " + token})
@@ -98,7 +107,10 @@ def main():
         print("SECRET", name, "FOUND_NAMES="+(",".join(i[0] for i in items) if items else "NONE"))
     for label,aliases in VARIABLES.items():
         present = [x for x in aliases if os.environ.get(x,"").strip()]
-        print("VARIABLE",label,"CONFIGURED" if present else "MISSING")
+        if label == "CLOUDFLARE_ACCOUNT_ID" and not present and os.environ.get("CLOUDFLARE_ACCOUNT_ID_SECRET","").strip():
+            print("VARIABLE",label,"PRESENT_AS_SECRET_NOT_VARIABLE")
+        else:
+            print("VARIABLE",label,"CONFIGURED" if present else "MISSING")
     with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         future_map={pool.submit(probe,name,items):name for name,items in matches.items()}
         results={}
