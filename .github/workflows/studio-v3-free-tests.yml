@@ -9,6 +9,8 @@ on:
       - "tests/test_studio_v3_free.py"
       - "tests/test_studio_v3_connectivity.py"
       - "tests/test_production_queue.py"
+      - "tests/test_subpixel_cinematic.py"
+      - "studio/cinematic.py"
       - ".github/workflows/studio-v3-free-tests.yml"
   push:
     branches: ["feature/studio-v3-free-provider-foundation-20261106"]
@@ -32,7 +34,8 @@ jobs:
       - name: All network calls mocked; never burn GPU or credits
         run: |
           python -m unittest             tests.test_studio_v3_free             tests.test_studio_v3_connectivity \
-            tests.test_production_queue -v
+            tests.test_production_queue \
+            tests.test_subpixel_cinematic -v
           python -m studio.free_studio > /tmp/studio_v3_readiness.json
           python -m json.tool /tmp/studio_v3_readiness.json >/dev/null
       - name: No locked Work script or external provider invoked
