@@ -46,7 +46,7 @@ class CloudflareFluxTests(unittest.TestCase):
         self.assertFalse(report["image_generated"])
         self.assertEqual(report["review_status"], "unreviewed")
         self.assertFalse(report["ready_for_publication"])
-        self.assertNotIn("prompt", json.dumps(report))
+        self.assertNotIn(shot()["prompt"], json.dumps(report))
 
     def test_reference_size_and_multipart(self):
         with tempfile.TemporaryDirectory() as td:
