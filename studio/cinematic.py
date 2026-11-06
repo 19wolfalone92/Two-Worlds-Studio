@@ -57,11 +57,13 @@ def _place(background:Image.Image,source:Image.Image, *, zoom:float,
     extra_y=zh-h
     # Background moves least, foreground most; normalized pan stays inside canvas.
     travel=0.18+0.42*(depth+1)/2
-    x=round(extra_x/2+cx*extra_x*travel)
-    y=round(extra_y/2+cy*extra_y*travel)
-    x=max(0,min(extra_x,x))
-    y=max(0,min(extra_y,y))
-    return layer.crop((x,y,x+w,y+h))
+    # Preserve fractional pixel offsets. Integer crop rounding caused a
+    # visible stepping/jitter in slow layered parallax on 1080x1920 outputs.
+    x=max(0.0,min(float(extra_x),extra_x/2+cx*extra_x*travel))
+    y=max(0.0,min(float(extra_y),extra_y/2+cy*extra_y*travel))
+    return layer.transform(
+        (w,h),Image.Transform.AFFINE,
+        (1.0,0.0,x,0.0,1.0,y),resample=Image.Resampling.BICUBIC)
 
 
 def _blend(dst:Image.Image, layer:Image.Image, mode:str, opacity:float)->Image.Image:
