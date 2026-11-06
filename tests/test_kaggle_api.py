@@ -85,9 +85,25 @@ class KaggleApiTests(unittest.TestCase):
             (d/"two_worlds_job_receipt.json").write_text(
                 json.dumps({"run_nonce":"gh-104-1","success":True}))
             archive=d/"TWO_WORLDS_ARTIFACTS.zip"
+            from PIL import Image
+            import io
+            img = Image.effect_noise((576,1024),40).convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf,format="PNG")
             with zipfile.ZipFile(archive,"w") as z:
-                z.writestr("portrait.png",b"not valid image bytes for test")
-            self.assertTrue(verify_outputs(d,"gh-104-1")["success"])
+                z.writestr("portrait.png",buf.getvalue())
+            first = verify_outputs(d,"gh-104-1")
+            self.assertTrue(first["success"])
+            self.assertEqual(first["real_media_decoded"],1)
+            self.assertTrue(first["media_reviews"][0]["quality"]["pixel_decode_verified"])
+            self.assertFalse(first["art_approved"])
+            # A fake PNG extension does not prove actual image bytes.
+            with zipfile.ZipFile(archive,"w") as z:
+                z.writestr("portrait.png",b"not a real png"*2000)
+            with self.assertRaisesRegex(ValueError,"corrupt or fake"):
+                verify_outputs(d,"gh-104-1")
+            with zipfile.ZipFile(archive,"w") as z:
+                z.writestr("portrait.png",buf.getvalue())
             with self.assertRaisesRegex(ValueError,"another run"):
                 verify_outputs(d,"gh-104-2")
             with zipfile.ZipFile(archive,"w") as z:
