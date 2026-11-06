@@ -157,6 +157,8 @@ def comfy_workflow(prompt:dict, template:dict, checkpoint:str, width:int=768, he
     if expects_ref and not reference_image:
         raise ValueError("Reference-conditioned workflow requires uploaded reference image")
     if expects_ref:
+        from studio.comfy_reference_guard import audit_reference_conditioning
+        audit_reference_conditioning(template)
         replacements["__REFERENCE_IMAGE__"]=reference_image
     workflow=substitute(template,replacements)
     if not isinstance(workflow,dict) or "9" not in workflow:
@@ -283,6 +285,10 @@ def run(episode:Path,output:Path,backend="prompts",workflow_file:Path=WORKFLOW,
                 raise ValueError("Multi-character identity control needs a bespoke multi-reference workflow")
             if scene["references"] and not template_uses_reference:
                 raise ValueError("Approved character reference configured, but workflow has no __REFERENCE_IMAGE__ conditioning node")
+            if scene["references"]:
+                # Validate graph BEFORE uploading owner-approved reference bytes.
+                from studio.comfy_reference_guard import audit_reference_conditioning
+                audit_reference_conditioning(workflow)
             reference_name=None
             if scene["references"]:
                 info=next(iter(scene["references"].values()))

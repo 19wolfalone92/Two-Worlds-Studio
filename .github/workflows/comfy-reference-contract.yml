@@ -1,0 +1,27 @@
+name: STORY GLITCH - ComfyUI reference graph quick test
+
+on:
+  pull_request:
+    paths:
+      - "studio/comfy_reference_guard.py"
+      - "studio/art_director.py"
+      - "tests/test_comfy_reference_guard.py"
+      - ".github/workflows/comfy-reference-contract.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quick-reference-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install offline image/text dependencies only
+        run: python -m pip install -r requirements.txt
+      - name: Prove reference passes through IP-Adapter to saved sampler
+        run: python -m unittest tests.test_comfy_reference_guard tests.test_creative -v
