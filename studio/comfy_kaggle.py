@@ -151,7 +151,8 @@ def main() -> None:
     elif args.command == "verify":
         result = verify(args.output_dir, args.nonce)
     else:
-        result = {"status": poll_kernel(args.kernel, timeout_seconds=args.timeout)}
+        result = {"status": poll_kernel(args.kernel, timeout_seconds=args.timeout,
+                                        interval_seconds=180)}
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

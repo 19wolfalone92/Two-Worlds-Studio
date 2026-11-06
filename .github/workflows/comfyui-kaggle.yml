@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: two-worlds-private-comfyui
+  group: two-worlds-kaggle-account
   cancel-in-progress: false
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
             exit 2
           fi
           python -m pip install "kaggle>=2.2.4" "six>=1.16,<2"
-          kaggle quota >/dev/null
+          # Avoid a redundant quota API call before running the GPU notebook.
           python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
 
       - name: Package one private GPU job, never including credentials
@@ -66,25 +66,14 @@ jobs:
           python -m studio.comfy_kaggle poll \
             --kernel "$KAGGLE_USERNAME/$KERNEL_SLUG" --timeout 3300
 
-      - name: Download output privately into temporary CI runner
+      - name: ONE filtered private result fetch (fail fast on 429)
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p dist/comfy_result
-          for delay in 0 60 120 180; do
-            sleep "$delay"
-            if kaggle kernels output "$KAGGLE_USERNAME/$KERNEL_SLUG" \
-              -p dist/comfy_result --force \
-              --file-pattern "^(TWO_WORLDS_ARTIFACTS[.]zip|two_worlds_job_receipt[.]json)$" \
-              2>dist/comfy_result/kaggle_download_error.log; then
-              exit 0
-            fi
-            if ! grep -Eiq "429|Too Many Requests|rate limited" dist/comfy_result/kaggle_download_error.log; then
-              tail -n 15 dist/comfy_result/kaggle_download_error.log
-              exit 1
-            fi
-            echo "::warning::Kaggle API temporarily rate-limited this private output readback."
-          done
-          echo "::error::Kaggle API rate limit persisted after bounded retries."
-          exit 1
+          python -m studio.kaggle_api_limits output \
+            --kernel "$KAGGLE_USERNAME/$KERNEL_SLUG" \
+            --output-dir dist/comfy_result
 
       - name: Verify REAL ComfyUI PNG, dimensions, hash and run nonce
         run: |

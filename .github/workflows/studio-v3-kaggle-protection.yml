@@ -1,0 +1,71 @@
+name: STORY GLITCH V3 - Kaggle API protection and quota
+
+on:
+  pull_request:
+    paths:
+      - "studio/kaggle_api_limits.py"
+      - "studio/kaggle_api.py"
+      - "studio/comfy_kaggle.py"
+      - "tests/test_kaggle_api_limits.py"
+      - "tests/test_kaggle_workflow_safety.py"
+      - ".github/workflows/kaggle*.yml"
+      - ".github/workflows/comfyui*.yml"
+      - ".github/workflows/studio-v3-kaggle-protection.yml"
+  push:
+    branches: ["fix/studio-v3-kaggle-quota-rate-guard-20261106"]
+    paths: ["ops/kaggle_quota_probe.trigger"]
+  workflow_dispatch:
+    inputs:
+      check_quota:
+        description: "Make exactly ONE authenticated read-only Kaggle quota query?"
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  offline-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install minimal CPU-only Python packages
+        run: python -m pip install -r requirements.txt
+      - name: Assert dynamic API limit honesty and zero-burst behavior
+        run: |
+          python -m unittest \
+            tests.test_kaggle_api_limits \
+            tests.test_kaggle_workflow_safety \
+            tests.test_kaggle_api \
+            tests.test_comfy_kaggle -v
+
+  one-time-account-compute-quota:
+    if: ${{ github.event_name == 'push' || inputs.check_quota == true }}
+    concurrency:
+      group: two-worlds-kaggle-account
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Kaggle CLI (no GPU allocated)
+        run: python -m pip install -q "kaggle>=2.2.4"
+      - name: ONE read-only quota request; sanitized output, no retry loop
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${KAGGLE_API_TOKEN:-}" ]]; then
+            echo "Kaggle token is not configured" >&2
+            exit 2
+          fi
+          python -m studio.kaggle_api_limits quota
