@@ -1,9 +1,6 @@
 name: TWO WORLDS - Verify private Kaggle ComfyUI output
 
 on:
-  push:
-    branches: ["feat/comfyui-kaggle-api-20261106"]
-    paths: ["ops/comfy_verify.trigger"]
   workflow_dispatch:
     inputs:
       nonce:
@@ -14,6 +11,11 @@ on:
 permissions:
   contents: read
 
+# All Kaggle-related CI workflows share one account-level serialization gate.
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+
 jobs:
   readback-without-gpu:
     runs-on: ubuntu-latest
@@ -21,7 +23,7 @@ jobs:
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
       KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
-      EXPECTED_NONCE: ${{ inputs.nonce || 'comfy-42119260927-1' }}
+      EXPECTED_NONCE: ${{ inputs.nonce }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -32,30 +34,17 @@ jobs:
           set -euo pipefail
           test -n "$KAGGLE_API_TOKEN"
           python -m pip install -r requirements.txt "kaggle>=2.2.4" "six>=1.16,<2"
-          kaggle quota >/dev/null
+          # No redundant quota API request; username resolution is local CLI config.
           python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
 
-      - name: Download only the two proof files, excluding large GPU model files
+      - name: ONE filtered Kaggle output request; stop on HTTP 429
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist/comfy_result
-          for delay in 0 60 120 180; do
-            sleep "$delay"
-            if kaggle kernels output "$KAGGLE_USERNAME/two-worlds-comfy-sdxl" \
-              -p dist/comfy_result --force \
-              --file-pattern "^(TWO_WORLDS_ARTIFACTS[.]zip|two_worlds_job_receipt[.]json)$" \
-              2>dist/comfy_result/kaggle_download_error.log; then
-              exit 0
-            fi
-            if ! grep -Eiq "429|Too Many Requests|rate limited" dist/comfy_result/kaggle_download_error.log; then
-              tail -n 15 dist/comfy_result/kaggle_download_error.log
-              exit 1
-            fi
-            echo "::warning::Kaggle API temporarily rate-limited the private readback."
-          done
-          echo "::error::Kaggle API rate limit persisted after bounded retries."
-          exit 1
+          python -m studio.kaggle_api_limits output \
+            --kernel "$KAGGLE_USERNAME/two-worlds-comfy-sdxl" \
+            --output-dir dist/comfy_result
 
       - name: Verify PNG bytes, dimensions, model provenance, nonce and SHA
         run: |
