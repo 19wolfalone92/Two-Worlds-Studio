@@ -13,6 +13,26 @@ proof of free quota, generation quality, availability, or image production.
 Existing `studio.hybrid_master`, `studio.triptych_batch` and continuity
 and reference checks remain authoritative release paths.
 
+## Decoded-art and audio quality assurance (2026-11-06)
+
+- `studio.art_image_qc` actually **decodes every PNG**, limits pixel sizes,
+  reports near-black/near-white or uniform frames, tonal/edge-detail warnings,
+  SHA256 and a perceptual image fingerprint. Suspicious similar scene frames
+  are flagged for human review; legitimate cinematic darkness and soft focus
+  are NOT automatically rejected based solely on artistic heuristics.
+- Cloudflare FLUX single-frame receipts include a `technical_image_qc` report
+  but remain **unreviewed**; a valid image still does not prove correct cast,
+  outfit, anatomy or narrative continuity.
+- Kaggle ComfyUI private receipt verification now requires the **entire PNG
+  to decode** with Pillow, not just an 8-byte PNG magic value, and checks ZIP
+  entry safety and image QA.
+- Kaggle legacy portrait/voice verifier now validates the **actual pixels
+  and WAV sample frames**, ZIP paths/sizes, matching run nonce and any remote
+  archive checksum, so a fake file named `portrait.png` cannot pass release
+  staging. It never equates technical success with artistic or rights approval.
+- New tests use genuine PNG and PCM WAV fixtures and deliberate corrupted
+  images; no live AI inference or GPU hours are consumed by CI.
+
 ## New working modules
 
 - `studio/free_studio.py` — offline provider inventory and scene routing. Uses
