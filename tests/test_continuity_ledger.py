@@ -60,6 +60,13 @@ class ContinuityLedger(unittest.TestCase):
         self.assertEqual(audit([scene("P1S1"), scene("P2S1", variant="child",
                       transitions=transition)], strict=True)["character_anchors"], 2)
 
+    def test_empty_continuity_object_is_not_falsely_accepted_as_verified(self):
+        empty = [{"scene_id": "P1S1", "continuity": {}}]
+        self.assertEqual(audit(empty)["unverifiable_shots"], 1)
+        self.assertFalse(audit(empty)["structural_continuity_pass"])
+        with self.assertRaisesRegex(ValueError, "empty continuity metadata"):
+            audit(empty, strict=True)
+
     def test_unreviewed_metadata_missing_is_reported_not_fabricated(self):
         data = [scene("P1S1"), {"scene_id": "P1S2"}]
         result = audit(data)
