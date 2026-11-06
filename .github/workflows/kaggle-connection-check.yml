@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+
 jobs:
   check-kaggle-auth:
     runs-on: ubuntu-latest
