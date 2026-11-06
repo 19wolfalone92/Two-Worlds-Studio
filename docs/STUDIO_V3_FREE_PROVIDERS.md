@@ -27,8 +27,14 @@ and reference checks remain authoritative release paths.
 - `studio/free_connectivity.py` — read-only Cloudflare account/model check,
   ensuring Account ID and token can actually list the model, not merely verify
   a generic token. This does NOT spend generation quota.
-- `tests/test_studio_v3_free.py`, `tests/test_studio_v3_connectivity.py` —
-  fake HTTP, reference payload, API error, outputs, privacy, idempotency tests.
+- `studio/production_queue.py` — PRIVATE persistent SQLite CPU queue:
+  idempotent scene hashes, exclusive worker leases, retriable HTTP429/quota
+  errors (with bounded exponential backoff and daily quota cool-down), no raw
+  prompt/credentials/error logging. Jobs can be staged offline from plans.
+  This is a queue **foundation**, not an active distributed worker.
+- `tests/test_studio_v3_free.py`, `tests/test_studio_v3_connectivity.py`,
+  `tests/test_production_queue.py` — fake HTTP, reference payload, API
+  errors, queue restart, leases, image outputs, privacy and idempotency tests.
 - `.github/workflows/studio-v3-free-tests.yml` — PR offline CI plus
   manual metadata-only Cloudflare preflight.
 
@@ -59,6 +65,7 @@ Not present / OPTIONAL:
 python -m pip install -r requirements.txt
 python -m unittest tests.test_studio_v3_free tests.test_studio_v3_connectivity -v
 python -m studio.free_studio
+python -m studio.production_queue --database /tmp/two_worlds_studio/jobs.sqlite3 --status
 ```
 
 For an already Work-approved compiled **prompt pack** (schema 1, `scenes`
@@ -70,6 +77,22 @@ python -m studio.cloudflare_flux --prompt-pack /private/my-prompts.json --scene 
 ```
 
 Neither command spends AI quota nor writes an image.
+
+To store reviewed routing *plans* in a private SQLite queue, redirect the
+offline output to a **private local path** then enqueue it:
+
+```bash
+python -m studio.free_studio --prompt-pack /private/my-prompts.json \
+  > /private/my-routing-plan.json
+python -m studio.production_queue --database /private/studio/jobs.sqlite3 \
+  --route-plan /private/my-routing-plan.json
+```
+
+A SQLite file under /tmp is **not durable between separate GitHub Actions
+runs**. For persistent autonomy, mount a private persistent volume or
+implement a D1-backed queue adapter after D1 is actually provisioned.
+The current queue manages state only; it does NOT automatically claim or
+execute HTTP requests, models or publication.
 
 To spend exactly **one** Cloudflare image request **only after checking account
 billing/free quota, storyboard approval, license and privacy**, on a trusted
