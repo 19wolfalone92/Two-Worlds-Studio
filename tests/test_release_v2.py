@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 from PIL import Image, ImageDraw
 
-from studio.release_gate import cover_check, inspect_subtitles, check_video, opening_three_seconds
+from studio.release_gate import cover_check, inspect_subtitles, check_video, opening_three_seconds, sha256
 from studio.triptych_batch import read_package_manifest, make_bundle
 
 
@@ -163,7 +163,9 @@ class TriptychSafety(unittest.TestCase):
                     "1\n00:00:00,000 --> 00:00:01,000\nСлова у двери.\n", encoding="utf-8")
                 video.with_suffix(".json").write_text('{"published": false}', encoding="utf-8")
             with patch("studio.triptych_batch.produce", side_effect=fake_produce) as produce_mock, \
-                 patch("studio.triptych_batch.check_video", return_value={"status": "technical_pass"}) as check_mock:
+                 patch("studio.triptych_batch.check_video", side_effect=lambda video, srt, cover, **_: {
+                     "status": "technical_pass", "sha256": sha256(video),
+                     "cover": {"sha256": sha256(cover)}}) as check_mock:
                 result = make_bundle(spec, out)
                 self.assertEqual(result["parts"], 3)
                 self.assertFalse(result["published"])
@@ -174,11 +176,47 @@ class TriptychSafety(unittest.TestCase):
                 self.assertEqual(make_bundle(spec, out)["status"], "cached_verified")
                 self.assertEqual(produce_mock.call_count, 3)
                 self.assertEqual(check_mock.call_count, 6)
+                # A valid-looking but replaced output MP4 is NOT a valid cache hit.
+                video = target / "PART_1_of_3.mp4"
+                video.write_bytes(b"altered-after-export")
+                with self.assertRaisesRegex(ValueError, "modified or corrupted"):
+                    make_bundle(spec, out)
+                video.write_bytes(b"mock-videodata")
+                self.assertEqual(make_bundle(spec, out)["status"], "cached_verified")
                 # Cache must NEVER reuse an old video after external art changes.
                 Image.new("RGB", (540, 960), "#316bb2").save(
                     root / "images" / "cover1.png")
                 with self.assertRaisesRegex(FileExistsError, "incomplete or has different"):
                     make_bundle(spec, out)
+
+    def test_music_changes_invalidate_source_fingerprint(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            spec = fake_production(root)
+            music = root / "images" / "score.wav"
+            wav(music)
+            part = root / "part1.json"
+            data = json.loads(part.read_text(encoding="utf-8"))
+            data["music"] = "images/score.wav"
+            part.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            before = read_package_manifest(spec)["source_assets_fingerprint"]
+            with wave.open(str(music), "wb") as out:
+                out.setnchannels(1)
+                out.setsampwidth(2)
+                out.setframerate(16000)
+                out.writeframes(b"\\x01\\x02" * 6400)
+            after = read_package_manifest(spec)["source_assets_fingerprint"]
+            self.assertNotEqual(before, after)
+
+    def test_minimum_shot_count_cannot_be_lowered_by_manifest(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            spec = fake_production(root)
+            doc = json.loads(spec.read_text(encoding="utf-8"))
+            doc["parts"][0]["expected_shots"] = 1
+            spec.write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "expected"):
+                read_package_manifest(spec)
 
     def test_master_requires_actual_locked_work_screenplay(self):
         with tempfile.TemporaryDirectory() as td:
