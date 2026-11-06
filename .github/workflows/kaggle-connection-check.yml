@@ -1,11 +1,8 @@
 name: TWO WORLDS - Kaggle API connection check
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/kaggle-connection-check.yml"
-      - ".github/workflows/kaggle-api.yml"
+  # Explicit read-only check only: avoid an extra quota API request after
+  # every workflow edit while the account is rate-limited.
   workflow_dispatch:
 
 permissions:
@@ -44,7 +41,7 @@ jobs:
           set -euo pipefail
           # Use the API credentials for ONE read-only request, not for image generation.
           # Never display token, account response, or external resource details in Actions.
-          kaggle quota >/dev/null
+          python -m studio.kaggle_api_limits quota
           python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
           echo "PASS: Kaggle API token authenticated and account name resolved."
       - name: Next step

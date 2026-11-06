@@ -85,15 +85,61 @@ class KaggleApiTests(unittest.TestCase):
             (d/"two_worlds_job_receipt.json").write_text(
                 json.dumps({"run_nonce":"gh-104-1","success":True}))
             archive=d/"TWO_WORLDS_ARTIFACTS.zip"
+            from PIL import Image
+            import io
+            img = Image.effect_noise((576,1024),40).convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf,format="PNG")
             with zipfile.ZipFile(archive,"w") as z:
-                z.writestr("portrait.png",b"not valid image bytes for test")
-            self.assertTrue(verify_outputs(d,"gh-104-1")["success"])
+                z.writestr("portrait.png",buf.getvalue())
+            first = verify_outputs(d,"gh-104-1")
+            self.assertTrue(first["success"])
+            self.assertEqual(first["real_media_decoded"],1)
+            self.assertTrue(first["media_reviews"][0]["quality"]["pixel_decode_verified"])
+            self.assertFalse(first["art_approved"])
+            # A fake PNG extension does not prove actual image bytes.
+            with zipfile.ZipFile(archive,"w") as z:
+                z.writestr("portrait.png",b"not a real png"*2000)
+            with self.assertRaisesRegex(ValueError,"corrupt or fake"):
+                verify_outputs(d,"gh-104-1")
+            with zipfile.ZipFile(archive,"w") as z:
+                z.writestr("portrait.png",buf.getvalue())
             with self.assertRaisesRegex(ValueError,"another run"):
                 verify_outputs(d,"gh-104-2")
             with zipfile.ZipFile(archive,"w") as z:
                 z.writestr("log.txt","No images")
             with self.assertRaisesRegex(ValueError,"did not generate"):
                 verify_outputs(d,"gh-104-1")
+
+    def test_real_wav_decode_and_receipt_checksum(self):
+        import io
+        import wave
+        with tempfile.TemporaryDirectory() as td:
+            folder = Path(td)
+            archive = folder/"TWO_WORLDS_ARTIFACTS.zip"
+            audio = io.BytesIO()
+            with wave.open(audio,"wb") as writer:
+                writer.setnchannels(1)
+                writer.setsampwidth(2)
+                writer.setframerate(22050)
+                writer.writeframes(b"\x00\x00"*22050)
+            with zipfile.ZipFile(archive,"w") as bundle:
+                bundle.writestr("Mira_voice_sample.wav",audio.getvalue())
+            import hashlib
+            valid_sha=hashlib.sha256(archive.read_bytes()).hexdigest()
+            receipt=folder/"two_worlds_job_receipt.json"
+            receipt.write_text(json.dumps({"run_nonce":"sample-voice-1",
+                                           "success":True,
+                                           "archive_sha256":valid_sha}))
+            result=verify_outputs(folder,"sample-voice-1")
+            self.assertEqual(result["real_media_decoded"],1)
+            self.assertEqual(result["media_reviews"][0]["format"],"WAV")
+            self.assertFalse(result["voices_approved"])
+            receipt.write_text(json.dumps({"run_nonce":"sample-voice-1",
+                                           "success":True,
+                                           "archive_sha256":"0"*64}))
+            with self.assertRaisesRegex(ValueError,"checksum"):
+                verify_outputs(folder,"sample-voice-1")
 
     def test_dispatch_manual_and_no_public_art_upload(self):
         yaml=(ROOT/".github/workflows/kaggle-api.yml").read_text()

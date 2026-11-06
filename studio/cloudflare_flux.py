@@ -221,12 +221,15 @@ def render_one(shot: dict, destination: Path, *, token: str, account_id: str,
             raise FreeImageError("Final output is not a real PNG at requested resolution")
     if shas != proposal["reference_sha256"]:
         raise FreeImageError("Provider reference fingerprints changed unexpectedly")
-    # Both outputs staged together from temp; no automatic approval.
+    # Inspect actual pixels before staging, not only the PNG header.
+    from studio.art_image_qc import inspect_image_bytes
+    image_qc = inspect_image_bytes(payload, expected_size=(width, height))
     output_dir.mkdir(parents=True, exist_ok=True)
     metadata = dict(proposal)
     metadata.update(image_generated=True, estimate_only=False,
                     png_sha256=digest(payload), rights_review_required=True,
-                    visual_identity_review_required=True, published=False,
+                    visual_identity_review_required=True,
+                    technical_image_qc=image_qc, published=False,
                     master_ready=False)
     # Reserve exclusive files: existing files must not be replaced.
     try:
