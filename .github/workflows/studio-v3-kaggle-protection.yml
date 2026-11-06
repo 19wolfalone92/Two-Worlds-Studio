@@ -7,6 +7,9 @@ on:
       - "studio/kaggle_api.py"
       - "studio/comfy_kaggle.py"
       - "tests/test_kaggle_api_limits.py"
+      - "studio/art_image_qc.py"
+      - "tests/test_art_image_qc.py"
+      - "studio/cloudflare_flux.py"
       - "tests/test_kaggle_workflow_safety.py"
       - ".github/workflows/kaggle*.yml"
       - ".github/workflows/comfyui*.yml"
@@ -42,7 +45,9 @@ jobs:
             tests.test_kaggle_api_limits \
             tests.test_kaggle_workflow_safety \
             tests.test_kaggle_api \
-            tests.test_comfy_kaggle -v
+            tests.test_comfy_kaggle \
+            tests.test_art_image_qc \
+            tests.test_studio_v3_free -v
 
   one-time-account-compute-quota:
     if: ${{ github.event_name == 'push' || inputs.check_quota == true }}
