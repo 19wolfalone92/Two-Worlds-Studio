@@ -65,6 +65,7 @@ def audit_reference_conditioning(graph: dict) -> dict:
         weight = params.get("weight")
         if (type(weight) in (int, float) and .01 <= weight <= 2
             and _node(params.get("model"), graph)
+            and _node(params.get("ipadapter"), graph)
             and _reaches_reference(params.get("image"), graph, anchor)):
             applying.add(id_)
     if not applying:
