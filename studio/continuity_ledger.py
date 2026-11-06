@@ -54,6 +54,12 @@ def audit(shots: list[dict], *, strict: bool = False) -> dict:
         transitions = c.get("transitions", [])
         if not isinstance(cast, list) or not isinstance(props, list) or not isinstance(transitions, list):
             raise ValueError(f"{scene}: cast, props and transitions must be arrays")
+        if location is None and not cast and not props:
+            missing += 1
+            if strict:
+                raise ValueError(f"{scene}: empty continuity metadata cannot satisfy master review")
+            entries.append({"scene": scene, "status": "unverifiable_empty_metadata"})
+            continue
         if len(cast) > 8 or len(props) > 25 or len(transitions) > 12:
             raise ValueError(f"{scene}: excessive continuity metadata")
         permitted = set()
