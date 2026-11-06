@@ -1,0 +1,67 @@
+name: TWO WORLDS - Kaggle read-only GPU quota diagnostic
+
+on:
+  push:
+    branches: ["diagnostics/kaggle-gpu-quota-20261106"]
+    paths: ["ops/kaggle-quota-check.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  check-free-gpu-minutes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Kaggle CLI - no GPU allocation
+        run: python -m pip install -q "kaggle>=2.2.4" "six>=1.16,<2"
+      - name: Request quota only; do not print credentials or user identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python - <<'PY'
+          import json, subprocess
+          result=subprocess.run(["kaggle", "quota", "--format", "json"],
+              capture_output=True, text=True, timeout=45)
+          if result.returncode:
+              if "429" in result.stderr or "Too Many Requests" in result.stderr:
+                  print("GPU_QUOTA_STATUS=UNKNOWN_API_RATE_LIMITED")
+              else:
+                  print("GPU_QUOTA_STATUS=UNKNOWN_CLI_ERROR")
+              raise SystemExit(0)
+          try:
+              data=json.loads(result.stdout)
+          except Exception:
+              print("GPU_QUOTA_STATUS=UNKNOWN_RESPONSE_FORMAT")
+              raise SystemExit(0)
+          found=[]
+          def scan(node,path=""):
+              if isinstance(node,dict):
+                  for key,val in node.items():
+                      clean=str(key).lower()
+                      # Display only numeric GPU/TPU quota usage fields.
+                      next_path=path+"."+clean if path else clean
+                      if isinstance(val,(int,float)) and any(s in next_path for s in
+                              ("gpu","tpu","quota","remain","used","total","weekly","hours")):
+                          found.append((next_path,val))
+                      elif isinstance(val,(dict,list)):
+                          scan(val,next_path)
+              elif isinstance(node,list):
+                  for i,val in enumerate(node):
+                      scan(val,path+"["+str(i)+"]")
+          scan(data)
+          if not found:
+              print("GPU_QUOTA_STATUS=UNKNOWN_NO_WHITELISTED_NUMERIC_FIELDS")
+              print("OUTPUT_SHAPE="+type(data).__name__)
+          else:
+              print("GPU_QUOTA_STATUS=REPORTED")
+              for key,value in found[:40]:
+                  print("QUOTA_FIELD "+key+"="+str(value))
+          PY
