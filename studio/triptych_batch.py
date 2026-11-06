@@ -17,6 +17,7 @@ from PIL import Image
 
 from studio.hybrid_master import check_manifest, produce
 from studio.release_gate import check_video, sha256, cover_check
+from studio.continuity_ledger import audit as audit_continuity
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,64}$")
 CHECKSUM = re.compile(r"^[0-9a-f]{64}$")
@@ -63,6 +64,7 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
     seen_paths = set()
     shot_total = 0
     all_inputs = []
+    continuity_shots = []
     for part in refs:
         asset = inside(base, part.get("manifest"))
         cover = inside(base, part.get("cover"))
@@ -82,6 +84,9 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
         if type(expected) is not int or expected != 8 or count != 8:
             raise ValueError(f"Part {part['part']}: expected {expected} real shots, got {count}")
         shot_total += count
+        for local_index, shot in enumerate(manifest["shots"], 1):
+            continuity_shots.append({"scene_id": f"P{part['part']}_S{local_index:02}",
+                                     "continuity": shot.get("continuity")})
         all_inputs.append((f"part-{part['part']}-manifest", sha256(asset)))
         all_inputs.append((f"part-{part['part']}-cover", sha256(cover)))
         if plan["music"] is not None:
@@ -126,8 +131,10 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
             "shots": count, "voice_tracks": voice_count,
             "duration_seconds": plan["duration"],
         })
+    continuity = audit_continuity(continuity_shots, strict=master)
     return {
         "job_id": source["job_id"], "story_title": story, "parts": planned,
+        "continuity": continuity,
         "shots": shot_total, "language": source.get("language", "ru"),
         "story_lock_sha256": source.get("work_script_sha256"),
         "master": bool(master), "source_manifest_sha256": sha256(path),
@@ -190,6 +197,7 @@ def make_bundle(spec_file: Path, out_root: Path, *, master: bool = False,
             "parts": [], "shot_total": spec["shots"], "published": False,
             "quality": "technical_review_required",
             "owner_approval": "asserted_by_source" if master else "not_asserted",
+            "continuity": spec["continuity"],
         }
         for part in spec["parts"]:
             label = f"PART_{part['part']}_of_3"
