@@ -131,24 +131,71 @@ def poll_kernel(kernel: str, *, timeout_seconds: int = 3300,
     raise TimeoutError("Kaggle did not finish within approved workflow deadline")
 
 def verify_outputs(path: Path, nonce: str) -> dict:
-    receipts = list(path.rglob("two_worlds_job_receipt.json"))
-    archives = list(path.rglob("TWO_WORLDS_ARTIFACTS.zip"))
+    """Verify actual PNG/WAV bytes, not merely a filename suffix or file header."""
+    import wave
+    from studio.art_image_qc import InvalidArtwork, inspect_image_bytes
+
+    receipts = list(path.rglob(RECEIPT))
+    archives = list(path.rglob(PACKAGE))
     if len(receipts) != 1 or len(archives) != 1:
         raise FileNotFoundError("Kaggle output archive or receipt is missing")
+    if receipts[0].stat().st_size > 128 * 1024:
+        raise ValueError("Kaggle receipt is oversized")
     receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
     if receipt.get("run_nonce") != nonce:
         raise ValueError("Result is from another run; refuse to mix outputs")
     if receipt.get("success") is not True:
         raise RuntimeError("Remote Kaggle job did not succeed")
-    with zipfile.ZipFile(archives[0]) as z:
-        entries = z.namelist()
-        if not entries or any(Path(n).is_absolute() or ".." in Path(n).parts for n in entries):
-            raise ValueError("Unsafe or empty output archive")
-        if not any(n.lower().endswith((".png", ".wav")) for n in entries):
-            raise ValueError("Kaggle did not generate an image or voice clip")
+    archive_path = archives[0]
+    if archive_path.stat().st_size > 150 * 1024 * 1024:
+        raise ValueError("Kaggle archive is unexpectedly large")
+    archive_hash = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    if receipt.get("archive_sha256") and receipt["archive_sha256"] != archive_hash:
+        raise ValueError("Kaggle receipt archive checksum mismatch")
+    checked = []
+    with zipfile.ZipFile(archive_path) as archive:
+        entries = archive.infolist()
+        names = [entry.filename for entry in entries]
+        if not entries or len(entries) > 20 or len(set(names)) != len(names) or any(
+                Path(name).is_absolute() or ".." in Path(name).parts or chr(92) in name
+                for name in names):
+            raise ValueError("Unsafe or empty Kaggle output archive")
+        if any(entry.is_dir() or entry.file_size > 48 * 1024 * 1024
+               or (entry.external_attr >> 16) & 0o170000 == 0o120000 for entry in entries):
+            raise ValueError("Archive contains unsafe or oversized entries")
+        for entry in entries:
+            name = entry.filename
+            if name.lower().endswith(".png"):
+                payload = archive.read(entry)
+                try:
+                    scan = inspect_image_bytes(payload, require_png=True)
+                except InvalidArtwork:
+                    raise ValueError("Generated PNG media is corrupt or fake") from None
+                if min(scan["width"], scan["height"]) < 512:
+                    raise ValueError("Generated PNG dimensions are too small")
+                checked.append({"format": "PNG", "sha256": scan["sha256"],
+                                "quality": scan})
+            elif name.lower().endswith(".wav"):
+                payload = archive.read(entry)
+                try:
+                    with wave.open(io.BytesIO(payload), "rb") as audio:
+                        if (audio.getnframes() < 100 or audio.getframerate() < 8000
+                                or audio.getnchannels() not in (1, 2)):
+                            raise ValueError("Generated WAV has invalid timing or channels")
+                        sample = audio.readframes(min(audio.getnframes(), 2048))
+                        if not sample:
+                            raise ValueError("Generated WAV contains no audio frames")
+                except (wave.Error, EOFError, OSError):
+                    raise ValueError("Generated WAV audio cannot be decoded") from None
+                checked.append({"format": "WAV",
+                                "sha256": hashlib.sha256(payload).hexdigest()})
+    if not checked:
+        raise ValueError("Kaggle did not generate an image or voice clip")
     return {"run_nonce": nonce, "success": True, "files": len(entries),
-            "archive_bytes": archives[0].stat().st_size,
-            "sha256": hashlib.sha256(archives[0].read_bytes()).hexdigest()}
+            "real_media_decoded": len(checked), "media_reviews": checked,
+            "archive_bytes": archive_path.stat().st_size,
+            "sha256": archive_hash, "art_approved": False,
+            "voices_approved": False, "published": False}
 
 def main():
     p = argparse.ArgumentParser(description="Manual private Kaggle API runner")
