@@ -143,6 +143,44 @@ Never writes to TikTok or changes previously scheduled posts.
   private approved storage location; do not upload them to public CI artifacts.
 - Existing TikTok and Metricool schedules are unchanged.
 
+## Continuity ledger and immutable review-cache hardening
+
+The pilot's three 8-shot manifests may contain a per-shot `continuity` object
+with review-controlled reference identifiers. The offline
+`studio.continuity_ledger` verifies **declared** continuity:
+
+```json
+{
+  "continuity": {
+    "location": {"id": "nina_kitchen", "layout_sha256": "<64-hex>"},
+    "cast": [{
+      "body_id": "Nina", "age_variant": "adult",
+      "reference_sha256": "<64-hex>", "wardrobe_id": "winter_coat"
+    }],
+    "props": [{"id": "photo_17", "reference_sha256": "<64-hex>"}],
+    "transitions": []
+  }
+}
+```
+
+Across the complete 24-shot sequence, the same location ID must keep the
+same layout SHA; the same character and age variant must keep the same
+reference SHA; recurring props must retain reference SHAs. Wardrobe/age
+changes require explicit `transitions` containing a meaningful reason and,
+for a master, an identified reviewer. Missing metadata is visible in preview
+reports but is prohibited in `--master`. This is a **metadata audit only**;
+it does not visually recognize the faces, correct reference images, lighting,
+camera framing, real clothing, or actual dramatic performance.
+
+The three-part builder now enforces **exactly eight real shots per part**.
+Cache reuse fingerprints source manifests, covers, audio, **music** and all
+source stills/clips. It also checks the **actual exported MP4, SRT, cover,
+and ZIP hashes** before reporting `cached_verified`. Any changed source
+means an existing review directory is rejected rather than silently reused.
+To export a new revision, select a new job_id/output folder (do not overwrite
+the first deliverable). The bundle SHA is a detached receipt field in the
+on-disk `delivery.json`, avoiding circular ZIP self-hashes.
+
 ## Tests
 
 ```bash

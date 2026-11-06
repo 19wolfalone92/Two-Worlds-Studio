@@ -17,6 +17,7 @@ from PIL import Image
 
 from studio.hybrid_master import check_manifest, produce
 from studio.release_gate import check_video, sha256, cover_check
+from studio.continuity_ledger import audit as audit_continuity
 
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,64}$")
 CHECKSUM = re.compile(r"^[0-9a-f]{64}$")
@@ -63,6 +64,7 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
     seen_paths = set()
     shot_total = 0
     all_inputs = []
+    continuity_shots = []
     for part in refs:
         asset = inside(base, part.get("manifest"))
         cover = inside(base, part.get("cover"))
@@ -79,11 +81,16 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
             raise ValueError(f"Part {part['part']}: required baked vertical subtitles are disabled")
         count = len(plan["shots"])
         expected = part.get("expected_shots", 8)
-        if type(expected) is not int or expected < 1 or expected > 80 or count != expected:
+        if type(expected) is not int or expected != 8 or count != 8:
             raise ValueError(f"Part {part['part']}: expected {expected} real shots, got {count}")
         shot_total += count
+        for local_index, shot in enumerate(manifest["shots"], 1):
+            continuity_shots.append({"scene_id": f"P{part['part']}_S{local_index:02}",
+                                     "continuity": shot.get("continuity")})
         all_inputs.append((f"part-{part['part']}-manifest", sha256(asset)))
         all_inputs.append((f"part-{part['part']}-cover", sha256(cover)))
+        if plan["music"] is not None:
+            all_inputs.append((f"part-{part['part']}-music", sha256(plan["music"])))
         if (plan["width"], plan["height"], plan["fps"]) != (1080, 1920, 30):
             raise ValueError("All episodes must be 1080x1920 at 30fps")
         voice_count = 0
@@ -124,8 +131,10 @@ def read_package_manifest(path: Path, *, master: bool = False) -> dict:
             "shots": count, "voice_tracks": voice_count,
             "duration_seconds": plan["duration"],
         })
+    continuity = audit_continuity(continuity_shots, strict=master)
     return {
         "job_id": source["job_id"], "story_title": story, "parts": planned,
+        "continuity": continuity,
         "shots": shot_total, "language": source.get("language", "ru"),
         "story_lock_sha256": source.get("work_script_sha256"),
         "master": bool(master), "source_manifest_sha256": sha256(path),
@@ -143,16 +152,38 @@ def make_bundle(spec_file: Path, out_root: Path, *, master: bool = False,
     if target.exists():
         marker = target / "delivery.json"
         if marker.is_file():
-            manifest = json.loads(marker.read_text(encoding="utf-8"))
-            if (manifest.get("source_manifest_sha256") == spec["source_manifest_sha256"]
-                    and manifest.get("source_assets_fingerprint") == spec["source_assets_fingerprint"]):
-                # Never trust a stale marker without checking actual files.
-                for row in manifest.get("parts", []):
-                    check_video(target / row["mp4"], target / row["srt"],
-                                target / row["cover"],
-                                require_russian=spec["language"] == "ru",
-                                full_decode=full_decode)
-                if len(manifest.get("parts", [])) == 3:
+            receipt = json.loads(marker.read_text(encoding="utf-8"))
+            if (receipt.get("schema") == 1
+                    and receipt.get("job_id") == spec["job_id"]
+                    and receipt.get("story_title") == spec["story_title"]
+                    and receipt.get("source_manifest_sha256") == spec["source_manifest_sha256"]
+                    and receipt.get("source_assets_fingerprint") == spec["source_assets_fingerprint"]
+                    and receipt.get("shot_total") == 24
+                    and receipt.get("published") is False
+                    and len(receipt.get("parts", [])) == 3):
+                parts = receipt["parts"]
+                expected_numbers = [1, 2, 3]
+                if [part.get("part") for part in parts] == expected_numbers:
+                    for ix, row in enumerate(parts, 1):
+                        prefix = f"PART_{ix}_of_3"
+                        for label in ("mp4", "srt", "cover"):
+                            rel = row.get(label)
+                            if (not isinstance(rel, str) or Path(rel).name != rel
+                                    or not rel.startswith(prefix)):
+                                raise ValueError("Cached output has an unsafe or incorrect part filename")
+                        video = target / row["mp4"]
+                        srt = target / row["srt"]
+                        cover = target / row["cover"]
+                        if (sha256(video) != row.get("quality", {}).get("sha256")
+                                or sha256(srt) != row.get("srt_sha256")
+                                or sha256(cover) != row.get("quality", {}).get("cover", {}).get("sha256")):
+                            raise ValueError("Previously exported media was modified or corrupted")
+                        check_video(video, srt, cover,
+                                    require_russian=spec["language"] == "ru",
+                                    full_decode=full_decode)
+                    bundle = target / (spec["job_id"] + "_review_bundle.zip")
+                    if not bundle.is_file() or sha256(bundle) != receipt.get("bundle_sha256"):
+                        raise ValueError("Previously exported ZIP is missing or has changed")
                     return {"status": "cached_verified", "directory": str(target),
                             "story_title": spec["story_title"], "parts": 3}
         raise FileExistsError("Existing output is incomplete or has different source hash")
@@ -166,6 +197,7 @@ def make_bundle(spec_file: Path, out_root: Path, *, master: bool = False,
             "parts": [], "shot_total": spec["shots"], "published": False,
             "quality": "technical_review_required",
             "owner_approval": "asserted_by_source" if master else "not_asserted",
+            "continuity": spec["continuity"],
         }
         for part in spec["parts"]:
             label = f"PART_{part['part']}_of_3"
@@ -180,16 +212,22 @@ def make_bundle(spec_file: Path, out_root: Path, *, master: bool = False,
             delivery["parts"].append({
                 "part": part["part"], "mp4": video.name,
                 "srt": srt.name, "cover": cover.name,
+                "srt_sha256": sha256(srt),
                 "source_shots": part["shots"], "voice_tracks": part["voice_tracks"],
                 "quality": details,
             })
+        package = temp / (spec["job_id"] + "_review_bundle.zip")
+        # Put the full delivery manifest in ZIP; package SHA lives in a separate
+        # on-disk receipt to avoid a circular checksum dependency.
         (temp / "delivery.json").write_text(json.dumps(delivery, ensure_ascii=False, indent=2) + "\n",
                                             encoding="utf-8")
-        package = temp / (spec["job_id"] + "_review_bundle.zip")
         with zipfile.ZipFile(package, "w", zipfile.ZIP_DEFLATED) as archive:
             for f in sorted(temp.iterdir()):
                 if f.is_file() and f != package:
                     archive.write(f, arcname=f.name)
+        delivery["bundle_sha256"] = sha256(package)
+        (temp / "delivery.json").write_text(json.dumps(delivery, ensure_ascii=False, indent=2) + "\n",
+                                            encoding="utf-8")
         temp.rename(target)
     return {
         "status": "master_review_package" if master else "preview_review_package",
