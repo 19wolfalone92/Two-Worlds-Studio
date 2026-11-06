@@ -102,14 +102,18 @@ def verify(path: Path, nonce: str) -> dict:
     receipt = json.loads(receipts[0].read_text(encoding="utf-8"))
     if receipt.get("nonce") != nonce or receipt.get("success") is not True:
         raise ValueError("Missing successful receipt for this exact run nonce")
+    if archives[0].stat().st_size > 100 * 1024 * 1024:
+        raise ValueError("Kaggle archive exceeds 100MB proof limit")
     with zipfile.ZipFile(archives[0]) as archive:
-        names = archive.namelist()
-        if len(names) != len(set(names)) or any(
-            Path(name).is_absolute() or ".." in Path(name).parts for name in names
-        ):
+        entries = archive.infolist()
+        names = [entry.filename for entry in entries]
+        if len(entries) != 2 or set(names) != {"render.png", "render_manifest.json"}:
+            raise ValueError("Expected exactly the PNG and its manifest")
+        if any(Path(name).is_absolute() or ".." in Path(name).parts for name in names):
             raise ValueError("Unsafe archive entry names")
-        if "render.png" not in names or "render_manifest.json" not in names:
-            raise ValueError("ComfyUI rendered PNG/manifest is missing")
+        if any(entry.file_size > 30 * 1024 * 1024 or entry.is_dir()
+               or (entry.external_attr >> 16) & 0o170000 == 0o120000 for entry in entries):
+            raise ValueError("Unsafe archive payload")
         png = archive.read("render.png")
         manifest = json.loads(archive.read("render_manifest.json"))
     if len(png) < 10_000 or png[:8] != b"\x89PNG\r\n\x1a\n" or png[12:16] != b"IHDR":
@@ -117,6 +121,11 @@ def verify(path: Path, nonce: str) -> dict:
     width, height = struct.unpack(">II", png[16:24])
     if (width, height) != (640, 1152):
         raise ValueError("Unexpected dimensions")
+    from studio.art_image_qc import InvalidArtwork, inspect_image_bytes
+    try:
+        image_qc = inspect_image_bytes(png, expected_size=(640, 1152))
+    except InvalidArtwork:
+        raise ValueError("ComfyUI PNG failed full pixel decoding") from None
     if manifest.get("comfy_prompt_id") != receipt.get("comfy_prompt_id") or not manifest.get("comfy_prompt_id"):
         raise ValueError("Missing matching ComfyUI prompt ID")
     if manifest.get("png_sha256") != hashlib.sha256(png).hexdigest():
@@ -128,7 +137,7 @@ def verify(path: Path, nonce: str) -> dict:
         "comfy_prompt_id": manifest["comfy_prompt_id"],
         "model": manifest.get("checkpoint_file"),
         "archive_sha256": hashlib.sha256(archives[0].read_bytes()).hexdigest(),
-        "art_approved": False,
+        "art_approved": False, "image_quality": image_qc,
     }
 
 
