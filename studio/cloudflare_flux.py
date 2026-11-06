@@ -59,8 +59,9 @@ def checked_reference(path: Path) -> tuple[bytes, str]:
             raise ValueError("Cloudflare FLUX.2 reference dimensions must be smaller than 512x512")
         if im.format not in ("PNG", "JPEG", "WEBP"):
             raise ValueError("Unsupported reference image encoding")
+        kind = im.format
     return payload, {"PNG": "image/png", "JPEG": "image/jpeg",
-                     "WEBP": "image/webp"}[Image.open(io.BytesIO(payload)).format]
+                     "WEBP": "image/webp"}[kind]
 
 
 def multipart(prompt: str, width: int, height: int, seed: int,
@@ -81,7 +82,9 @@ def multipart(prompt: str, width: int, height: int, seed: int,
         out.extend(b"--" + boundary + b"\r\n")
         out.extend(('Content-Disposition: form-data; name="' + name + '"').encode("ascii"))
         if mimetype:
-            out.extend(('; filename="' + name + '.png"').encode("ascii"))
+            ext = {"image/png": ".png", "image/jpeg": ".jpg",
+                   "image/webp": ".webp"}[mimetype]
+            out.extend(('; filename="' + name + ext + '"').encode("ascii"))
         out.extend(b"\r\n")
         if mimetype:
             out.extend(('Content-Type: ' + mimetype).encode("ascii") + b"\r\n")
