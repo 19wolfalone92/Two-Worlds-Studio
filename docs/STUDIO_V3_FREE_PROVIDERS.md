@@ -27,13 +27,17 @@ and reference checks remain authoritative release paths.
 - `studio/free_connectivity.py` — read-only Cloudflare account/model check,
   ensuring Account ID and token can actually list the model, not merely verify
   a generic token. This does NOT spend generation quota.
+- `studio/cinematic.py` — existing CPU 2.5D compositor now samples layer
+  motion at fractional pixel positions with bicubic resampling instead of
+  integer-rounded crops. This directly reduces stepped camera jitter; it is
+  not neural character acting or automatic depth estimation.
 - `studio/production_queue.py` — PRIVATE persistent SQLite CPU queue:
   idempotent scene hashes, exclusive worker leases, retriable HTTP429/quota
   errors (with bounded exponential backoff and daily quota cool-down), no raw
   prompt/credentials/error logging. Jobs can be staged offline from plans.
   This is a queue **foundation**, not an active distributed worker.
 - `tests/test_studio_v3_free.py`, `tests/test_studio_v3_connectivity.py`,
-  `tests/test_production_queue.py` — fake HTTP, reference payload, API
+  `tests/test_production_queue.py`, `tests/test_subpixel_cinematic.py` — fake HTTP, reference payload, API
   errors, queue restart, leases, image outputs, privacy and idempotency tests.
 - `.github/workflows/studio-v3-free-tests.yml` — PR offline CI plus
   manual metadata-only Cloudflare preflight.
