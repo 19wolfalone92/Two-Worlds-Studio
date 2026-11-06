@@ -17,11 +17,19 @@ try:
     from studio.actor_motion import animate_actor, validate_motion
     from studio.audio_master import audio_asset
     from studio.lipsync import voice_envelope, mouth_open
+    from studio.character_engine import CharacterRig
+    from studio.facial_actor import PerformanceRig
+    from studio.cinematic_lighting import LightStage
+    from studio.deformable_actor import DeformableActor
 except ModuleNotFoundError:
     from premium_assets import resolve_asset, validate_premium_scene
     from actor_motion import animate_actor, validate_motion
     from audio_master import audio_asset
     from lipsync import voice_envelope, mouth_open
+    from character_engine import CharacterRig
+    from facial_actor import PerformanceRig
+    from cinematic_lighting import LightStage
+    from deformable_actor import DeformableActor
 
 
 def ease(x:float)->float:
@@ -94,7 +102,8 @@ class CinematicPanel:
         self.voice_delay_ms=0
         self.voice_step_ms=50
         voice=scene.get("voice")
-        if voice and any(x.get("motion",{}).get("mouth") for x in scene["cinematic"]["layers"]):
+        if voice and any(x.get("motion",{}).get("mouth") or x.get("facial",{}).get("mouth")
+                         for x in scene["cinematic"]["layers"]):
             clip=audio_asset(assets_root,voice.get("path"))
             self.voice_levels=voice_envelope(clip,step_ms=self.voice_step_ms)
             self.voice_delay_ms=int(voice.get("offset_ms",100))
@@ -103,6 +112,7 @@ class CinematicPanel:
             with Image.open(path) as image:
                 image.load()
                 blink_overlay=None
+                blink_erase_mask=None
                 mouth_overlay=None
                 if layer.get("motion"):
                     validate_motion(layer["motion"],assets_root,publish=False)
@@ -114,11 +124,23 @@ class CinematicPanel:
                             lip.load()
                             mouth_overlay=lip.convert("RGBA")
                     blink_spec=layer["motion"].get("blink")
-                    if blink_spec:
+                    if blink_spec and blink_spec.get("erase_mask"):
                         with Image.open(resolve_asset(assets_root,blink_spec["path"])) as overlay:
                             overlay.load()
                             blink_overlay=overlay.convert("RGBA")
-                self.layers.append((layer,image.convert("RGBA"),blink_overlay,mouth_overlay))
+                        with Image.open(resolve_asset(assets_root,blink_spec["erase_mask"])) as mask_img:
+                            mask_img.load()
+                            blink_erase_mask=mask_img.convert("L")
+                rig=CharacterRig(layer["rig"],assets_root,image.size) if layer.get("rig") else None
+                if layer.get("deform"):
+                    rig=DeformableActor(image,layer["deform"])
+                if layer.get("facial"):
+                    if rig is None:
+                        raise ValueError("Facial performance requires an articulated rig")
+                    rig=PerformanceRig(rig,layer["facial"],assets_root,
+                        duration=float(scene["duration"]),voice_levels=self.voice_levels,
+                        voice_step_ms=self.voice_step_ms,voice_delay_ms=self.voice_delay_ms)
+                self.layers.append((layer,image.convert("RGBA"),blink_overlay,blink_erase_mask,mouth_overlay,rig))
         self.grain=float(scene["cinematic"].get("grain",0.0) or 0.0)
         self.vignette=float(scene["cinematic"].get("vignette",0.14) or 0.0)
         if not 0<=self.vignette<=0.85:
@@ -126,6 +148,7 @@ class CinematicPanel:
         if not 0<=self.grain<=0.25:
             raise ValueError("grain must be 0..0.25")
         self.mask=self._vignette_mask()
+        self.light_stage=LightStage(scene["cinematic"].get("lights",[]),(width,height))
         # Fixed sequence prevents stochastic temporal shimmer (no random noise each frame).
         rng=np.random.default_rng(32018)
         self.noise=(rng.standard_normal((height,width))*5).astype(np.float32) if self.grain else None
@@ -142,9 +165,11 @@ class CinematicPanel:
     def frame(self,t:float)->Image.Image:
         x,y,zoom=camera_state(self.scene,t)
         canvas=Image.new("RGBA",(self.width,self.height),(0,0,0,255))
-        for meta,im,blink_overlay,mouth_overlay in self.layers:
+        for meta,im,blink_overlay,blink_erase_mask,mouth_overlay,rig in self.layers:
             depth=float(meta.get("depth",0))
-            if meta.get("motion"):
+            if rig is not None:
+                moving=rig.frame(t)
+            elif meta.get("motion"):
                 mouth_enabled=False
                 if mouth_overlay is not None and self.voice_levels is not None:
                     mouth_enabled=mouth_open(self.voice_levels,t*float(self.scene["duration"]),
@@ -152,6 +177,7 @@ class CinematicPanel:
                        delay_ms=self.voice_delay_ms,
                        threshold=float(meta["motion"]["mouth"].get("threshold",.22)))
                 moving=animate_actor(im,meta["motion"],t,overlay=blink_overlay,
+                                      blink_erase_mask=blink_erase_mask,
                                       mouth_overlay=mouth_overlay,mouth_is_open=mouth_enabled)
             else:
                 moving=im
@@ -159,7 +185,7 @@ class CinematicPanel:
                            role=meta["role"])
             canvas=_blend(canvas,current,meta.get("blend","over"),
                           float(meta.get("opacity",1)))
-        image=canvas.convert("RGB")
+        image=self.light_stage.frame(canvas.convert("RGB"),t)
         if self.vignette>0:
             black=Image.new("RGB",image.size,(0,0,0))
             image=Image.composite(image,black,self.mask)

@@ -290,6 +290,8 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
         verify_work_lock(src,strict=True)
         verify_episode_characters(src,assets,strict=True)
         audit_audio(src,assets,publish=True,fps=fps)
+        from studio.animation_quality import audit_performance
+        audit_performance(src,publish=True)
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required and must be on PATH")
     if width < 64 or height < 64 or fps < 1 or fps > 60:

@@ -13,3 +13,6 @@ assets/private/
 drafts/
 
 assets/premium_demo/
+*.pem
+!.github/factory_requests/recipient_public.pem
+private_return/

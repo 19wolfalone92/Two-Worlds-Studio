@@ -1,0 +1,62 @@
+name: TWO WORLDS - Private Batch03 bounded production
+on:
+  push:
+    branches: ['integration/story-glitch-batch03-20261104']
+    paths: ['.github/batch03_requests/production.json']
+permissions:
+  contents: read
+concurrency:
+  group: tw-private-batch03-${{ contains(github.event.head_commit.message, '[cpu-source]') && format('source-{0}', github.run_id) || contains(github.event.head_commit.message, '[motion-b]') && 'animation-b' || contains(github.event.head_commit.message, '[motion]') && 'animation' || 'media' }}
+  cancel-in-progress: false
+jobs:
+  production:
+    if: >-
+      github.repository == '19wolfalone92/Two-Worlds-Studio' &&
+      github.ref == 'refs/heads/integration/story-glitch-batch03-20261104'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+      - id: requested
+        name: Only the exact request-changing commit can consume GPU quota
+        run: |
+          if git diff --name-only HEAD^ HEAD -- .github/batch03_requests/production.json | grep -q production.json; then
+            echo 'execute=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'execute=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.requested.outputs.execute == 'true'
+        with:
+          python-version: '3.11'
+      - name: Install official Kaggle CLI and transport tools
+        if: steps.requested.outputs.execute == 'true'
+        run: python -m pip install 'kaggle==2.2.5' six cryptography Pillow numpy
+      - name: Prepare public input handshake
+        if: steps.requested.outputs.execute == 'true'
+        run: python -m tools.batch03_production_relay prepare
+      - name: Publish input public key only
+        if: steps.requested.outputs.execute == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch03-input-public-key
+          path: dist/handshake/
+          retention-days: 1
+      - name: Produce bounded private scene batch with existing account authorization
+        if: steps.requested.outputs.execute == 'true'
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: wolf19loner92
+          GH_READ_TOKEN: ${{ github.token }}
+        run: python -m tools.batch03_production_relay produce
+      - name: Return encrypted media and recovery receipt only
+        if: ${{ always() && steps.requested.outputs.execute == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch03-private-production-result
+          path: dist/private_batch03/
+          retention-days: 3
+          if-no-files-found: error

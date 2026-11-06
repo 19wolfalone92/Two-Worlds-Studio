@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "language": "ru",
+  "provider": "ElevenLabs",
+  "source": "2026-10-30 connected ElevenLabs library voice lookup, language ru and use_case narrative_story",
+  "audition_required": true,
+  "rights_review_required": true,
+  "paid_generation_allowed": false,
+  "status": "candidates_only_no_audio_generated",
+  "voices": {
+    "expressive_female": {
+      "voice_id": "CsT9glYAgw8L02hu9od2",
+      "name": "Marina_Warm Expressive",
+      "expected_character": "warm and expressive female Russian storytelling; not yet auditioned"
+    },
+    "conversational_male": {
+      "voice_id": "VlCYpQzyafIQIhmvxR2w",
+      "name": "Pavel - Warm Conversational Narrator",
+      "expected_character": "natural Russian baritone; not yet auditioned"
+    },
+    "literary_male": {
+      "voice_id": "1kb4Md8n0kMNktygYhDF",
+      "name": "Ivan - Multilingual Storyteller",
+      "expected_character": "literary character, natural Russian delivery; not yet auditioned"
+    },
+    "gentle_female": {
+      "voice_id": "SjASSNNjB2ehJvYAYfoz",
+      "name": "Алия - спокойная и дружелюбная",
+      "expected_character": "gentle female voice; not yet auditioned"
+    }
+  },
+  "story_preferences": {
+    "13": ["expressive_female", "literary_male"],
+    "14": ["conversational_male", "expressive_female"],
+    "15": ["gentle_female", "expressive_female"],
+    "16": ["literary_male", "expressive_female"],
+    "17": ["conversational_male", "literary_male"],
+    "18": ["expressive_female", "conversational_male"]
+  },
+  "notes": "Voice IDs are public provider library identifiers, not downloaded models. Check voice previews, availability, licensing and credit spend before generating. This catalog never alters scripts or invokes TTS."
+}

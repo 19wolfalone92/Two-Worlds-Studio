@@ -82,12 +82,45 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
     if isinstance(opacity,bool) or not isinstance(opacity,(float,int)) or not 0<=opacity<=1:
         raise ValueError("Layer opacity must be between 0 and 1")
     if "motion" in layer:
-        if layer["role"]!="character":
-            raise ValueError("Actor motion is only supported on character layers")
+        if layer["role"]!="character" or "rig" in layer:
+            raise ValueError("Legacy actor motion cannot be combined with an articulated rig")
         from studio.actor_motion import validate_motion
         validate_motion(layer["motion"],root,publish=publish)
     path=resolve_asset(root,layer.get("path"))
     result=inspect_image(path)
+    if "rig" in layer:
+        if layer["role"]!="character":
+            raise ValueError("Only character layers support articulated rig")
+        from studio.character_engine import validate_rig
+        validate_rig(layer["rig"],root,(result["width"],result["height"]),publish=publish)
+    if "deform" in layer:
+        if layer["role"]!="character" or "rig" in layer or "motion" in layer or "facial" in layer:
+            raise ValueError("Continuous deformation is exclusive to legacy or rigged motion")
+        from studio.deformable_actor import validate_deform
+        validate_deform(layer["deform"])
+    if "facial" in layer:
+        if layer["role"]!="character" or "rig" not in layer or "motion" in layer or "deform" in layer:
+            raise ValueError("Facial sprites require an articulated character rig")
+        face=layer["facial"]
+        if not isinstance(face,dict):
+            raise ValueError("Facial performance must be a structured object")
+        if publish and (face.get("review_status")!="approved" or
+                        face.get("rights") not in LICENSES or
+                        len(str(face.get("rights_note","")).strip())<8):
+            raise ValueError("Facial performance needs explicit artist approval and rights")
+        if not (face.get("eyes") or face.get("mouth")):
+            raise ValueError("Facial performance requires real eye or lip plates")
+        for group in ("eyes","mouth"):
+            if not isinstance(face.get(group,{}),dict):
+                raise ValueError("Facial plate groups must be dictionaries")
+            for plate in face.get(group,{}).values():
+                if not isinstance(plate,dict):
+                    raise ValueError("Facial plate must be structured")
+                plate_path=resolve_asset(root,plate.get("path"))
+                art=inspect_image(plate_path)
+                if (plate.get("sha256")!=art["sha256"] or not art["alpha"] or
+                    (art["width"],art["height"])!=(result["width"],result["height"])):
+                    raise ValueError("Facial plate dimensions/alpha/SHA-256 must match actor")
     warnings=[]
     if result["width"]<min_width or result["height"]<min_height:
         warnings.append("Artwork resolution below target for chosen output")
@@ -97,7 +130,9 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
         warnings.append("Very low background luminance contrast — check visibility on mobile")
     if layer["role"]=="background" and (result["brightness"]<0.065 or result["brightness"]>0.96):
         warnings.append("Extreme background brightness — check exposure")
-    if result["alpha"] and result["alpha_coverage"]<0.002:
+    # A rig is rendered from its reviewed articulated sprites. The base
+    # character canvas may deliberately be transparent; this is not missing art.
+    if result["alpha"] and result["alpha_coverage"]<0.002 and "rig" not in layer:
         warnings.append("Layer is almost completely transparent")
     if layer.get("sha256") is not None and layer["sha256"]!=result["sha256"]:
         raise ValueError(f"Artwork hash mismatch: {layer['path']}")
@@ -154,6 +189,8 @@ def validate_premium_scene(scene:dict, root:Path, *, publish:bool=False,
         z=state.get("zoom",1.0)
         if isinstance(z,bool) or not isinstance(z,(int,float)) or not 1<=z<=1.4:
             raise ValueError("Camera zoom must be within 1..1.4")
+    from studio.cinematic_lighting import validate_lights
+    validate_lights(config.get("lights",[]))
     if config.get("grain",0.0) not in (0,0.0,None):
         g=config["grain"]
         if isinstance(g,bool) or not isinstance(g,(int,float)) or not 0<=g<=0.25:

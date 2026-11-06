@@ -1,0 +1,57 @@
+name: TWO WORLDS - Private Batch03 CPU review export (6 films)
+on:
+  push:
+    branches: ['integration/story-glitch-batch03-20261104']
+    paths: ['.github/batch03_requests/release.json']
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-private-cpu-release
+  cancel-in-progress: false
+jobs:
+  private-cpu-review:
+    if: >-
+      github.repository == '19wolfalone92/Two-Worlds-Studio' &&
+      github.ref == 'refs/heads/integration/story-glitch-batch03-20261104'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Confirm approved CPU-only six-story release request
+        run: |
+          python - <<'PY'
+          import json
+          x=json.load(open('.github/batch03_requests/release.json'))
+          assert x.get('mode')=='cpu_only_review' and x.get('free_resources_only') is True
+          print('Six-story CPU-only private review request verified. No GPU or publishing.')
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU-only media dependencies (NO GPU, NO paid APIs)
+        run: |
+          python -m pip install -r requirements.txt 'kaggle==2.2.5' six cryptography Pillow numpy
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          ffmpeg -hide_banner -filters | grep -E '[[:space:]]ass[[:space:]]' >/dev/null
+      - name: Recover previously GENERATED private images and voices, render finished reviews only
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          KAGGLE_USERNAME: wolf19loner92
+        run: python -m tools.batch03_cpu_release
+      - name: Upload ENCRYPTED completed review outputs ONLY
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tw-private-6-films-review-only
+          path: dist/private_batch03_release/
+          retention-days: 7
+          if-no-files-found: error
+      - name: Scrub all temporary private story/media from the hosted runner
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP" ]; then
+            find "$RUNNER_TEMP" -maxdepth 1 -type d -name 'tw-private-release-*' -exec rm -rf -- {} + || true
+          fi

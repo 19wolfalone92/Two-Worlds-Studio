@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "nonce": "motion-supplement-20261104-01",
+  "phase": "motion_batch",
+  "motion_memory_mode": "resident",
+  "vae_tile": 256,
+  "first_variant": 4,
+  "story": "16",
+  "stories": [
+    16,
+    17,
+    18
+  ],
+  "count": 8,
+  "first_scene": 1,
+  "variants": 1,
+  "frames": 81,
+  "width": 512,
+  "height": 896,
+  "free_resources_only": true,
+  "dataset_slug": "two-worlds-private-batch03-20261104-repair-v6",
+  "source_sha256": "0bf78ddd15984ecd51287dc3140cd9b2b89192348fd95fd6e49edf4e95d0f061",
+  "model_kernel": "wolf19loner92/tw-batch03-motion-cpu-cache-20261104-01",
+  "image_kernel": "wolf19loner92/tw-batch03-image-repair-v6-20261104-01",
+  "recovery_kernel": "wolf19loner92/tw-batch03-image-repair-v4-20261104-01"
+}

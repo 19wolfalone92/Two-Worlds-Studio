@@ -68,7 +68,7 @@ jobs:
           echo "Token configured; optional account username will be identified from authenticated CLI."
 
       - name: Install official Kaggle CLI
-        run: python -m pip install "kaggle>=2.2.4"
+        run: python -m pip install "kaggle>=2.2.4" -r requirements.txt
 
       - name: Authenticate and detect Kaggle username without printing credentials
         shell: bash
