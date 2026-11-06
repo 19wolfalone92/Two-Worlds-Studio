@@ -79,6 +79,15 @@ class KaggleComfyTests(unittest.TestCase):
                 archive.writestr("render_manifest.json", json.dumps(manifest))
             with self.assertRaisesRegex(ValueError, "checksum"):
                 verify(target, "comfy-123-1")
+            # Signature and dimensions alone are not enough: PNG IDAT may be
+            # truncated/corrupt yet look correct to a header-only verifier.
+            corrupted = png[:128] + b"x" * 10240
+            manifest["png_sha256"] = hashlib.sha256(corrupted).hexdigest()
+            with zipfile.ZipFile(target / "TWO_WORLDS_ARTIFACTS.zip", "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("render.png", corrupted)
+                archive.writestr("render_manifest.json", json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, "pixel decoding"):
+                verify(target, "comfy-123-1")
 
     def test_gpu_workflow_is_explicit_once_and_private(self):
         from studio.comfy_kaggle import ROOT
