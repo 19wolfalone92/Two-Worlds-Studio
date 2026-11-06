@@ -8,6 +8,7 @@ temporary runners do NOT offer cross-run persistence.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import sqlite3
@@ -160,6 +161,8 @@ def fail(db: sqlite3.Connection, job_id: str, worker_id: str, reason: str,
         terminal=reason in {"unsafe_input","invalid_response"} or attempts >= MAX_ATTEMPTS
         state="failed" if terminal else "waiting"
         delay=max(min(3600,60*2**(attempts-1)),retry_after or 0)
+        if reason=="quota_exhausted":
+            delay=max(delay,86400)  # Free daily allowance; do not churn requests
         db.execute("""UPDATE studio_jobs SET status=?, retry_at=?,
           lease_owner=NULL, lease_until=NULL, failure_reason=?,updated_at=?
           WHERE job_id=?""",(state,stamp+delay,reason,stamp,job_id))
@@ -178,18 +181,65 @@ def status(db: sqlite3.Connection) -> dict:
             "no_raw_prompts_or_tokens":True,"provider_execution_implemented":False}
 
 
+def enqueue_routes(db: sqlite3.Connection, plan: dict, *, now: float | None = None) -> dict:
+    """Persist eligible free-only dry-run scenes. Does NOT execute GPU/API calls."""
+    if (not isinstance(plan,dict) or plan.get("schema")!=1
+            or plan.get("safe_free_only") is not True
+            or plan.get("auto_publish") is not False):
+        raise ValueError("Only safe free-only non-publishing route plans can be queued")
+    episode=plan.get("episode")
+    if not isinstance(episode,str) or not IDENTIFIER.fullmatch(episode):
+        raise ValueError("Safe episode ID required")
+    source=plan.get("source_prompt_pack_sha256")
+    if not isinstance(source,str) or not SHA.fullmatch(source):
+        raise ValueError("Source prompt pack SHA256 required")
+    rows=plan.get("routes")
+    if not isinstance(rows,list) or len(rows)>500:
+        raise ValueError("Invalid planned scenes")
+    count=0
+    skipped=0
+    for row in rows:
+        if not isinstance(row,dict) or row.get("automatic_submission") is not False:
+            raise ValueError("Cannot queue auto-submitting provider jobs")
+        provider=row.get("provider")
+        if provider is None:
+            skipped+=1
+            continue
+        if provider not in {"cloudflare_image","horde"}:
+            raise ValueError("Unreviewed provider is not allowed")
+        if provider=="horde" and (row.get("private") is not False
+                                  or row.get("reference_count")!=0):
+            raise ValueError("Private or referenced art must never use volunteer Horde")
+        scene=row.get("scene")
+        if not isinstance(scene,str) or not IDENTIFIER.fullmatch(scene):
+            raise ValueError("Invalid planned scene")
+        fingerprint=row.get("prompt_sha256")
+        if not isinstance(fingerprint,str) or not SHA.fullmatch(fingerprint):
+            raise ValueError("Missing deterministic prompt hash")
+        job_id=f"{episode}.{scene}.art"
+        digest=hashlib.sha256((source+":"+provider+":"+fingerprint).encode()).hexdigest()
+        submitted=submit(db,job_id,"image_generation",digest,now=now)
+        count+=int(submitted["enqueued"])
+    return {"new_jobs":count,"skipped_unavailable":skipped,"external_calls":0,
+            "scripts_modified":False,"published":False}
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description="Private durable studio task ledger; no external provider calls")
     p.add_argument("--database",type=Path,default=Path("/tmp/two_worlds_studio/jobs.sqlite3"))
     modes=p.add_mutually_exclusive_group(required=True)
     modes.add_argument("--status",action="store_true")
     modes.add_argument("--submit",type=str)
+    modes.add_argument("--route-plan",type=Path)
     p.add_argument("--kind",choices=sorted(KINDS))
     p.add_argument("--payload-sha256")
     args=p.parse_args(argv)
     with open_queue(args.database) as db:
         if args.status:
             result=status(db)
+        elif args.route_plan:
+            plan=json.loads(args.route_plan.read_text(encoding="utf-8"))
+            result=enqueue_routes(db,plan)
         else:
             if not args.kind or not args.payload_sha256:
                 p.error("--submit requires --kind and --payload-sha256")
