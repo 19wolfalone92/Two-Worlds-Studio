@@ -58,8 +58,27 @@ jobs:
                       scan(val,path+"["+str(i)+"]")
           scan(data)
           if not found:
-              print("GPU_QUOTA_STATUS=UNKNOWN_NO_WHITELISTED_NUMERIC_FIELDS")
+              print("GPU_QUOTA_STATUS=FIELDS_ARE_STRING_OR_LIST")
               print("OUTPUT_SHAPE="+type(data).__name__)
+              if isinstance(data,list):
+                  for row in data[:8]:
+                      if isinstance(row,dict):
+                          print("QUOTA_ROW_SAFE="+json.dumps({
+                              str(k):v for k,v in row.items()
+                              if any(x in str(k).lower() for x in (
+                                  "gpu","tpu","quota","remain","used",
+                                  "total","weekly","hour","amount",
+                                  "accelerator","type","available","limit",
+                                  "name","duration","value","spent"))
+                              and isinstance(v,(str,int,float,bool))
+                          },sort_keys=True))
+                      elif isinstance(row,list):
+                          print("QUOTA_ROW_ARRAY_SAFE="+json.dumps([
+                              str(v)[:60] for v in row[:6]
+                              if isinstance(v,(int,float,str))
+                          ]))
+              elif isinstance(data,dict):
+                  print("QUOTA_KEYS_SAFE="+",".join(sorted(data.keys())[:20]))
           else:
               print("GPU_QUOTA_STATUS=REPORTED")
               for key,value in found[:40]:
