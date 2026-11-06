@@ -32,8 +32,8 @@ class SubpixelParallaxTests(unittest.TestCase):
         self.assertLess(result.getchannel("A").getextrema()[0],255)
         scene={"cinematic":{"camera":{"start":{"x":-.25,"y":0,"zoom":1.1},
                                      "end":{"x":.25,"y":.05,"zoom":1.2}}}}
-        self.assertEqual(camera_state(scene,0.5)[0],1.15)
-        self.assertLess(camera_state(scene,0.25)[0],camera_state(scene,0.75)[0])
+        self.assertAlmostEqual(camera_state(scene,0.5)[2],1.15)
+        self.assertLess(camera_state(scene,0.25)[2],camera_state(scene,0.75)[2])
 
 if __name__=="__main__":
     unittest.main()
