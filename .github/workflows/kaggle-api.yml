@@ -36,7 +36,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: two-worlds-kaggle-api
+  group: two-worlds-kaggle-account
   cancel-in-progress: false
 
 jobs:
@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          kaggle quota >/dev/null
+          # No extra API request just to verify a token before a GPU job.
           python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
 
       - name: Prepare private Kaggle kernel from pinned GitHub revision
@@ -104,14 +104,15 @@ jobs:
           python -m studio.kaggle_api poll \
             --kernel "$KAGGLE_USERNAME/two-worlds-visual-gpu" \
             --timeout 3300 \
-            --interval 45
+            --interval 180
 
       - name: Download private Kaggle results into temporary runner
         shell: bash
         run: |
           mkdir -p dist/kaggle_result
-          kaggle kernels output "$KAGGLE_USERNAME/two-worlds-visual-gpu" \
-            -p dist/kaggle_result --force
+          python -m studio.kaggle_api_limits output \
+            --kernel "$KAGGLE_USERNAME/two-worlds-visual-gpu" \
+            --output-dir dist/kaggle_result
 
       - name: Check run identity and nonempty generated PNG/WAV
         shell: bash
