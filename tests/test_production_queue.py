@@ -4,7 +4,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
-from studio.production_queue import open_queue,submit,claim,succeed,fail,status
+from studio.production_queue import open_queue,submit,claim,succeed,fail,status,enqueue_routes
 
 H="a"*64
 
@@ -65,6 +65,33 @@ class QueueTests(unittest.TestCase):
                     fail(db,"ep01.sc04","worker-a","secret: API key 123",now=2)
                 self.assertTrue(status(db)["no_raw_prompts_or_tokens"])
                 self.assertFalse(status(db)["provider_execution_implemented"])
+
+    def test_free_route_plan_can_be_staged_without_inference(self):
+        from studio.free_studio import prepare_batch
+        plan = prepare_batch(
+            {"schema":1,"episode":"E01","scenes":[
+                {"scene":"S01","prompt":"Real abandoned corridor cinematic atmosphere","seed":10},
+                {"scene":"S02","prompt":"A lonely building at night with cinematic lighting","seed":11}
+            ]},
+            {"CLOUDFLARE_AI_TOKEN":"test","CLOUDFLARE_ACCOUNT_ID":"e"*32})
+        with tempfile.TemporaryDirectory() as td:
+            with open_queue(Path(td)/"q.db") as db:
+                receipt=enqueue_routes(db,plan,now=100)
+                self.assertEqual(receipt["new_jobs"],2)
+                self.assertEqual(receipt["external_calls"],0)
+                self.assertFalse(receipt["published"])
+                self.assertEqual(enqueue_routes(db,plan,now=101)["new_jobs"],0)
+                self.assertEqual(len(status(db)["jobs"]),1)
+                self.assertEqual(status(db)["jobs"][0]["count"],2)
+
+    def test_rate_limit_daily_quota_retry(self):
+        with tempfile.TemporaryDirectory() as td:
+            with open_queue(Path(td)/"q.db") as db:
+                submit(db,"ep01.sc05","image_generation",H,now=0)
+                claim(db,"worker-a",now=1)
+                result=fail(db,"ep01.sc05","worker-a","quota_exhausted",now=2)
+                self.assertGreaterEqual(result["retry_after_seconds"],86400)
+                self.assertIsNone(claim(db,"worker-b",now=3600))
 
     def test_public_repository_database_blocked(self):
         from studio.production_queue import ROOT
