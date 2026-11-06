@@ -39,6 +39,7 @@ jobs:
             tests.test_subtitle_align \
             tests.test_model_cache \
             tests.test_animation_quality_v2 \
+            tests.test_continuity_ledger \
             tests.test_hf_hub -v
       - name: Dry-run preflight for both Hugging Face and Russian TTS
         run: |
