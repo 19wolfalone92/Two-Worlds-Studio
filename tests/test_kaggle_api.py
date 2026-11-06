@@ -122,7 +122,7 @@ class KaggleApiTests(unittest.TestCase):
                 writer.setnchannels(1)
                 writer.setsampwidth(2)
                 writer.setframerate(22050)
-                writer.writeframes(b"\\x00\\x00"*22050)
+                writer.writeframes(b"\x00\x00"*22050)
             with zipfile.ZipFile(archive,"w") as bundle:
                 bundle.writestr("Mira_voice_sample.wav",audio.getvalue())
             import hashlib
