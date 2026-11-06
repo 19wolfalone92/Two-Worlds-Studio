@@ -1,0 +1,52 @@
+name: STORY GLITCH V3 - Free provider foundation
+
+on:
+  pull_request:
+    paths:
+      - "studio/cloudflare_flux.py"
+      - "studio/free_studio.py"
+      - "studio/free_connectivity.py"
+      - "tests/test_studio_v3_free.py"
+      - "tests/test_studio_v3_connectivity.py"
+      - ".github/workflows/studio-v3-free-tests.yml"
+  push:
+    branches: ["feature/studio-v3-free-provider-foundation-20261106"]
+    paths: ["ops/studio_v3_readonly.trigger"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU-only dependencies (no model weights)
+        run: python -m pip install -r requirements.txt
+      - name: All network calls mocked; never burn GPU or credits
+        run: |
+          python -m unittest             tests.test_studio_v3_free             tests.test_studio_v3_connectivity -v
+          python -m studio.free_studio > /tmp/studio_v3_readiness.json
+          python -m json.tool /tmp/studio_v3_readiness.json >/dev/null
+      - name: No locked Work script or external provider invoked
+        run: echo "PASS offline provider transport, private-art handoff and no-auto-publication contract."
+
+  cloudflare-model-readonly:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Query only Cloudflare model metadata, NO image generation
+        run: python -m studio.free_connectivity --check
