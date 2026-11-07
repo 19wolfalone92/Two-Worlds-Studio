@@ -1,87 +1,24 @@
-# 🐺 WOLF AI Android v1 — free-first, native, offline-capable
+# WOLF AI Android v1.2 — бесплатная самостоятельная панель
 
-**Working scope:** A real installable Android control panel for the WOLF AI checks
-that already exist in the Two-Worlds-Studio repository. It has an **offline SQLite
-task inbox** (up to 100 entries), deterministic Russian command classification,
-GitHub Actions workflow dispatch, a latest-run status list, Android Keystore
-encrypted personal token storage and an **optional localhost-only** llama.cpp
-chat interface. No account registration beyond an existing GitHub account.
+Собственное приложение Android 8+ без рекламных SDK и обязательных платных API. Исходный код: mobile/wolf-ai.
 
-**Not yet supported:** full Work replacement, automatic code fixing and PR
-creation, autonomous video generation, 24/7 agent hosting, trading,
-TikTok publishing, offline model inference without a separately installed
-local model, or bypassing ChatGPT subscription limits.
+## Реально реализовано
+- Сохраняет до 100 локальных задач в SQLite, автоматически классифицирует проект и режим проверки.
+- По нажатию отправляет только заранее разрешённые проверки в GitHub Actions и сохраняет персональный UID задания.
+- Показывает реальный статус GitHub: отправлено, выполняется, успешно, ошибка. Сверяет UID с названием CI запуска. Показывает шаги ошибок по GitHub REST API; длительное нажатие открывает полный журнал.
+- Сохраняет fine-grained GitHub PAT в Android Keystore; он необходим только для запуска CI и не передаётся локальной модели.
+- Подключается к бесплатной локальной Qwen2.5-Coder-0.5B-Instruct (Apache-2.0, GGUF Q4_0 примерно 429 МБ), если установлены Termux и llama.cpp, и сервер запущен на 127.0.0.1:8080.
+- Имеет кнопку «Настройка бесплатной модели», копирующую команду установки в Termux. Скрипт mobile/wolf-ai/termux/wolf-local.sh устанавливает открытый Termux-пакет llama-cpp, загружает модель у автора Qwen, запускает/останавливает localhost-сервер.
+- Сохраняет историю локального ИИ на телефоне и передаёт только последние несколько сообщений локальному серверу. Историю можно очистить.
 
-## Build Android APK without a PC
+## Ограничения
+Модель не поставляется в APK. После установки Termux и выполнения команды сервер запускается отдельно — система Android не даёт обычному приложению автоматически ставить другой APK. Модель 0.5B очень небольшая и слабее больших облачных моделей. GitHub Actions имеет свои ограничения. Никакого обхода квот Work, автономной публикации или торговли.
 
-Open GitHub → [Actions: WOLF AI Android — Build APK](../.github/workflows/wolf-ai-android.yml).
-Select **Run workflow** on main (once merged) or download the build artifact
-from the pull request. Workflow compiles a native Android APK and verifies
-package ID and permissions. Click the successful build → **Artifacts** →
-\`WOLF-AI-Android-debug-...\`. Download the ZIP, extract the APK and install
-on Android (allow installation of APKs for your file manager if prompted).
+## Управление
+- GitHub: кнопка «Обновить запуски» читает публичные статусы без токена.
+- Для запуска проверок: создать fine-grained GitHub PAT только на 19wolfalone92/Two-Worlds-Studio с правом Actions: Read and write. Никому не присылать токен.
+- Для местной модели: взять Termux из официальных релизов, нажать кнопку «Настройка бесплатной модели» в приложении и вставить команду из буфера в Termux. Требуется разовая загрузка ~429 МБ, после неё запуск без платного API.
+- Нажать «Проверить локальную модель», затем «Спросить локальный ИИ».
 
-This is a *debug-signed APK*. Reinstalling a debug APK from builds that use
-different ephemeral signing keys may fail with INSTALL_FAILED_UPDATE_INCOMPATIBLE.
-Before uninstalling, note that v1 offline task data is local and not exported.
-
-## Start working
-
-1. Open **WOLF AI**. Without internet, you can add and delete tasks in the
-   **Новые задания** area. They are local *plans*, not queued GitHub executions.
-2. To see public CI results, tap **Обновить запуски**. No token required.
-3. To start a CI check from the phone, generate a GitHub fine-grained PAT:
-   GitHub → Settings → Developer settings → Personal access tokens →
-   **Fine-grained tokens** → Generate new token.
-   - Owner: your GitHub account.
-   - Repository access: **Only selected repositories** →
-     **19wolfalone92/Two-Worlds-Studio**.
-   - Repository permissions: **Actions: Read and write**;
-     Metadata: Read (automatically granted).
-   - Give the token a short expiration and revoke it if the device is lost.
-4. Paste the token only in the app's **Доступ к GitHub** field, tap **Сохранить**.
-   This token is encrypted using a non-exportable Android Keystore key.
-   It is not uploaded to the Studio repo and is never sent to a model.
-5. Choose a project and \`audit\` or \`test\`; tap **Запустить проверку**.
-   The app dispatches **only** the preexisting \`wolf-ai-audit.yml\` on main,
-   then fetches run status using a **public GitHub read endpoint**.
-   A successful dispatch is *not* proof the checks passed.
-6. Tap a run entry to open GitHub's actual log and downloadable report.
-
-## Scope of audits
-
-- \`studio\`: preapproved syntax/readiness plus a selection of unit tests.
-- \`shaira\`: existing npm check (including tests).
-- \`williams\`: syntax only, **no bot code modifications and no trading**.
-- \`williams-ai\`: syntax only, **no GPU/LLM training**.
-- \`english-child\`: source inventory only, **no automatic APK build**.
-
-The GitHub backend is finite and bounded. It does not accept arbitrary shell
-commands, source modifications, repository tokens, or links from phone inputs.
-
-## Optional local LLM (no cloud or paid APIs)
-
-If you have a compatible GGUF model and \`llama-server\` installed separately
-(e.g., in Termux), start the server bound to **127.0.0.1:8080**:
-
-~~~bash
-llama-server -m /path/to/your-small-quantized-model.gguf --host 127.0.0.1 --port 8080 -c 2048
-~~~
-
-The app checks \`http://127.0.0.1:8080/v1/models\` then sends the typed
-question to \`/v1/chat/completions\`. It never calls a remote URL in this
-section. The model file/server are *not bundled* with the APK.
-Small locally supported 1–3B quantized models are more realistic starting
-points for phones than large 7B+ models; performance depends on RAM/CPU.
-
-Android network security only permits HTTP cleartext to localhost; GitHub
-communication uses HTTPS. The Android app requests **INTERNET** only.
-
-## Source and reproducibility
-
-Android project: \`mobile/wolf-ai\` (Java, Android 26+, no third-party Android
-runtime dependencies). CI: \`.github/workflows/wolf-ai-android.yml\`.
-Existing Studio/Williams app/source code is not changed.
-
-Free-first means **no required paid LLM/API/hosting**, not unlimited
-GitHub Actions minutes, data transfer, GPU time, or model quality.
+## Техническая честность
+CI проверяет компиляцию, APK package/permissions и сценарии команд. Работу на конкретном Samsung мы не можем подтвердить без испытаний на устройстве. Разные debug-ключи Android могут препятствовать обновлению v1 на v1.2 с сохранением локальных данных.

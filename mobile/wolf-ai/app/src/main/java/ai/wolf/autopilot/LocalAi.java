@@ -41,7 +41,26 @@ public final class LocalAi {
         }
     }
 
+    /** Real readiness check; does not download a model or claim to have one. */
+    public static String check() throws Exception {
+        HttpURLConnection models = connection("/models", "GET");
+        try {
+            int status = models.getResponseCode();
+            if (status != 200) throw new IllegalStateException("Сервер не отвечает (HTTP " + status + ")");
+            JSONObject info = new JSONObject(read(models));
+            JSONArray data = info.getJSONArray("data");
+            if (data.length() == 0) throw new IllegalStateException("Сервер запущен, но модель не загружена.");
+            return "Модель доступна: " + data.getJSONObject(0).optString("id", "local");
+        } finally {
+            models.disconnect();
+        }
+    }
+
     public static String ask(String question) throws Exception {
+        return ask(question, java.util.Collections.emptyList());
+    }
+
+    public static String ask(String question, java.util.List<ChatStore.Message> history) throws Exception {
         if (question == null || question.trim().length() < 3 || question.length() > 1500)
             throw new IllegalArgumentException("Вопрос должен содержать 3–1500 символов.");
 
@@ -59,13 +78,26 @@ public final class LocalAi {
         }
         JSONObject payload = new JSONObject();
         payload.put("model", modelName);
-        payload.put("max_tokens", 512);
+        payload.put("max_tokens", 384);
         payload.put("stream", false);
         JSONArray messages = new JSONArray();
         messages.put(new JSONObject().put("role", "system").put("content",
                 "Ты WOLF AI — локальный помощник. Отвечай по-русски, кратко и точно. " +
                 "Не утверждай, что ты изменил GitHub или выполнил тесты. " +
                 "У тебя нет инструментов изменения файлов. Никогда не запрашивай секреты."));
+        // Keep a tiny bounded conversation window for 0.5B GGUF models
+        // running with a 1536-token context limit. Localhost only.
+        if (history != null) {
+            int start = Math.max(0, history.size() - 4);
+            for (int i = start; i < history.size(); i++) {
+                ChatStore.Message previous = history.get(i);
+                if (!("user".equals(previous.role) || "assistant".equals(previous.role))) continue;
+                String bounded = previous.text.length() > 340
+                        ? previous.text.substring(0, 340) : previous.text;
+                messages.put(new JSONObject().put("role", previous.role)
+                        .put("content", bounded));
+            }
+        }
         messages.put(new JSONObject().put("role", "user").put("content", question.trim()));
         payload.put("messages", messages);
 
