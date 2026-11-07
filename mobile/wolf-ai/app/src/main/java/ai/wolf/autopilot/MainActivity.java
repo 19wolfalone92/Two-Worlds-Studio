@@ -57,6 +57,7 @@ public final class MainActivity extends Activity {
     private TextView connectionState;
     private TextView resultBox;
     private TextView aiOutput;
+    private TextView aiStatus;
     private LinearLayout tasksContainer;
     private LinearLayout runsContainer;
 
@@ -192,7 +193,7 @@ public final class MainActivity extends Activity {
 
         TextView brand = text("🐺 WOLF AI", 32, CYAN, true);
         add(page, brand, 0, 2);
-        add(page, text("Автономный центр управления • Android v1.0", 14, MUTED, false), 0, 18);
+        add(page, text("Автономный центр управления • Android v1.2", 14, MUTED, false), 0, 18);
 
         LinearLayout intro = card(page, "⚡ Бесплатный базовый режим",
                 "Задачи хранятся на телефоне. GitHub выполняет разрешённые проверки. " +
@@ -217,6 +218,25 @@ public final class MainActivity extends Activity {
                 renderTasks();
             } catch (Exception e) {
                 showResult(e.getMessage());
+            }
+        });
+        Button createAndRun = button("💥 Сохранить и запустить проверку", false);
+        add(commands, createAndRun, 4, 8);
+        createAndRun.setOnClickListener(v -> {
+            try {
+                String body = commandInput.getText().toString().trim();
+                CommandParser.Route route = CommandParser.parse(body, selectedProject(), selectedMode());
+                long id = tasks.add(body, route.project, route.mode);
+                commandInput.setText("");
+                renderTasks();
+                for (TaskStore.Task task : tasks.recent()) {
+                    if (task.id == id) {
+                        dispatchTask(task);
+                        break;
+                    }
+                }
+            } catch (Exception e) {
+                showResult("Не удалось сохранить задачу: " + e.getMessage());
             }
         });
         tasksContainer = vertical();
@@ -273,6 +293,24 @@ public final class MainActivity extends Activity {
         LinearLayout llm = card(page, "🧠 Локальный ИИ (опционально)",
                 "Если на этом телефоне запущен llama.cpp-сервер на 127.0.0.1:8080, " +
                 "можно общаться без облачного API. Модель в APK НЕ включена.");
+        aiStatus = text("○ Статус локального сервера неизвестен", 13, ORANGE, true);
+        add(llm, aiStatus, 11, 7);
+        Button checkAi = button("↻ Проверить локальную модель", false);
+        add(llm, checkAi, 0, 8);
+        checkAi.setOnClickListener(v -> {
+            aiStatus.setText("Подключаюсь к 127.0.0.1:8080…");
+            async(LocalAi::check, value -> {
+                aiStatus.setTextColor(GREEN);
+                aiStatus.setText("● " + value);
+            }, error -> {
+                aiStatus.setTextColor(ORANGE);
+                aiStatus.setText("○ Не запущена: " + error);
+            });
+        });
+        Button guide = button("⬇️ Настройка бесплатной модели на телефоне", false);
+        add(llm, guide, 0, 7);
+        guide.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://github.com/19wolfalone92/Two-Worlds-Studio/tree/main/mobile/wolf-ai/termux"))));
         questionInput = entry("Вопрос для локальной модели…", true);
         add(llm, questionInput, 13, 8);
         Button ask = button("Спросить локальный ИИ", false);
@@ -287,7 +325,7 @@ public final class MainActivity extends Activity {
                             "\nНужен отдельно запущенный llama.cpp на 127.0.0.1:8080."));
         });
 
-        TextView footer = text("WOLF AI 1.0 • Под контролем пользователя • Без Work", 12, MUTED, false);
+        TextView footer = text("WOLF AI 1.2 • Под контролем пользователя • Без Work", 12, MUTED, false);
         footer.setGravity(Gravity.CENTER);
         add(page, footer, 10, 22);
     }
@@ -328,16 +366,42 @@ public final class MainActivity extends Activity {
     }
 
     private void dispatchSelected(String project, String mode) {
-        showResult("Отправляю запрос в GitHub…");
+        showResult("Отправляю запрос на проверку " + project + "…");
         async(() -> GithubApi.dispatch(project, mode, secrets.load()),
+                answer -> { showResult(answer); updateRuns(); },
+                error -> showResult("Проверка не запущена: " + error));
+    }
+
+    private void dispatchTask(TaskStore.Task task) {
+        if (!TaskStore.DRAFT.equals(task.status)) {
+            showResult("Задание уже отправлено. Обнови статусы вместо повторного запуска.");
+            return;
+        }
+        showResult("Отправляю задачу " + task.uid + "…");
+        async(() -> GithubApi.dispatch(task.project, task.mode, task.uid, secrets.load()),
+                answer -> {
+                    tasks.submitted(task.id, task.uid);
+                    renderTasks();
+                    showResult(answer);
+                    updateRuns();
+                },
+                error -> showResult("Задание осталось локальным: " + error));
+    }
+
+    private void showJobDetails(long runId) {
+        showResult("Получаю реальные результаты шагов #" + runId + "…");
+        async(() -> GithubApi.jobSummary(runId, secrets.load()),
                 this::showResult,
-                e -> showResult("Запуск не выполнен: " + e));
+                error -> showResult("Детали GitHub пока недоступны: " + error));
     }
 
     private void updateRuns() {
-        showResult("Получаю статусы GitHub…");
+        showResult("Сверяю реальные запуски GitHub…");
         async(() -> {
             List<GithubApi.RunInfo> list = GithubApi.runs(secrets.load());
+            int reconciled = tasks.reconcile(list);
+            org.json.JSONObject info = new org.json.JSONObject();
+            info.put("updated", reconciled);
             org.json.JSONArray rows = new org.json.JSONArray();
             for (GithubApi.RunInfo run : list) {
                 rows.put(new org.json.JSONObject()
@@ -345,32 +409,41 @@ public final class MainActivity extends Activity {
                         .put("status", run.status).put("conclusion", run.conclusion)
                         .put("url", run.url));
             }
-            return rows.toString();
+            info.put("runs", rows);
+            return info.toString();
         }, json -> {
             runsContainer.removeAllViews();
+            renderTasks();
             try {
-                org.json.JSONArray rows = new org.json.JSONArray(json);
-                showResult("Найдено запусков: " + rows.length());
+                org.json.JSONObject data = new org.json.JSONObject(json);
+                org.json.JSONArray rows = data.getJSONArray("runs");
+                showResult("Запусков: " + rows.length() +
+                        " • Обновлено задач: " + data.getInt("updated") +
+                        ". Нажми на запуск для деталей; удерживай для GitHub.");
                 if (rows.length() == 0) add(runsContainer,
                         text("Запусков пока нет.", 13, MUTED, false), 0, 0);
-                for (int i = 0; i < rows.length(); i++) {
+                for (int i = 0; i < rows.length() && i < 15; i++) {
                     org.json.JSONObject row = rows.getJSONObject(i);
                     String status = row.getString("status");
                     String conclusion = row.getString("conclusion");
-                    TextView item = text("● #" + row.getLong("id") + " • " + status +
+                    long runId = row.getLong("id");
+                    TextView item = text("● #" + runId + " • " + status +
                             " / " + conclusion + "\n" + row.optString("name"), 13,
                             "success".equals(conclusion) ? GREEN : ORANGE, false);
                     item.setBackground(shape(INPUT, 10));
                     pad(item, 12, 11);
                     add(runsContainer, item, 0, 9);
                     String url = row.getString("url");
-                    item.setOnClickListener(v -> startActivity(
-                            new Intent(Intent.ACTION_VIEW, Uri.parse(url))));
+                    item.setOnClickListener(v -> showJobDetails(runId));
+                    item.setOnLongClickListener(v -> {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                        return true;
+                    });
                 }
             } catch (Exception e) {
-                showResult("Не удалось разобрать статусы: " + e.getMessage());
+                showResult("Ошибка разбора ответа GitHub: " + e.getMessage());
             }
-        }, e -> showResult("Получить статусы не удалось: " + e));
+        }, error -> showResult("Сверка не выполнена: " + error));
     }
 
     private void renderTasks() {
@@ -387,17 +460,30 @@ public final class MainActivity extends Activity {
             pad(box, 12, 11);
             add(tasksContainer, box, 0, 9);
             add(box, text(task.text, 14, WHITE, true), 0, 4);
-            add(box, text("Только локальный план: " + task.project + " • " + task.mode, 12, MUTED, false), 0, 8);
+            String status;
+            int stateColor;
+            switch (task.status) {
+                case TaskStore.SUBMITTED: status = "ОТПРАВЛЕНО — ждём GitHub"; stateColor = ORANGE; break;
+                case TaskStore.RUNNING: status = "ВЫПОЛНЯЕТСЯ"; stateColor = CYAN; break;
+                case TaskStore.SUCCESS: status = "ПРОВЕРКИ УСПЕШНЫ"; stateColor = GREEN; break;
+                case TaskStore.FAILURE: status = "ПРОВЕРКА С ОШИБКОЙ"; stateColor = ORANGE; break;
+                default: status = "ЧЕРНОВИК НА ТЕЛЕФОНЕ"; stateColor = MUTED;
+            }
+            add(box, text(task.project + " • " + task.mode + " • " + status +
+                    (task.runId > 0 ? " • #" + task.runId : ""), 12, stateColor, true), 0, 8);
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
-            Button check = button("Проверить", true);
+            Button check = button(TaskStore.DRAFT.equals(task.status) ? "▶ Проверить" : "↻ Статус", true);
             Button remove = button("Удалить", false);
             LinearLayout.LayoutParams half = new LinearLayout.LayoutParams(0, dp(48), 1);
             half.setMargins(0, 0, dp(7), 0);
             row.addView(check, half);
             row.addView(remove, new LinearLayout.LayoutParams(0, dp(48), 1));
             add(box, row, 0, 0);
-            check.setOnClickListener(v -> dispatchSelected(task.project, task.mode));
+            check.setOnClickListener(v -> {
+                if (TaskStore.DRAFT.equals(task.status)) dispatchTask(task);
+                else updateRuns();
+            });
             remove.setOnClickListener(v -> {
                 tasks.remove(task.id);
                 renderTasks();
