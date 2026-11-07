@@ -11,7 +11,7 @@ The allowlist includes `studio` (Two-Worlds-Studio), `shaira`, `williams`, `will
 From the Two-Worlds-Studio checkout:
 
 ~~~bash
-python -m unittest discover -s tests -p test_wolf_ai.py -v
+python -m unittest discover -s tests -p 'test_wolf*.py' -v
 python -m wolf_ai.orchestrator --project studio --mode audit --source . \
   --output ../wolf-audit.json
 # Explicitly opt into running checks:
@@ -33,6 +33,31 @@ python -m wolf_ai.ai_review --report ../wolf-audit.json \
 ~~~
 
 Other providers require a user-provided endpoint/model/token and potentially incur costs. Never enter provider credentials into a public repository. Do not run optional paid cloud inference automatically.
+
+## Optional bounded AI patch proposal
+
+The source-to-diff tool is **off by default**. It may transmit up to 3 explicitly
+selected UTF-8 source files to your selected model when you pass
+`--send-source`. **Do not select any files containing private information,
+credentials, or licensed scripts.** A local Ollama endpoint is one option.
+A paid remote endpoint may incur charges.
+
+From the Studio checkout, assuming Ollama and the model are already running:
+
+~~~bash
+python -m wolf_ai.patch_proposal --source . \
+  --file studio/smooth_camera.py \
+  --issue "Propose a narrowly scoped improvement to camera motion smoothing" \
+  --output ../wolf-camera-proposal.patch \
+  --send-source --base-url http://127.0.0.1:11434/v1 \
+  --model qwen2.5-coder:7b
+~~~
+
+The model's output must be a unified git diff touching only the selected files.
+The tool validates the paths and uses `git apply --check`. It **does not**
+apply the patch, execute proposed changes, open a PR, or run code tests. An
+engineer must inspect it and test it before applying. This feature is local
+only, never invoked automatically by GitHub Actions.
 
 ## Guarantees and limitations
 
