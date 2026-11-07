@@ -198,7 +198,7 @@ public final class MainActivity extends Activity {
 
         TextView brand = text("🐺 WOLF AI", 32, CYAN, true);
         add(page, brand, 0, 2);
-        add(page, text("Автономный центр управления • Android v1.3", 14, MUTED, false), 0, 18);
+        add(page, text("Автономный центр управления • Android v2.0", 14, MUTED, false), 0, 18);
 
         LinearLayout intro = card(page, "⚡ Бесплатный базовый режим",
                 "Задачи хранятся на телефоне. GitHub выполняет разрешённые проверки. " +
@@ -320,71 +320,45 @@ public final class MainActivity extends Activity {
             showResult("Локальный GitHub-токен удалён.");
         });
 
-        LinearLayout llm = card(page, "🧠 Локальный ИИ (опционально)",
-                "Если на этом телефоне запущен llama.cpp-сервер на 127.0.0.1:8080, " +
-                "можно общаться без облачного API. Модель в APK НЕ включена.");
-        aiStatus = text("○ Статус локального сервера неизвестен", 13, ORANGE, true);
+        LinearLayout llm = card(page, "🧠 ВСТРОЕННЫЙ ИИ — без интернета",
+                "Qwen2.5-Coder 0.5B + llama.cpp находятся внутри APK. " +
+                "Не нужен Termux, компьютер, доступ к сервисам или платный API. " +
+                "При первом обращении модель распакуется в память приложения (~430 МБ).");
+        aiStatus = text("● Модель в комплекте APK • Android ARM64", 13, GREEN, true);
         add(llm, aiStatus, 11, 7);
-        Button checkAi = button("↻ Проверить локальную модель", false);
+        Button checkAi = button("⚡ Запустить встроенный ИИ", true);
         add(llm, checkAi, 0, 8);
         checkAi.setOnClickListener(v -> {
-            aiStatus.setText("Подключаюсь к 127.0.0.1:8080…");
-            async(LocalAi::check, value -> {
+            aiStatus.setText("Проверяю SHA256 и загружаю локальную модель…");
+            async(() -> EmbeddedAi.check(getApplicationContext()), value -> {
                 aiStatus.setTextColor(GREEN);
                 aiStatus.setText("● " + value);
             }, error -> {
                 aiStatus.setTextColor(ORANGE);
-                aiStatus.setText("○ Не запущена: " + error);
+                aiStatus.setText("○ Ошибка модели: " + error);
             });
         });
-        Button guide = button("⬇️ Настройка бесплатной модели на телефоне", false);
-        add(llm, guide, 0, 7);
-        guide.setOnClickListener(v -> {
-            String[] options = {"Компактная Qwen 0.5B — ~429 МБ",
-                    "Улучшенная Qwen 1.5B — ~1.12 ГБ"};
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("Бесплатная локальная модель")
-                    .setItems(options, (dialog, choice) -> {
-                        String size = choice == 0 ? "small" : "balanced";
-                        String command = "pkg install -y curl && curl -fsSL " +
-                                "https://raw.githubusercontent.com/19wolfalone92/Two-Worlds-Studio/main/" +
-                                "mobile/wolf-ai/termux/wolf-local.sh -o wolf-local.sh && " +
-                                "bash wolf-local.sh setup " + size + " && bash wolf-local.sh start";
-                        ClipboardManager clipboard =
-                                (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-                        if (clipboard != null) clipboard.setPrimaryClip(
-                                ClipData.newPlainText("WOLF AI Termux", command));
-                        aiStatus.setTextColor(CYAN);
-                        aiStatus.setText("Команда скопирована. Вставь её в Termux; " +
-                                "скачанная модель будет проверена по SHA256.");
-                        startActivity(new Intent(Intent.ACTION_VIEW,
-                                Uri.parse("https://github.com/termux/termux-app/releases")));
-                    })
-                    .setNegativeButton("Отмена", null)
-                    .show();
-        });
-        questionInput = entry("Вопрос для локальной модели…", true);
+        questionInput = entry("Вопрос для встроенного ИИ…", true);
         add(llm, questionInput, 13, 8);
-        Button ask = button("Спросить локальный ИИ", false);
+        Button ask = button("🧠 Спросить ИИ офлайн", false);
         add(llm, ask, 0, 9);
-        aiOutput = text("Без запущенного локального сервера этот раздел не отвечает.", 13, MUTED, false);
+        aiOutput = text("Модель уже внутри приложения. Для начала просто задай вопрос.", 13, MUTED, false);
         add(llm, aiOutput, 0, 0);
         ask.setOnClickListener(v -> {
             String question = questionInput.getText().toString().trim();
-            aiOutput.setText("Обрабатываю запрос на телефоне…");
-            async(() -> LocalAi.ask(question, chat.recent(4)), answer -> {
+            aiOutput.setText("Думаю на процессоре телефона…");
+            async(() -> EmbeddedAi.ask(getApplicationContext(), question, chat.recent(4)), answer -> {
                 chat.add("user", question);
                 chat.add("assistant", answer);
                 aiOutput.setText(answer);
                 questionInput.setText("");
-            }, error -> aiOutput.setText("Локальный ИИ недоступен: " + error +
-                    "\nНужен работающий llama.cpp на 127.0.0.1:8080."));
+            }, error -> aiOutput.setText("Не удалось запустить встроенный ИИ: " + error));
         });
         Button clearChat = button("Очистить память локального чата", false);
         add(llm, clearChat, 8, 0);
         clearChat.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
                 .setTitle("Удалить историю локального ИИ?")
-                .setMessage("Сообщения будут удалены с телефона.")
+                .setMessage("Сообщения будут удалены только с этого телефона.")
                 .setNegativeButton("Отмена", null)
                 .setPositiveButton("Удалить", (dialog, button) -> {
                     chat.clearHistory();
@@ -392,7 +366,7 @@ public final class MainActivity extends Activity {
                 })
                 .show());
 
-        TextView footer = text("WOLF AI 1.3 • Под контролем пользователя • Без Work", 12, MUTED, false);
+        TextView footer = text("WOLF AI 2.0 • Под контролем пользователя • Без Work", 12, MUTED, false);
         footer.setGravity(Gravity.CENTER);
         add(page, footer, 10, 22);
     }
@@ -484,7 +458,7 @@ public final class MainActivity extends Activity {
                     evidence.substring(0, Math.min(850, evidence.length()));
             try {
                 return "Данные GitHub #" + selected.id + ":\n" + evidence +
-                        "\n\nАнализ локального ИИ:\n" + LocalAi.ask(prompt);
+                        "\n\nАнализ локального ИИ:\n" + EmbeddedAi.ask(getApplicationContext(), prompt, java.util.Collections.emptyList());
             } catch (Exception localError) {
                 return "Данные GitHub #" + selected.id + ":\n" + evidence +
                         "\n\nИИ не подключился: " + localError.getMessage() +

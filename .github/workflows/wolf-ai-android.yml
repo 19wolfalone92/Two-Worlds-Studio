@@ -39,6 +39,37 @@ jobs:
           packages: 'platform-tools'
       - name: Install SDK platform and build tools
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android NDK and CMake for embedded llama.cpp
+        run: sdkmanager "ndk;29.0.13113456" "cmake;3.31.6"
+      - name: Pin and fetch upstream open-source llama.cpp runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p mobile/wolf-ai/third_party/llama.cpp
+          cd mobile/wolf-ai/third_party/llama.cpp
+          git init -q
+          git remote add origin https://github.com/ggml-org/llama.cpp.git
+          git -c protocol.version=2 fetch --no-tags --depth 1 origin e95426f16982054c379ca7bdc8186996dd22f0fe
+          git checkout -q --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "e95426f16982054c379ca7bdc8186996dd22f0fe"
+          test -s include/llama.h
+      - name: Bundle licensed Qwen weights inside APK (no runtime model downloads)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p mobile/wolf-ai/app/src/main/assets
+          curl --fail --location --retry 5 --retry-delay 5 --connect-timeout 30 \
+            -o mobile/wolf-ai/app/src/main/assets/qwen2.5-coder-0.5b-instruct-q4_0.gguf \
+            https://huggingface.co/Qwen/Qwen2.5-Coder-0.5B-Instruct-GGUF/resolve/main/qwen2.5-coder-0.5b-instruct-q4_0.gguf
+          printf '%s  %s\n' \
+            '9739055e046d62a937e5b7879012209ef40ebea8a1569a96028de491f3f091d5' \
+            mobile/wolf-ai/app/src/main/assets/qwen2.5-coder-0.5b-instruct-q4_0.gguf | sha256sum -c -
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/ggml-org/llama.cpp/e95426f16982054c379ca7bdc8186996dd22f0fe/LICENSE \
+            -o mobile/wolf-ai/app/src/main/assets/LLAMA_CPP_LICENSE.txt
+          curl --fail --location --retry 3 \
+            https://www.apache.org/licenses/LICENSE-2.0.txt \
+            -o mobile/wolf-ai/app/src/main/assets/QWEN_LICENSE.txt
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -49,6 +80,8 @@ jobs:
           grep -F '9739055e046d62a937e5b7879012209ef40ebea8a1569a96028de491f3f091d5' mobile/wolf-ai/termux/wolf-local.sh
           grep -F 'cc324af070c2ecbfd324a30884d2f951a7ff756aba85cb811a6ec436933bb046' mobile/wolf-ai/termux/wolf-local.sh
           test -s mobile/wolf-ai/app/src/main/java/ai/wolf/autopilot/GithubOperations.java
+          test -s mobile/wolf-ai/app/src/main/cpp/wolf_native.cpp
+          test -s mobile/wolf-ai/app/src/main/java/ai/wolf/autopilot/EmbeddedAi.java
           grep -F "client_task_id" .github/workflows/wolf-ai-audit.yml
       - name: Compile Android APK
         run: gradle --no-daemon -p mobile/wolf-ai :app:assembleDebug
@@ -58,6 +91,9 @@ jobs:
           set -euo pipefail
           apk="mobile/wolf-ai/app/build/outputs/apk/debug/app-debug.apk"
           test -s "$apk"
+          unzip -l "$apk" | grep -F 'assets/qwen2.5-coder-0.5b-instruct-q4_0.gguf'
+          unzip -l "$apk" | grep -F 'lib/arm64-v8a/libwolf_native.so'
+          test "$(stat -c%s "$apk")" -gt 400000000
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep -F "package: name='ai.wolf.autopilot'"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$apk" | tee /tmp/wolf-permissions.txt
           grep -F "android.permission.INTERNET" /tmp/wolf-permissions.txt
