@@ -1,0 +1,88 @@
+package ai.wolf.autopilot;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * Optional llama.cpp / OpenAI-compatible endpoint on the SAME Android device.
+ * Never calls external provider APIs or transmits GitHub credentials.
+ */
+public final class LocalAi {
+    private static final String BASE = "http://127.0.0.1:8080/v1";
+    private LocalAi() {}
+
+    private static HttpURLConnection connection(String path, String method) throws Exception {
+        HttpURLConnection con = (HttpURLConnection) new URL(BASE + path).openConnection();
+        con.setRequestMethod(method);
+        con.setConnectTimeout(4000);
+        con.setReadTimeout(60000);
+        con.setRequestProperty("Accept", "application/json");
+        return con;
+    }
+
+    private static String read(HttpURLConnection con) throws Exception {
+        InputStream stream = con.getResponseCode() >= 400 ? con.getErrorStream() : con.getInputStream();
+        if (stream == null) return "";
+        try (InputStream in = stream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                if (out.size() + n > 250000) throw new IllegalStateException("Слишком большой ответ ИИ.");
+                out.write(buf, 0, n);
+            }
+            return out.toString(StandardCharsets.UTF_8.name());
+        }
+    }
+
+    public static String ask(String question) throws Exception {
+        if (question == null || question.trim().length() < 3 || question.length() > 1500)
+            throw new IllegalArgumentException("Вопрос должен содержать 3–1500 символов.");
+
+        HttpURLConnection models = connection("/models", "GET");
+        String modelName;
+        try {
+            if (models.getResponseCode() != 200)
+                throw new IllegalStateException("Локальная модель пока не запущена.");
+            JSONObject info = new JSONObject(read(models));
+            JSONArray data = info.getJSONArray("data");
+            if (data.length() == 0) throw new IllegalStateException("Локальная модель не загружена.");
+            modelName = data.getJSONObject(0).getString("id");
+        } finally {
+            models.disconnect();
+        }
+        JSONObject payload = new JSONObject();
+        payload.put("model", modelName);
+        payload.put("max_tokens", 512);
+        payload.put("stream", false);
+        JSONArray messages = new JSONArray();
+        messages.put(new JSONObject().put("role", "system").put("content",
+                "Ты WOLF AI — локальный помощник. Отвечай по-русски, кратко и точно. " +
+                "Не утверждай, что ты изменил GitHub или выполнил тесты. " +
+                "У тебя нет инструментов изменения файлов. Никогда не запрашивай секреты."));
+        messages.put(new JSONObject().put("role", "user").put("content", question.trim()));
+        payload.put("messages", messages);
+
+        HttpURLConnection con = connection("/chat/completions", "POST");
+        try {
+            con.setDoOutput(true);
+            con.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            byte[] bytes = payload.toString().getBytes(StandardCharsets.UTF_8);
+            con.setFixedLengthStreamingMode(bytes.length);
+            try (OutputStream out = con.getOutputStream()) { out.write(bytes); }
+            int code = con.getResponseCode();
+            String response = read(con);
+            if (code != 200) throw new IllegalStateException("Локальный ИИ ответил с ошибкой HTTP " + code + ".");
+            return new JSONObject(response).getJSONArray("choices").getJSONObject(0)
+                    .getJSONObject("message").optString("content", "Модель вернула пустой ответ.");
+        } finally {
+            con.disconnect();
+        }
+    }
+}
