@@ -46,6 +46,9 @@ jobs:
       - name: Verify on-device bootstrap syntax
         run: |
           bash -n mobile/wolf-ai/termux/wolf-local.sh
+          grep -F '9739055e046d62a937e5b7879012209ef40ebea8a1569a96028de491f3f091d5' mobile/wolf-ai/termux/wolf-local.sh
+          grep -F 'cc324af070c2ecbfd324a30884d2f951a7ff756aba85cb811a6ec436933bb046' mobile/wolf-ai/termux/wolf-local.sh
+          test -s mobile/wolf-ai/app/src/main/java/ai/wolf/autopilot/GithubOperations.java
           grep -F "client_task_id" .github/workflows/wolf-ai-audit.yml
       - name: Compile Android APK
         run: gradle --no-daemon -p mobile/wolf-ai :app:assembleDebug
