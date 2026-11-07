@@ -337,17 +337,28 @@ public final class MainActivity extends Activity {
         Button guide = button("⬇️ Настройка бесплатной модели на телефоне", false);
         add(llm, guide, 0, 7);
         guide.setOnClickListener(v -> {
-            String command = "pkg install -y curl && curl -fsSL " +
-                    "https://raw.githubusercontent.com/19wolfalone92/Two-Worlds-Studio/main/mobile/wolf-ai/termux/wolf-local.sh" +
-                    " -o wolf-local.sh && bash wolf-local.sh setup && bash wolf-local.sh start";
-            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (clipboard != null)
-                clipboard.setPrimaryClip(ClipData.newPlainText("Wolf AI Termux", command));
-            aiStatus.setTextColor(CYAN);
-            aiStatus.setText("Команда установки скопирована. Вставь её в Termux. " +
-                    "Понадобится разовая загрузка модели (~429 МБ).");
-            startActivity(new Intent(Intent.ACTION_VIEW,
-                    Uri.parse("https://github.com/termux/termux-app/releases")));
+            String[] options = {"Компактная Qwen 0.5B — ~429 МБ",
+                    "Улучшенная Qwen 1.5B — ~1.12 ГБ"};
+            new android.app.AlertDialog.Builder(this)
+                    .setTitle("Бесплатная локальная модель")
+                    .setItems(options, (dialog, choice) -> {
+                        String size = choice == 0 ? "small" : "balanced";
+                        String command = "pkg install -y curl && curl -fsSL " +
+                                "https://raw.githubusercontent.com/19wolfalone92/Two-Worlds-Studio/main/" +
+                                "mobile/wolf-ai/termux/wolf-local.sh -o wolf-local.sh && " +
+                                "bash wolf-local.sh setup " + size + " && bash wolf-local.sh start";
+                        ClipboardManager clipboard =
+                                (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                        if (clipboard != null) clipboard.setPrimaryClip(
+                                ClipData.newPlainText("WOLF AI Termux", command));
+                        aiStatus.setTextColor(CYAN);
+                        aiStatus.setText("Команда скопирована. Вставь её в Termux; " +
+                                "скачанная модель будет проверена по SHA256.");
+                        startActivity(new Intent(Intent.ACTION_VIEW,
+                                Uri.parse("https://github.com/termux/termux-app/releases")));
+                    })
+                    .setNegativeButton("Отмена", null)
+                    .show();
         });
         questionInput = entry("Вопрос для локальной модели…", true);
         add(llm, questionInput, 13, 8);
