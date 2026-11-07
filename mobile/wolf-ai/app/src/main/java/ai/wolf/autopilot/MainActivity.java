@@ -284,6 +284,9 @@ public final class MainActivity extends Activity {
         Button checkCloud = button("↻ Проверить 3 процесса GitHub", false);
         add(cloud, checkCloud, 0, 7);
         checkCloud.setOnClickListener(v -> refreshTrustedWorkflows());
+        Button aiDiagnose = button("🧠 Объяснить последнюю ошибку CI локальным ИИ", false);
+        add(cloud, aiDiagnose, 0, 7);
+        aiDiagnose.setOnClickListener(v -> analyzeRecentFailure());
         Button artifacts = button("📦 APK и Artifacts в GitHub", false);
         add(cloud, artifacts, 0, 0);
         artifacts.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
@@ -459,6 +462,37 @@ public final class MainActivity extends Activity {
                 error -> showResult("Детали GitHub пока недоступны: " + error));
     }
 
+
+    /** Actual cross-tool integration: read GitHub's failed steps, then ask localhost model. */
+    private void analyzeRecentFailure() {
+        cloudStatus.setText("Ищу ошибку в реальных GitHub Actions…");
+        async(() -> {
+            List<GithubApi.RunInfo> list = GithubApi.runs(secrets.load());
+            GithubApi.RunInfo selected = null;
+            for (GithubApi.RunInfo run : list) {
+                if ("completed".equals(run.status) && !"success".equals(run.conclusion)) {
+                    selected = run;
+                    break;
+                }
+            }
+            if (selected == null)
+                return "Нет подтверждённого неуспешного запуска WOLF AI audit в последних 50. " +
+                        "Не буду придумывать ошибку.";
+            String evidence = GithubApi.jobSummary(selected.id, secrets.load());
+            String prompt = "Объясни по-русски простыми словами эту ошибку CI и " +
+                    "предложи 1–3 безопасных действия. Не утверждай, что что-либо исправлено:\n" +
+                    evidence.substring(0, Math.min(850, evidence.length()));
+            try {
+                return "Данные GitHub #" + selected.id + ":\n" + evidence +
+                        "\n\nАнализ локального ИИ:\n" + LocalAi.ask(prompt);
+            } catch (Exception localError) {
+                return "Данные GitHub #" + selected.id + ":\n" + evidence +
+                        "\n\nИИ не подключился: " + localError.getMessage() +
+                        "\nЗапусти локальную Qwen через кнопку установки ниже.";
+            }
+        }, value -> cloudStatus.setText(value),
+           error -> cloudStatus.setText("Не удалось получить диагноз: " + error));
+    }
 
     private void runTrustedWorkflow(String workflow) {
         cloudStatus.setText("Отправляю в GitHub: " + workflow + "…");
