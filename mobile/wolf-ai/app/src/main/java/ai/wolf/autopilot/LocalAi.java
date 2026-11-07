@@ -41,6 +41,21 @@ public final class LocalAi {
         }
     }
 
+    /** Real readiness check; does not download a model or claim to have one. */
+    public static String check() throws Exception {
+        HttpURLConnection models = connection("/models", "GET");
+        try {
+            int status = models.getResponseCode();
+            if (status != 200) throw new IllegalStateException("Сервер не отвечает (HTTP " + status + ")");
+            JSONObject info = new JSONObject(read(models));
+            JSONArray data = info.getJSONArray("data");
+            if (data.length() == 0) throw new IllegalStateException("Сервер запущен, но модель не загружена.");
+            return "Модель доступна: " + data.getJSONObject(0).optString("id", "local");
+        } finally {
+            models.disconnect();
+        }
+    }
+
     public static String ask(String question) throws Exception {
         if (question == null || question.trim().length() < 3 || question.length() > 1500)
             throw new IllegalArgumentException("Вопрос должен содержать 3–1500 символов.");
