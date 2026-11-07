@@ -33,7 +33,7 @@ android {
     }
 
     androidResources {
-        noCompress 'gguf'
+        noCompress += ['gguf']
     }
 
     compileOptions {
