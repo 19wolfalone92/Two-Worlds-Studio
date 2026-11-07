@@ -2,6 +2,8 @@ package ai.wolf.autopilot;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.ClipboardManager;
+import android.content.ClipData;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -49,6 +51,7 @@ public final class MainActivity extends Activity {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private SecureStore secrets;
     private TaskStore tasks;
+    private ChatStore chat;
     private Spinner projectSpinner;
     private Spinner modeSpinner;
     private EditText commandInput;
@@ -65,6 +68,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         secrets = new SecureStore(this);
         tasks = new TaskStore(this);
+        chat = new ChatStore(this);
         buildUi();
         updateTokenStatus();
         renderTasks();
@@ -309,8 +313,19 @@ public final class MainActivity extends Activity {
         });
         Button guide = button("⬇️ Настройка бесплатной модели на телефоне", false);
         add(llm, guide, 0, 7);
-        guide.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://github.com/19wolfalone92/Two-Worlds-Studio/tree/main/mobile/wolf-ai/termux"))));
+        guide.setOnClickListener(v -> {
+            String command = "pkg install -y curl && curl -fsSL " +
+                    "https://raw.githubusercontent.com/19wolfalone92/Two-Worlds-Studio/main/mobile/wolf-ai/termux/wolf-local.sh" +
+                    " -o wolf-local.sh && bash wolf-local.sh setup && bash wolf-local.sh start";
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (clipboard != null)
+                clipboard.setPrimaryClip(ClipData.newPlainText("Wolf AI Termux", command));
+            aiStatus.setTextColor(CYAN);
+            aiStatus.setText("Команда установки скопирована. Вставь её в Termux. " +
+                    "Понадобится разовая загрузка модели (~429 МБ).");
+            startActivity(new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://github.com/termux/termux-app/releases")));
+        });
         questionInput = entry("Вопрос для локальной модели…", true);
         add(llm, questionInput, 13, 8);
         Button ask = button("Спросить локальный ИИ", false);
@@ -319,11 +334,26 @@ public final class MainActivity extends Activity {
         add(llm, aiOutput, 0, 0);
         ask.setOnClickListener(v -> {
             String question = questionInput.getText().toString().trim();
-            aiOutput.setText("Подключение к локальному ИИ…");
-            async(() -> LocalAi.ask(question), answer -> aiOutput.setText(answer),
-                    error -> aiOutput.setText("Локальный ИИ недоступен: " + error +
-                            "\nНужен отдельно запущенный llama.cpp на 127.0.0.1:8080."));
+            aiOutput.setText("Обрабатываю запрос на телефоне…");
+            async(() -> LocalAi.ask(question, chat.recent(4)), answer -> {
+                chat.add("user", question);
+                chat.add("assistant", answer);
+                aiOutput.setText(answer);
+                questionInput.setText("");
+            }, error -> aiOutput.setText("Локальный ИИ недоступен: " + error +
+                    "\nНужен работающий llama.cpp на 127.0.0.1:8080."));
         });
+        Button clearChat = button("Очистить память локального чата", false);
+        add(llm, clearChat, 8, 0);
+        clearChat.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+                .setTitle("Удалить историю локального ИИ?")
+                .setMessage("Сообщения будут удалены с телефона.")
+                .setNegativeButton("Отмена", null)
+                .setPositiveButton("Удалить", (dialog, button) -> {
+                    chat.clearHistory();
+                    aiOutput.setText("Локальная история очищена.");
+                })
+                .show());
 
         TextView footer = text("WOLF AI 1.2 • Под контролем пользователя • Без Work", 12, MUTED, false);
         footer.setGravity(Gravity.CENTER);
@@ -494,6 +524,7 @@ public final class MainActivity extends Activity {
     @Override protected void onDestroy() {
         executor.shutdownNow();
         tasks.close();
+        chat.close();
         super.onDestroy();
     }
 }
