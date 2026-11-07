@@ -1,0 +1,84 @@
+name: WOLF AI — free-first project audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      project:
+        description: Which repository to inspect (never mutate)
+        type: choice
+        options: [studio, shaira, williams, williams-ai, english-child]
+        required: true
+        default: studio
+      mode:
+        description: Test commands or lighter audit
+        type: choice
+        options: [audit, test]
+        required: true
+        default: audit
+  schedule:
+    - cron: '30 6 * * 1' # Weekly studio-only audit. Not unlimited compute.
+  pull_request:
+    paths:
+      - 'wolf_ai/**'
+      - 'tests/test_wolf_ai.py'
+      - '.github/workflows/wolf-ai-audit.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wolf-ai-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  readonly-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      PROJECT: ${{ github.event_name == 'workflow_dispatch' && inputs.project || 'studio' }}
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'audit' }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test WOLF safety contracts
+        run: python -m unittest discover -s tests -p test_wolf_ai.py -v
+      - name: Select authorized repo from fixed allowlist
+        shell: bash
+        run: |
+          case "$PROJECT" in
+            studio) echo 'TARGET_REPO=19wolfalone92/Two-Worlds-Studio' >> "$GITHUB_ENV" ;;
+            shaira) echo 'TARGET_REPO=19wolfalone92/Shaira' >> "$GITHUB_ENV" ;;
+            williams) echo 'TARGET_REPO=19wolfalone92/Williams' >> "$GITHUB_ENV" ;;
+            williams-ai) echo 'TARGET_REPO=19wolfalone92/Williams-AI' >> "$GITHUB_ENV" ;;
+            english-child) echo 'TARGET_REPO=19wolfalone92/English_Child' >> "$GITHUB_ENV" ;;
+            *) exit 2 ;;
+          esac
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_REPO }}
+          path: target
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: env.PROJECT == 'shaira'
+        with:
+          node-version: '22'
+      - name: Install local studio dependencies
+        if: env.PROJECT == 'studio'
+        run: python -m pip install -r target/requirements.txt
+      - name: Check selected project without writing back
+        shell: bash
+        run: |
+          mkdir -p wolf-report
+          python -m wolf_ai.orchestrator --project "$PROJECT" --mode "$MODE" \
+            --source target --output wolf-report/audit.json --execute --budget-seconds 600
+      - name: Upload audit receipt, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolf-audit-${{ github.run_id }}
+          path: wolf-report/
+          if-no-files-found: warn
+          retention-days: 7
