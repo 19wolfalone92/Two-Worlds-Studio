@@ -52,7 +52,6 @@ Java_ai_wolf_autopilot_EmbeddedAi_nativeLoad(JNIEnv * env, jclass, jstring path)
     }
     auto params = llama_model_default_params();
     params.n_gpu_layers = 0;
-    params.use_mmap = true;
     model = llama_model_load_from_file(file.c_str(), params);
     if (!model) return fail(env, "llama.cpp не смог открыть GGUF.");
     loaded_path = file;
