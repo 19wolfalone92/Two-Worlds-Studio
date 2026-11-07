@@ -33,10 +33,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install SDK platform
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Use preinstalled Android SDK on GitHub-hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          command -v sdkmanager
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
