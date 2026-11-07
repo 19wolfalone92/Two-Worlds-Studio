@@ -1,4 +1,5 @@
 name: WOLF AI — free-first project audit
+run-name: "WOLF ${{ inputs.project || 'studio' }} ${{ inputs.mode || 'audit' }} ${{ inputs.client_task_id || 'periodic' }}"
 
 on:
   workflow_dispatch:
@@ -9,6 +10,11 @@ on:
         options: [studio, shaira, williams, williams-ai, english-child]
         required: true
         default: studio
+      client_task_id:
+        description: 'Optional opaque UUID from WOLF AI Android (no commands)'
+        type: string
+        required: false
+        default: 'manual'
       mode:
         description: Test commands or lighter audit
         type: choice
