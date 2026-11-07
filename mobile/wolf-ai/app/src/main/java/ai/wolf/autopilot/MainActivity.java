@@ -61,6 +61,7 @@ public final class MainActivity extends Activity {
     private TextView resultBox;
     private TextView aiOutput;
     private TextView aiStatus;
+    private TextView cloudStatus;
     private LinearLayout tasksContainer;
     private LinearLayout runsContainer;
 
@@ -197,7 +198,7 @@ public final class MainActivity extends Activity {
 
         TextView brand = text("🐺 WOLF AI", 32, CYAN, true);
         add(page, brand, 0, 2);
-        add(page, text("Автономный центр управления • Android v1.2", 14, MUTED, false), 0, 18);
+        add(page, text("Автономный центр управления • Android v1.3", 14, MUTED, false), 0, 18);
 
         LinearLayout intro = card(page, "⚡ Бесплатный базовый режим",
                 "Задачи хранятся на телефоне. GitHub выполняет разрешённые проверки. " +
@@ -265,6 +266,28 @@ public final class MainActivity extends Activity {
         add(dispatch, resultBox, 0, 12);
         runsContainer = vertical();
         add(dispatch, runsContainer, 0, 0);
+
+
+        LinearLayout cloud = card(page, "☁️ Бесплатные интеграции GitHub",
+                "Сборка Android APK, технический предпросмотр Studio и проверка бесплатных провайдеров.");
+        cloudStatus = text("Статус GitHub ещё не проверен.", 13, MUTED, false);
+        add(cloud, cloudStatus, 9, 10);
+        Button buildApk = button("📲 Собрать APK WOLF AI", true);
+        add(cloud, buildApk, 0, 7);
+        buildApk.setOnClickListener(v -> runTrustedWorkflow(GithubOperations.APK));
+        Button studioPreview = button("🎬 Проверить видеостудию (без публикации)", false);
+        add(cloud, studioPreview, 0, 7);
+        studioPreview.setOnClickListener(v -> runTrustedWorkflow(GithubOperations.STUDIO));
+        Button providerTests = button("🧪 Тестировать бесплатные провайдеры", false);
+        add(cloud, providerTests, 0, 7);
+        providerTests.setOnClickListener(v -> runTrustedWorkflow(GithubOperations.FREE_TESTS));
+        Button checkCloud = button("↻ Проверить 3 процесса GitHub", false);
+        add(cloud, checkCloud, 0, 7);
+        checkCloud.setOnClickListener(v -> refreshTrustedWorkflows());
+        Button artifacts = button("📦 APK и Artifacts в GitHub", false);
+        add(cloud, artifacts, 0, 0);
+        artifacts.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://github.com/19wolfalone92/Two-Worlds-Studio/actions/workflows/wolf-ai-android.yml"))));
 
         LinearLayout credentials = card(page, "🔐 Доступ к GitHub",
                 "Fine-grained token только для Two-Worlds-Studio, разрешение Actions: Read and write. " +
@@ -355,7 +378,7 @@ public final class MainActivity extends Activity {
                 })
                 .show());
 
-        TextView footer = text("WOLF AI 1.2 • Под контролем пользователя • Без Work", 12, MUTED, false);
+        TextView footer = text("WOLF AI 1.3 • Под контролем пользователя • Без Work", 12, MUTED, false);
         footer.setGravity(Gravity.CENTER);
         add(page, footer, 10, 22);
     }
@@ -423,6 +446,36 @@ public final class MainActivity extends Activity {
         async(() -> GithubApi.jobSummary(runId, secrets.load()),
                 this::showResult,
                 error -> showResult("Детали GitHub пока недоступны: " + error));
+    }
+
+
+    private void runTrustedWorkflow(String workflow) {
+        cloudStatus.setText("Отправляю в GitHub: " + workflow + "…");
+        async(() -> GithubOperations.dispatch(workflow, secrets.load()), result -> {
+            cloudStatus.setText(result);
+            refreshTrustedWorkflows();
+        }, error -> cloudStatus.setText("Запуск не выполнен: " + error));
+    }
+
+    private void refreshTrustedWorkflows() {
+        cloudStatus.setText("Получаю подтверждённые статусы GitHub…");
+        async(() -> {
+            StringBuilder out = new StringBuilder();
+            for (String kind : new String[]{
+                    GithubOperations.APK, GithubOperations.STUDIO, GithubOperations.FREE_TESTS}) {
+                try {
+                    out.append(GithubOperations.report(kind, secrets.load())).append("\n\n");
+                } catch (Exception error) {
+                    out.append(kind).append(" — ошибка: ")
+                            .append(error.getMessage()).append("\n\n");
+                }
+            }
+            return out.toString();
+        }, value -> {
+            cloudStatus.setText(value);
+            android.text.util.Linkify.addLinks(cloudStatus, android.text.util.Linkify.WEB_URLS);
+            cloudStatus.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        }, error -> cloudStatus.setText("GitHub недоступен: " + error));
     }
 
     private void updateRuns() {
