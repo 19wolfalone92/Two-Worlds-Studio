@@ -14,6 +14,7 @@ import re
 import sqlite3
 import time
 from pathlib import Path
+from studio.provider_policy import decide_retry, SAFE_REASONS
 
 ROOT = Path(__file__).resolve().parent.parent
 IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{2,110}$")
@@ -21,9 +22,7 @@ SHA = re.compile(r"^[0-9a-f]{64}$")
 KINDS = {"image_generation", "image_qc", "depth_map", "segmentation",
          "actor_animation", "scene_animation", "russian_tts", "music",
          "subtitle_alignment", "montage", "release_qa", "publish_staging"}
-REASONS = {"http_429", "quota_exhausted", "network_error", "provider_unavailable",
-           "dependency_missing", "invalid_response", "unsafe_input",
-           "unknown_error"}
+REASONS = SAFE_REASONS
 MAX_ATTEMPTS = 4
 
 
@@ -158,11 +157,11 @@ def fail(db: sqlite3.Connection, job_id: str, worker_id: str, reason: str,
     db.execute("BEGIN IMMEDIATE")
     try:
         attempts=_require_owned(db,job_id,worker_id,stamp)
-        terminal=reason in {"unsafe_input","invalid_response"} or attempts >= MAX_ATTEMPTS
-        state="failed" if terminal else "waiting"
-        delay=max(min(3600,60*2**(attempts-1)),retry_after or 0)
-        if reason=="quota_exhausted":
-            delay=max(delay,86400)  # Free daily allowance; do not churn requests
+        decision=decide_retry(reason,attempts,max_attempts=MAX_ATTEMPTS,
+                              retry_after=retry_after)
+        state=decision.state
+        terminal=state=="failed"
+        delay=decision.retry_after_seconds
         db.execute("""UPDATE studio_jobs SET status=?, retry_at=?,
           lease_owner=NULL, lease_until=NULL, failure_reason=?,updated_at=?
           WHERE job_id=?""",(state,stamp+delay,reason,stamp,job_id))
