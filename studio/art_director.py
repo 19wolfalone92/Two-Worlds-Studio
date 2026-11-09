@@ -189,6 +189,8 @@ def comfy_workflow(prompt:dict, template:dict, checkpoint:str, width:int=768, he
     if expects_ref and not reference_image:
         raise ValueError("Reference-conditioned workflow requires uploaded reference image")
     if expects_ref:
+        from studio.comfy_reference_guard import audit_reference_conditioning
+        audit_reference_conditioning(template)
         replacements["__REFERENCE_IMAGE__"]=reference_image
     workflow=substitute(template,replacements)
     if not isinstance(workflow,dict) or "9" not in workflow:
@@ -294,11 +296,10 @@ def comfy_render(workflow:dict,base_url:str,out:Path,timeout=240,client=None)->d
 
 
 def run(episode:Path,output:Path,backend="prompts",workflow_file:Path=WORKFLOW,
-        checkpoint=None,base_url=None,width=768,height=1344,*,
-        character_project:Path|None=None,asset_root:Path|None=None):
+        checkpoint=None,base_url=None,width=768,height=1344):
     style=load_style()
     ep=json.loads(episode.read_text(encoding="utf-8"))
-    pack=compile_prompt_pack(ep,style,character_project=character_project,asset_root=asset_root)
+    pack=compile_prompt_pack(ep,style)
     if backend not in ("prompts","comfyui"):
         raise ValueError("Unknown art backend")
     out=output/ep["id"]
@@ -317,9 +318,9 @@ def run(episode:Path,output:Path,backend="prompts",workflow_file:Path=WORKFLOW,
             if scene["references"] and not template_uses_reference:
                 raise ValueError("Approved character reference configured, but workflow has no __REFERENCE_IMAGE__ conditioning node")
             if scene["references"]:
-                from studio.character_art import reference_conditioned
-                if not reference_conditioned(workflow):
-                    raise ValueError("Identity reference must reach the active sampler, not an unused LoadImage")
+                # Validate graph BEFORE uploading owner-approved reference bytes.
+                from studio.comfy_reference_guard import audit_reference_conditioning
+                audit_reference_conditioning(workflow)
             reference_name=None
             if scene["references"]:
                 info=next(iter(scene["references"].values()))
@@ -347,12 +348,9 @@ def main():
     p.add_argument("--url",default=None)
     p.add_argument("--width",type=int,default=768)
     p.add_argument("--height",type=int,default=1344)
-    p.add_argument("--character-project",type=Path,help="Current private Work reference project, overriding old fixture prose")
-    p.add_argument("--assets",type=Path,help="Actual private Work handoff assets for input validation")
     args=p.parse_args()
     print(run(args.episode,args.output_dir,args.backend,args.workflow,
-              args.checkpoint,args.url,args.width,args.height,
-              character_project=args.character_project,asset_root=args.assets))
+              args.checkpoint,args.url,args.width,args.height))
 
 
 if __name__=="__main__":
