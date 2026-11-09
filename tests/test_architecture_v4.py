@@ -50,6 +50,17 @@ class UnifiedEntrypointTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["check"], True)
             self.assertEqual(run.call_args.args[0][-1], "--dry-run")
 
+    def test_provider_retry_is_bounded_and_sanitized(self):
+        from studio.provider_policy import decide_retry, classify_kaggle_failure
+        from studio.kaggle_api_limits import KaggleServiceError
+        self.assertEqual(decide_retry("http_429",1,retry_after=200).retry_after_seconds,200)
+        self.assertEqual(decide_retry("quota_exhausted",1).retry_after_seconds,86400)
+        self.assertEqual(decide_retry("unsafe_input",1).state,"failed")
+        self.assertEqual(classify_kaggle_failure(KaggleServiceError(
+            "KAGGLE_RATE_LIMITED: PRIVATE KEY SHOULD NOT BE PRINTED")),"http_429")
+        with self.assertRaises(ValueError):
+            decide_retry("raw token leakage",1)
+
     def test_kaggle_quota_defaults_offline(self):
         with patch("studio.kaggle_api_limits.quota_once") as live:
             with patch("sys.stdout", new_callable=io.StringIO) as out:
@@ -105,6 +116,16 @@ class UnifiedQualityTests(unittest.TestCase):
             result=assess(Path("example.mp4"),Path("example.srt"),Path("cover.png"))
         self.assertEqual(result["status"],"blocked")
         self.assertNotIn("/private/secret",json.dumps(result))
+
+    def test_loudness_measurement_is_review_not_approval(self):
+        with patch("studio.release_gate.check_video",return_value={"status":"technical_pass"}), \
+             patch("studio.delivery_qc.loudness",return_value={"integrated_lufs":-16.0}) as meter:
+            report=assess(Path("film.mp4"),Path("film.srt"),Path("film.png"),
+                          measure_loudness=True)
+        self.assertTrue(meter.called)
+        self.assertEqual(report["checks"]["delivery_audio_loudness"]["status"],
+                         "measured_review_required")
+        self.assertFalse(report["publication_authorized"])
 
     def test_master_requires_source_episode(self):
         with self.assertRaisesRegex(ValueError,"source episode"):

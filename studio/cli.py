@@ -78,6 +78,7 @@ def make_parser() -> argparse.ArgumentParser:
     for flag in ("episode", "assets", "original-transcript", "recognized-transcript"):
         qua.add_argument("--" + flag, type=Path)
     qua.add_argument("--full-decode", action="store_true")
+    qua.add_argument("--measure-loudness", action="store_true")
     qua.add_argument("--master", action="store_true")
     qua.add_argument("--language", choices=("ru", "en"), default="ru")
     voi = sub.add_parser("voice-plan", help="Registered English/Russian voice; default dry-run")
@@ -112,13 +113,14 @@ def main(argv: list[str] | None = None) -> int:
             p.error("Install Pydantic first: python -m pip install -e '.[validation]'")
         result = validate_document(args.input, args.kind)
     elif args.command == "quality":
-        from studio.quality_hub import assess
-        result = assess(
+        from studio.release_gate import consolidated_check
+        result = consolidated_check(
             args.video, args.srt, args.cover,
             episode=args.episode, assets=args.assets,
             original_transcript=args.original_transcript,
             recognized_transcript=args.recognized_transcript,
             full_decode=args.full_decode, master=args.master,
+            measure_loudness=args.measure_loudness,
             language=args.language,
         )
     elif args.command == "voice-plan":

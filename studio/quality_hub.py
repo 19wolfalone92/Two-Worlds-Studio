@@ -14,6 +14,7 @@ def assess(video: Path, srt: Path, cover: Path, *,
            original_transcript: Path | None = None,
            recognized_transcript: Path | None = None,
            full_decode: bool = False, master: bool = False,
+           measure_loudness: bool = False,
            language: str = "ru") -> dict:
     """Run fail-closed checks; report safe categories without leaking private media."""
     if language not in {"ru", "en"}:
@@ -26,10 +27,10 @@ def assess(video: Path, srt: Path, cover: Path, *,
     blocked = False
     human_review = True  # no software-only release approval
 
-    def run_check(name, fn):
+    def run_check(name, fn, *, status="technical_pass"):
         nonlocal blocked
         try:
-            checks[name] = {"status": "technical_pass", "details": fn()}
+            checks[name] = {"status": status, "details": fn()}
         except (ValueError, FileNotFoundError, RuntimeError, OSError) as exc:
             blocked = True
             # Never publish untrusted private file paths, content or remote errors.
@@ -40,6 +41,11 @@ def assess(video: Path, srt: Path, cover: Path, *,
         Path(video), Path(srt), Path(cover),
         require_russian=language == "ru", full_decode=full_decode,
     ))
+
+    if measure_loudness:
+        from studio.delivery_qc import loudness
+        run_check("delivery_audio_loudness", lambda: loudness(Path(video)),
+                  status="measured_review_required")
 
     if episode is not None:
         from studio.identity_qc import verify_episode_characters
