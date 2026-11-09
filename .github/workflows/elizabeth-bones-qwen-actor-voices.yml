@@ -1,0 +1,52 @@
+name: Elizabeth Bones — Qwen3 actor voices, 21 lines
+on:
+  pull_request:
+    paths:
+      - tools/elizabeth_bones_qwen_v5.py
+      - .github/workflows/elizabeth-bones-qwen-actor-voices.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  russian-acting-voices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    env:
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      OMP_NUM_THREADS: "3"
+      MKL_NUM_THREADS: "3"
+      HF_HOME: ${{ runner.temp }}/huggingface
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU speech models (not Piper)
+        run: |
+          python -m pip install -U pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.5,<2.10" "torchaudio>=2.5,<2.10"
+          python -m pip install --no-cache-dir "qwen-tts>=0.0.5" "soundfile>=0.12" "numpy>=1.26"
+      - name: Render two natural Russian acting voices and 21 unsped lines
+        run: python tools/elizabeth_bones_qwen_v5.py
+      - name: Verify outputs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import soundfile as sf
+          d=Path("dist/elizabeth_bones_qwen_v5")
+          m=json.loads((d/"manifest.json").read_text(encoding="utf-8"))
+          assert len(m["lines"])==21
+          assert len(list(d.glob("??_*.wav")))==21
+          a,s=sf.read(d/"EP01_V5_QWEN_NATURAL_DIALOGUE.wav")
+          assert len(a)>s*40 and a.max()>0.05
+          print("PASS duration",len(a)/s)
+          PY
+      - name: Save audio preview for listening, not publication
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_BONES_QWEN_V5_ACTOR_VOICES
+          path: dist/elizabeth_bones_qwen_v5/
+          retention-days: 14
+          if-no-files-found: warn
