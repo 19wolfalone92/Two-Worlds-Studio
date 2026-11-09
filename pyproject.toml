@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "two-worlds-studio"
+version = "0.4.0"
+description = "Local-first motion-comic assembly, review, and optional model handoff"
+requires-python = ">=3.11"
+dependencies = [
+  "Pillow>=10,<12",
+  "numpy>=1.26,<3",
+]
+
+[project.optional-dependencies]
+validation = ["pydantic>=2.7,<3"]
+private = ["cryptography>=44,<47"]
+cinematic = ["opencv-python-headless>=4.8,<5"]
+voice = ["soundfile>=0.12,<1"]
+dev = ["pydantic>=2.7,<3", "cryptography>=44,<47"]
+
+[project.scripts]
+two-worlds = "studio.cli:main"
+
+[tool.setuptools]
+packages = ["studio"]
+
+[tool.setuptools.package-data]
+studio = ["py.typed"]
