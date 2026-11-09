@@ -47,7 +47,7 @@ jobs:
           assert len(r['lines'])==21
           assert sum(1 for x in r['lines'] if x['speaker']=='ЭЛИЗАБЕТ')==11
           assert sum(1 for x in r['lines'] if x['speaker']=='КОСТЯ')==10
-          assert len(list(p.glob('line_*_*.wav')))==21
+          assert len([x for x in p.glob('line_*_*.wav') if not x.name.endswith('.source.wav')])==21
           PY
       - name: Archive real voice samples — not public release
         if: always()
