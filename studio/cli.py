@@ -22,6 +22,7 @@ ENGINES = {
     "qwen": "studio.russian_qwen_tts",
     "batch": "studio.triptych_batch",
     "master": "studio.hybrid_master",
+    "lipsync": "studio.lipsync",
 }
 PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen"}
 
@@ -29,7 +30,8 @@ PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen"}
 def doctor() -> dict:
     return {
         "status": "offline_inventory", "python": sys.version.split()[0],
-        "binaries": {k: shutil.which(k) is not None for k in ("ffmpeg", "ffprobe", "kaggle")},
+        "binaries": {k: shutil.which(k) is not None
+                     for k in ("ffmpeg", "ffprobe", "kaggle", "nvidia-smi", "rhubarb")},
         "optional_modules": {
             name: importlib.util.find_spec(name) is not None
             for name in ("pydantic", "soundfile", "torch", "kokoro", "cryptography")
@@ -81,6 +83,11 @@ def make_parser() -> argparse.ArgumentParser:
     qua.add_argument("--measure-loudness", action="store_true")
     qua.add_argument("--master", action="store_true")
     qua.add_argument("--language", choices=("ru", "en"), default="ru")
+    film = sub.add_parser("produce", help="Render a local film and check the decoded MP4")
+    film.add_argument("--manifest", type=Path, required=True)
+    film.add_argument("--output", type=Path, required=True)
+    film.add_argument("--cache", type=Path, help="Private directory for resumable shot rendering")
+    film.add_argument("--master", action="store_true", help="Require explicit asset approvals")
     voi = sub.add_parser("voice-plan", help="Registered English/Russian voice; default dry-run")
     voi.add_argument("--speaker", required=True)
     voi.add_argument("--language", choices=("en", "ru"), required=True)
@@ -123,6 +130,15 @@ def main(argv: list[str] | None = None) -> int:
             measure_loudness=args.measure_loudness,
             language=args.language,
         )
+    elif args.command == "produce":
+        from studio.hybrid_master import produce
+        from studio.production_queue import private_path
+
+        try:
+            result = produce(args.manifest, private_path(args.output), master=args.master,
+                             cache=args.cache, quality_check=True)
+        except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
+            result = {"status": "BLOCKED", "reason": str(exc), "published": False}
     elif args.command == "voice-plan":
         from studio.voice_engine import VoiceRequest, route, execute
         text = args.text if args.text is not None else args.text_file.read_text(encoding="utf-8")
@@ -147,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         p.error("Unknown command")
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 2 if result.get("status") == "blocked" else 0
+    return 2 if str(result.get("status")).lower() == "blocked" else 0
 
 
 if __name__ == "__main__":

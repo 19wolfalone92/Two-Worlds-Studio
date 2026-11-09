@@ -84,7 +84,8 @@ def submit(db: sqlite3.Connection, job_id: str, kind: str,
 
 
 def claim(db: sqlite3.Connection, worker_id: str, *,
-          now: float | None = None, lease_seconds: int = 600) -> dict | None:
+          now: float | None = None, lease_seconds: int = 600,
+          job_id: str | None = None) -> dict | None:
     if not isinstance(worker_id,str) or not IDENTIFIER.fullmatch(worker_id):
         raise ValueError("Unsafe worker ID")
     if type(lease_seconds) is not int or not 30 <= lease_seconds <= 3600:
@@ -95,10 +96,11 @@ def claim(db: sqlite3.Connection, worker_id: str, *,
         row=db.execute("""
           SELECT job_id,kind,payload_sha256,attempts
           FROM studio_jobs
-          WHERE (status='waiting' AND retry_at<=?)
-            OR (status='running' AND lease_until<=?)
+          WHERE ((status='waiting' AND retry_at<=?)
+            OR (status='running' AND lease_until<=?))
+            AND (? IS NULL OR job_id=?)
           ORDER BY retry_at ASC, updated_at ASC, job_id ASC LIMIT 1
-        """,(stamp,stamp)).fetchone()
+        """,(stamp,stamp,job_id,job_id)).fetchone()
         if not row:
             db.execute("COMMIT")
             return None
@@ -178,6 +180,20 @@ def status(db: sqlite3.Connection) -> dict:
                        GROUP BY kind,status ORDER BY kind,status""").fetchall()
     return {"jobs":[{"kind":kind,"status":state,"count":count} for kind,state,count in rows],
             "no_raw_prompts_or_tokens":True,"provider_execution_implemented":False}
+
+
+def completed_result(db: sqlite3.Connection, job_id: str) -> str | None:
+    row = db.execute("SELECT result_sha256 FROM studio_jobs WHERE job_id=? AND status='complete'",
+                     (job_id,)).fetchone()
+    return row[0] if row else None
+
+
+def invalidate_result(db: sqlite3.Connection, job_id: str, expected_sha256: str) -> None:
+    """Requeue a corrupt/missing artifact only if its observed result is still current."""
+    db.execute("""UPDATE studio_jobs SET status='waiting', result_sha256=NULL, attempts=0,
+                  retry_at=0, updated_at=?
+                  WHERE job_id=? AND status='complete' AND result_sha256=?""",
+               (time.time(), job_id, expected_sha256))
 
 
 def enqueue_routes(db: sqlite3.Connection, plan: dict, *, now: float | None = None) -> dict:

@@ -9,6 +9,7 @@ import gc
 import hashlib
 import json
 import shutil
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -18,6 +19,40 @@ CHECKPOINT = 'ltxv-2b-0.9.6-distilled-04-25.safetensors'
 VAE_REPO = 'Lightricks/LTX-Video-0.9.5'
 # The primary implementation's linear-quadratic 8-step distilled schedule.
 SIGMAS = [1.0,.99375,.9875,.98125,.975,.909375,.725,.421875]
+
+
+def import_take(clip: Path, record: Path, reference: Path, length: float) -> dict:
+    """Consume an existing local take with the LTX worker's artifact receipt."""
+    if record.stat().st_size > 64 * 1024:
+        raise ValueError("I2V receipt is too large")
+    data = json.loads(record.read_text(encoding="utf-8"))
+    if (not isinstance(data, dict) or data.get("model") != REPO
+            or data.get("checkpoint") != CHECKPOINT
+            or data.get("source_image_sha256") != _digest(reference)
+            or data.get("sha256") != _digest(clip)
+            or type(data.get("actual_neural_frames")) is not int):
+        raise ValueError("I2V take is not bound to the selected reference and LTX worker")
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+         "-show_entries", "stream=width,height,duration,nb_read_frames", "-of", "json", str(clip)],
+        check=True, capture_output=True, text=True, timeout=90,
+    )
+    streams = json.loads(result.stdout).get("streams", [])
+    if len(streams) != 1:
+        raise ValueError("I2V take contains no usable picture")
+    stream = streams[0]
+    try:
+        actual_frames = int(stream["nb_read_frames"])
+        duration = float(stream["duration"])
+    except (KeyError, ValueError) as exc:
+        raise ValueError("I2V take has no decoded frame clock") from exc
+    if (result.stderr or actual_frames != data["actual_neural_frames"] or actual_frames < 2
+            or not length <= duration <= 60
+            or any(stream.get(key) != data.get(key) for key in ("width", "height"))):
+        raise ValueError("I2V take has the wrong length, dimensions or frame count")
+    return {"model": REPO, "checkpoint": CHECKPOINT, "source_frames": actual_frames,
+            "sha256": data["sha256"], "provenance": "imported_worker_receipt",
+            "character_review": "required"}
 
 
 def distilled_scheduler(base):
