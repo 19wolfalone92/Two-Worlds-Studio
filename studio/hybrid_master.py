@@ -11,15 +11,22 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import shutil
 import subprocess
 import tempfile
+from functools import lru_cache
 from pathlib import Path
 
-from studio.smooth_camera import CAMERAS, render_still
+from PIL import Image
+
+from studio.smooth_camera import CAMERAS, encode_rgb_frames, render_still
+from studio.release_gate import sha256
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}
 CLIPS = {".mp4", ".mov", ".mkv", ".webm"}
 AUDIO = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
+SHOT_TYPES = frozenset({"establishing", "wide", "medium", "close", "extreme_close",
+                        "over_shoulder", "reaction", "insert"})
 
 
 def source(base: Path, rel: str, suffixes: set[str]) -> Path:
@@ -47,6 +54,57 @@ def has_stream(path: Path, kind: str) -> bool:
     return any(s.get("codec_type") == kind for s in probe(path).get("streams", []))
 
 
+def sound_stems(data: dict, base: Path, duration: float, *, master: bool) -> list[dict]:
+    from studio.audio_master import RIGHTS, TIMELINE_BUSES, describe_audio
+
+    raw = data.get("sound_stems", [])
+    if not isinstance(raw, list) or len(raw) > 32:
+        raise ValueError("Use up to 32 timed sound stems")
+    stems = []
+    for item in raw:
+        if (not isinstance(item, dict) or not isinstance(item.get("bus"), str)
+                or item["bus"] not in TIMELINE_BUSES):
+            raise ValueError("Invalid sound stem bus")
+        start, gain, loop = item.get("start", 0), item.get("gain", 1), item.get("loop", False)
+        if (type(start) not in (int, float) or not 0 <= start < duration
+                or type(gain) not in (int, float) or not 0 < gain <= 2
+                or type(loop) is not bool
+                or loop and item["bus"] not in {"music", "ambience"}):
+            raise ValueError("Invalid sound stem timing, gain or loop")
+        if master and (item.get("review_status") != "approved" or item.get("rights") not in RIGHTS
+                       or len(str(item.get("rights_note", "")).strip()) < 8):
+            raise ValueError("Master sound stems need review and documented rights")
+        path = source(base, item.get("path"), AUDIO)
+        info = describe_audio(path)
+        if item.get("sha256", info["sha256"]) != info["sha256"]:
+            raise ValueError("Sound stem SHA-256 mismatch")
+        if item["bus"] in {"dialogue", "narration"}:
+            raise ValueError("Time speech through its shot voice so captions and lips stay aligned")
+        stems.append({"bus": item["bus"], "path": path, "start": start, "gain": gain,
+                      "loop": loop, "duration": duration - start if loop else info["duration"]})
+    return stems
+
+
+def shot_regions(item: dict, duration: float, fps: int) -> list[dict]:
+    regions = item.get("protected_regions", [])
+    if not isinstance(regions, list) or len(regions) > 24:
+        raise ValueError("Invalid protected regions list")
+    for region in regions:
+        if not isinstance(region, dict) or set(region) != {"id", "layer", "box", "start", "end"}:
+            raise ValueError("A protected region needs an ID, layer, box and visibility window")
+        start, end, box = region["start"], region["end"], region["box"]
+        if (not isinstance(region["id"], str) or not 1 <= len(region["id"]) <= 100
+                or type(region["layer"]) is not int or region["layer"] < 0
+                or not isinstance(box, list) or len(box) != 4
+                or any(type(x) not in (int, float) or not 0 <= x <= 1 for x in box)
+                or box[0] >= box[2] or box[1] >= box[3]
+                or any(type(x) not in (int, float) for x in (start, end))
+                or not 0 <= start < end <= duration
+                or math.ceil(start * fps - 1e-7) >= math.ceil(end * fps - 1e-7)):
+            raise ValueError("Invalid protected box or visibility window")
+    return regions
+
+
 def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
     if not isinstance(data, dict) or data.get("schema") != 1:
         raise ValueError("Expected hybrid shot manifest with schema=1")
@@ -60,6 +118,9 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
     burn_subtitles = data.get("burn_subtitles", False)
     if type(burn_subtitles) is not bool:
         raise ValueError("burn_subtitles must be a boolean")
+    language = data.get("language")
+    if language not in (None, "ru", "en"):
+        raise ValueError("Subtitles support ru or en")
     shots = data.get("shots")
     if not isinstance(shots, list) or not (1 <= len(shots) <= 80):
         raise ValueError("Provide 1-80 shots")
@@ -88,6 +149,21 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         strength = item.get("camera_strength", 0.45)
         if type(strength) not in (float, int) or not math.isfinite(strength) or not 0 <= strength <= 1:
             raise ValueError(f"Shot {i}: camera_strength must be between 0 and 1")
+        cinematic = item.get("cinematic")
+        i2v = item.get("i2v")
+        if ("cinematic" in item and not isinstance(cinematic, dict)
+                or (cinematic is not None or i2v is not None) and kind != "image"):
+            raise ValueError("Layered and I2V shots require their reference image")
+        backend = item.get("animation_backend", "auto")
+        if backend not in ("auto", "rig", "i2v") or (backend == "rig" and cinematic is None):
+            raise ValueError("Animation backend must match the supplied shot assets")
+        shot_type = item.get("shot_type", "medium")
+        position = item.get("caption_position", "bottom")
+        if not isinstance(shot_type, str) or shot_type not in SHOT_TYPES or position not in ("top", "bottom"):
+            raise ValueError("Unknown shot type or caption position")
+        regions = shot_regions(item, frames / fps, fps)
+        if regions and (cinematic is None or backend == "i2v"):
+            raise ValueError("Protected regions require a tracked layered composition")
         caption = item.get("caption", "")
         if not isinstance(caption, str) or len(caption) > 240:
             raise ValueError(f"Shot {i}: caption too long")
@@ -114,19 +190,64 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         if master and not approved:
             raise ValueError(f"Shot {i}: asset not explicitly approved")
         voice = None
+        voice_offset = item.get("voice_offset", 0)
+        voice_bus = item.get("voice_bus", "dialogue")
+        cleanup = item.get("voice_cleanup", False)
+        if (type(voice_offset) not in (int, float) or not 0 <= voice_offset < frames / fps
+                or voice_bus not in ("dialogue", "narration") or type(cleanup) is not bool):
+            raise ValueError("Invalid voice offset, bus or cleanup option")
+        voice_offset = round(voice_offset * 1000) / 1000
+        voice_duration = 0.
         if item.get("voice"):
             voice = source(base, item["voice"], AUDIO)
             if not has_stream(voice, "audio"):
                 raise ValueError(f"Shot {i}: no audio in voice track")
             voice_duration = float(probe(voice).get("format", {}).get("duration", 0))
-            if voice_duration > frames / fps + .15:
+            padding = 0.003 if cinematic is not None or "voice_offset" in item or "sound_stems" in data else .15
+            if not 0 < voice_duration <= 600 or voice_duration + voice_offset > frames / fps + padding:
                 raise ValueError(f"Shot {i}: voice exceeds shot duration; extend shot or trim speech")
             if master and item.get("voice_approved") is not True:
                 raise ValueError(f"Shot {i}: voice must be explicitly approved")
+        if cinematic is not None:
+            from studio.premium_assets import validate_premium_scene
+            validate_premium_scene({"cinematic": cinematic}, base, publish=master)
+        if "dialogue_text" in item:
+            locked = item["dialogue_text"]
+            cue_text = " ".join(c["text"] for c in validated_cues) or caption
+            if (not isinstance(locked, str) or not voice or not locked.strip()
+                    or locked.split() != cue_text.split()):
+                raise ValueError("Subtitle words do not match the locked dialogue")
+        fallback = None
+        reference = media
+        motion_receipt = None
+        if backend != "rig" and i2v is not None and not regions:
+            from studio.neural_motion import import_take
+            try:
+                if not isinstance(i2v, dict) or set(i2v) != {"clip", "receipt"}:
+                    raise ValueError("I2V requires a clip and its worker receipt")
+                candidate = source(base, i2v["clip"], CLIPS)
+                proof = source(base, i2v["receipt"], {".json"})
+                motion_receipt = import_take(candidate, proof, reference, frames / fps)
+                media = candidate
+                kind = "i2v"
+            except (ValueError, OSError, subprocess.SubprocessError):
+                if backend == "i2v" or cinematic is None:
+                    raise ValueError(f"Shot {i}: I2V needs a usable, source-pinned video take") from None
+                fallback = "i2v_take_missing_or_invalid"
+        elif backend == "i2v":
+            raise ValueError("Explicit I2V needs a video take")
+        elif i2v is not None and regions:
+            fallback = "i2v_excluded_to_preserve_protected_region"
+        if cinematic is not None and kind != "i2v":
+            kind = "layered"
         normalized.append(dict(kind=kind, path=media, frames=frames,
                                duration=frames / fps, start=start / fps, camera=camera, strength=strength,
                                caption=caption.strip(), voice=voice, approved=approved,
-                               subtitle_cues=validated_cues))
+                               subtitle_cues=validated_cues, voice_offset=voice_offset,
+                               voice_duration=voice_duration, voice_bus=voice_bus, voice_cleanup=cleanup,
+                               shot_type=shot_type, caption_position=position, cinematic=cinematic,
+                               protected_regions=regions, reference=reference, fallback=fallback,
+                               motion_receipt=motion_receipt, base=base.resolve()))
         start += frames
     if start / fps > 600:
         raise ValueError("Video longer than 10 minutes")
@@ -138,31 +259,73 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
     volume = data.get("music_volume", .16)
     if type(volume) not in (int, float) or not math.isfinite(volume) or not 0 <= volume <= .5:
         raise ValueError("music_volume must be between 0 and 0.5")
+    required_clues = data.get("required_clues", [])
+    if (not isinstance(required_clues, list) or any(not isinstance(v, str) for v in required_clues)
+            or not set(required_clues) <= {r["id"] for s in normalized for r in s["protected_regions"]}):
+        raise ValueError("Required clue is missing a protected visibility window")
+    stems = sound_stems(data, base, start / fps, master=master)
+    upgraded = ("sound_stems" in data or bool(required_clues) or any(
+        shot["kind"] in {"layered", "i2v"} or shot["voice_offset"]
+        or shot["voice_cleanup"] or shot["voice_bus"] != "dialogue"
+        or shot["caption_position"] != "bottom" for shot in normalized))
     return dict(width=width, height=height, fps=fps, shots=normalized,
                 frames=start, duration=start / fps, music=music, music_volume=volume,
-                approved=master, burn_subtitles=burn_subtitles)
+                approved=master, burn_subtitles=burn_subtitles, sound_stems=stems,
+                upgraded=upgraded, required_clues=required_clues, language=language)
 
 
 def run(command: list[str], *, cwd: Path | None = None) -> None:
-    subprocess.run(command, check=True, stdout=subprocess.DEVNULL,
-                   stderr=subprocess.PIPE, timeout=1200, cwd=cwd)
+    result = subprocess.run(command, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, timeout=1200, cwd=cwd)
+    if result.returncode:
+        raise RuntimeError("FFmpeg export failed: " + result.stderr.decode(errors="replace")[-1400:])
 
 
-def render_segment(shot: dict, path: Path, width: int, height: int, fps: int) -> None:
+def cue_rows(shot: dict) -> list[dict]:
+    if shot["subtitle_cues"]:
+        return shot["subtitle_cues"]
+    if shot["caption"]:
+        return [{"start": 0., "end": shot["duration"], "text": shot["caption"]}]
+    return []
+
+
+def render_segment(shot: dict, path: Path, width: int, height: int, fps: int, *,
+                   master: bool = False, burn_subtitles: bool = False) -> dict:
+    if shot["kind"] == "layered":
+        from studio.cinematic import CinematicPanel
+
+        scene = {"cinematic": shot["cinematic"], "duration": shot["duration"],
+                 "protected_regions": shot["protected_regions"]}
+        if shot["voice"]:
+            scene["voice"] = {"path": shot["voice"].relative_to(shot["base"]).as_posix(),
+                              "offset_ms": round(shot["voice_offset"] * 1000)}
+        if burn_subtitles:
+            zone = (.06, .26) if shot["caption_position"] == "top" else (.64, .855)
+            scene["caption_windows"] = [(c["start"], c["end"], *zone) for c in cue_rows(shot)]
+        panel = CinematicPanel(scene, shot["base"], width, height, master=master)
+        if shot["fallback"] == "i2v_take_missing_or_invalid" and not panel.active_actors:
+            raise ValueError("I2V fallback requires an articulated or deformable actor")
+        frames = shot["frames"]
+        encode_rgb_frames(path, width, height, fps, frames,
+                          (panel.frame(i / max(1, frames - 1), seconds=i / fps) for i in range(frames)))
+        return {"active_actor_layers": panel.active_actors,
+                "lipsync_modes": panel.performance_modes,
+                "protected_windows_checked": len(panel.regions)}
     if shot["kind"] == "image":
         render_still(shot["path"], path, width, height, fps,
                      shot["frames"], shot["camera"], shot["strength"])
-        return
+        return {}
     inputs = ["-i", str(shot["path"])]
     # Existing AI clips are normalized to target frame rate, hold last frame
     # if short; no invented movement or interpolation of subject identity.
     filters = (f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-               f"crop={width}:{height},setsar=1,fps={fps},"
+               f"crop={width}:{height},setsar=1,fps={fps},setpts=N/{fps}/TB,"
                f"tpad=stop_mode=clone:stop_duration={shot['duration']},format=yuv420p")
     run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
          *inputs, "-vf", filters, "-frames:v", str(shot["frames"]),
          "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "19",
          "-pix_fmt", "yuv420p", "-r", str(fps), str(path)])
+    return {}
 
 
 def timestamp(t: float) -> str:
@@ -233,9 +396,21 @@ def ass_subtitles(shots: list[dict], width: int, height: int) -> str:
             cues = [{"start": 0.0, "end": shot["duration"], "text": shot["caption"]}]
         for cue in cues:
             start, end = shot["start"] + cue["start"], shot["start"] + cue["end"]
+            text = _ass_text(cue["text"])
+            if shot.get("measured_captions"):
+                from studio.caption_layout import layout
+
+                readable = layout(cue["text"], preferred_size=font, minimum_size=max(16, round(font * .82)),
+                                  max_width=width - 2 * max(22, width // 13) - 8)
+                text = r"{\q2\fs" + str(readable["font_size"]) + "}" + r"\N".join(
+                    _ass_text(line) for line in readable["lines"])
+            vertical = 0
+            if shot.get("caption_position") == "top":
+                text = r"{\an8}" + text
+                vertical = round(height * .085)
             events.append(
                 f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},"
-                f"Story,,0,0,0,,{_ass_text(cue['text'])}"
+                f"Story,,0,0,{vertical},,{text}"
             )
     return header + "\n".join(events) + ("\n" if events else "")
 
@@ -256,9 +431,30 @@ def burn_ass_captions(source: Path, dest: Path, plan: dict, *, folder: Path) -> 
     ], cwd=folder)
 
 
-def add_audio(video: Path, output: Path, plan: dict) -> None:
+def add_audio(video: Path, output: Path, plan: dict) -> dict:
     """Mix genuine speech with an automatically ducked licensed music bed."""
     length = plan["duration"]
+    if plan["upgraded"]:
+        from studio.audio_master import mix_timeline
+
+        tracks = list(plan["sound_stems"])
+        if plan["music"] and plan["music_volume"] > 0:
+            tracks.append({"bus": "music", "path": plan["music"], "start": 0,
+                           "duration": length, "gain": plan["music_volume"], "loop": True})
+        for shot in plan["shots"]:
+            if shot["voice"]:
+                tracks.append({"bus": shot["voice_bus"], "path": shot["voice"],
+                               "start": shot["start"] + shot["voice_offset"],
+                               "duration": shot["voice_duration"], "gain": 1.,
+                               "cleanup": shot["voice_cleanup"]})
+        if tracks:
+            wav = output.with_suffix(".wav")
+            receipt = mix_timeline(tracks, length, wav)
+            run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(video), "-i", str(wav),
+                 "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+                 "-b:a", "192k", "-ar", "48000", "-t", f"{length:.8f}",
+                 "-movflags", "+faststart", str(output)])
+            return receipt
     inputs = ["-i", str(video)]
     music_index = None
     voices = []
@@ -321,9 +517,54 @@ def add_audio(video: Path, output: Path, plan: dict) -> None:
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-t", f"{length:.5f}", "-movflags", "+faststart", str(output)
     ])
+    return {}
 
 
-def produce(manifest: Path, output: Path, *, master: bool = False) -> dict:
+def shot_sources(shot: dict) -> set[Path]:
+    from studio.premium_assets import resolve_asset
+
+    paths = {shot["path"], shot["reference"]}
+    if shot["voice"]:
+        paths.add(shot["voice"])
+    if shot["kind"] == "layered":
+        for layer in shot["cinematic"]["layers"]:
+            paths.add(resolve_asset(shot["base"], layer["path"]))
+            if "rig" in layer:
+                paths.update(resolve_asset(shot["base"], part["path"]) for part in layer["rig"]["parts"])
+            for category in ("eyes", "mouth"):
+                paths.update(resolve_asset(shot["base"], plate["path"])
+                             for plate in layer.get("facial", {}).get(category, {}).values())
+            for category in ("blink", "mouth"):
+                if category in layer.get("motion", {}):
+                    paths.add(resolve_asset(shot["base"], layer["motion"][category]["path"]))
+            if "viseme_track" in layer.get("facial", {}):
+                paths.add(source(shot["base"], layer["facial"]["viseme_track"], {".json"}))
+    return paths
+
+
+@lru_cache(maxsize=1)
+def renderer_version() -> list[str]:
+    from PIL import __version__ as pillow_version
+
+    ffmpeg_version = subprocess.check_output(["ffmpeg", "-version"], text=True, timeout=10)
+    modules = ("hybrid_master", "cinematic", "smooth_camera", "actor_motion", "character_engine",
+               "cinematic_lighting", "deformable_actor", "facial_actor", "lipsync")
+    return [pillow_version, ffmpeg_version.splitlines()[0], *(
+        sha256(Path(__file__).with_name(name + ".py")) for name in modules
+    )]
+
+
+def shot_key(shot: dict, source_shot: dict, plan: dict) -> str:
+    paths = shot_sources(shot)
+    data = {"renderer": renderer_version(), "dimensions": [plan["width"], plan["height"], plan["fps"]],
+            "burn_subtitles": plan["burn_subtitles"], "master": plan["approved"], "shot": source_shot,
+            "backend": shot["kind"], "sources": sorted(
+                (p.relative_to(shot["base"]).as_posix(), sha256(p)) for p in paths)}
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+
+
+def produce(manifest: Path, output: Path, *, master: bool = False, cache: Path | None = None,
+            quality_check: bool = False) -> dict:
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise RuntimeError("FFmpeg and ffprobe must be installed")
     manifest = manifest.resolve()
@@ -332,24 +573,49 @@ def produce(manifest: Path, output: Path, *, master: bool = False) -> dict:
     output = output.resolve()
     if output.suffix.lower() != ".mp4" or output == manifest:
         raise ValueError("Output must be a new .mp4 file")
-    if any(output == s["path"] for s in plan["shots"]):
-        raise ValueError("Output would overwrite a source asset")
+    outputs = [output.with_suffix(".srt"), output.with_suffix(".json"), output]
+    if any(path.exists() or path.is_symlink() for path in outputs):
+        raise FileExistsError("Output MP4 or sidecar already exists")
     output.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="tw-hybrid-") as td:
+    with tempfile.TemporaryDirectory(prefix=".tw-hybrid-", dir=output.parent) as td:
         temp = Path(td)
-        segments = []
+        segments, shot_reports = [], []
         for n, shot in enumerate(plan["shots"]):
+            shot["measured_captions"] = plan["upgraded"]
             segment = temp / f"shot_{n:03d}.mp4"
-            render_segment(shot, segment, plan["width"], plan["height"], plan["fps"])
+
+            def render(path):
+                return render_segment(shot, path, plan["width"], plan["height"], plan["fps"],
+                                      master=master, burn_subtitles=plan["burn_subtitles"])
+
+            if cache is None:
+                stats, reused = render(segment), False
+            else:
+                from studio.model_cache import cached_segment
+
+                fingerprint = shot_key(shot, data["shots"][n], plan)
+
+                def render_unchanged(path):
+                    result = render(path)
+                    if shot_key(shot, data["shots"][n], plan) != fingerprint:
+                        raise ValueError("Shot source changed during rendering")
+                    return result
+
+                stats, reused = cached_segment(cache, fingerprint, segment, render_unchanged)
+            shot_reports.append({"shot": n + 1, "shot_type": shot["shot_type"], "backend": shot["kind"],
+                                 "frames": shot["frames"], "cached": reused,
+                                 "fallback": shot["fallback"], "motion_source": shot["motion_receipt"],
+                                 **stats})
             segments.append(segment)
         concat = temp / "concat.txt"
-        concat.write_text("".join(f"file '{p.name}'\n" for p in segments), encoding="utf-8")
+        concat.write_text("".join(f"file '{p.name}'\nduration {s['duration']:.9f}\n"
+                                  for p, s in zip(segments, plan["shots"])), encoding="utf-8")
         silent = temp / "silent.mp4"
         run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
-             "-f", "concat", "-safe", "0", "-i", str(concat),
+             "-f", "concat", "-safe", "1", "-i", str(concat),
              "-c:v", "copy", str(silent)])
         staged = temp / "mixed.mp4"
-        add_audio(silent, staged, plan)
+        mix_report = add_audio(silent, staged, plan)
         if plan["burn_subtitles"]:
             burnt = temp / "burned_in.mp4"
             burn_ass_captions(staged, burnt, plan, folder=temp)
@@ -364,25 +630,41 @@ def produce(manifest: Path, output: Path, *, master: bool = False) -> dict:
                 videos[0].get("height") != plan["height"] or
                 abs(seconds - plan["duration"]) > .2):
             raise RuntimeError("Export failed video/audio/duration quality checks")
-        shutil.copyfile(staged, output)
-    output.with_suffix(".srt").write_text(subtitles(plan["shots"]), encoding="utf-8")
-    receipt = {
-        "schema": 1, "source_manifest": manifest.name,
-        "source_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
-        "video_sha256": hashlib.sha256(output.read_bytes()).hexdigest(),
-        "resolution": [plan["width"], plan["height"]], "fps": plan["fps"],
-        "duration_seconds": round(seconds, 3), "shots": len(plan["shots"]),
-        "motion_clips": sum(s["kind"] == "clip" for s in plan["shots"]),
-        "static_camera_shots": sum(s["kind"] == "image" for s in plan["shots"]),
-        "audio_tracks": len([s for s in plan["shots"] if s["voice"]]) + bool(plan["music"]),
-        "captions_burned_in": plan["burn_subtitles"],
-        "automatic_music_ducking": bool(plan["music"] and any(
-            shot["voice"] for shot in plan["shots"])),
-        "review_status": "asset_approved_not_published" if master else "preview_unreviewed",
-        "published": False,
-    }
-    output.with_suffix(".json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
-                                           encoding="utf-8")
+        srt = temp / "out.srt"
+        srt.write_text(subtitles(plan["shots"]), encoding="utf-8")
+        qc = None
+        if plan["upgraded"] or quality_check:
+            from studio.quality_hub import assess_cinematic
+
+            qc = assess_cinematic(staged, srt, plan)
+            if qc["status"] == "BLOCKED":
+                raise RuntimeError("BLOCKED: " + qc["reason"])
+        receipt = {
+            "schema": 1, "source_manifest": manifest.name, "source_sha256": sha256(manifest),
+            "video_sha256": sha256(staged), "resolution": [plan["width"], plan["height"]],
+            "fps": plan["fps"], "duration_seconds": round(seconds, 3), "shots": len(plan["shots"]),
+            "motion_clips": sum(s["kind"] in {"clip", "i2v"} for s in plan["shots"]),
+            "static_camera_shots": sum(s["kind"] == "image" for s in plan["shots"]),
+            "audio_tracks": sum(bool(s["voice"]) for s in plan["shots"]) + bool(plan["music"])
+                            + len(plan["sound_stems"]),
+            "captions_burned_in": plan["burn_subtitles"],
+            "automatic_music_ducking": mix_report.get("automatic_ducking", bool(
+                plan["music"] and any(shot["voice"] for shot in plan["shots"]))),
+            "review_status": "asset_approved_not_published" if master else "preview_unreviewed",
+            "shot_reports": shot_reports, "audio_mastering": mix_report, "qc": qc,
+            "required_clues": plan["required_clues"], "published": False,
+        }
+        proof = temp / "out.json"
+        proof.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        committed = []
+        try:
+            for original, target in zip((srt, proof, staged), outputs):
+                os.link(original, target)
+                committed.append(target)
+        except BaseException:
+            for target in committed:
+                target.unlink()
+            raise
     return receipt
 
 
@@ -391,8 +673,11 @@ def main() -> None:
     p.add_argument("--manifest", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--master", action="store_true", help="Require explicit per-asset approvals")
+    p.add_argument("--cache", type=Path, help="Private resumable shot cache outside this repository")
+    p.add_argument("--quality-check", action="store_true", help="Decode and inspect the actual final MP4")
     a = p.parse_args()
-    print(json.dumps(produce(a.manifest, a.output, master=a.master), ensure_ascii=False, indent=2))
+    print(json.dumps(produce(a.manifest, a.output, master=a.master, cache=a.cache,
+                             quality_check=a.quality_check), ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

@@ -9,6 +9,33 @@ import json
 from pathlib import Path
 
 
+def assess_cinematic(video: Path, srt: Path, plan: dict) -> dict:
+    """Inspect the rendered film, including its decoded frame count and AAC."""
+    from studio.release_gate import inspect_subtitles
+    from studio.shorts_factory import qa
+
+    shots = plan["shots"]
+    entries = [{"seconds": shot["duration"], "camera": shot["camera"],
+                "camera_strength": shot["strength"],
+                "motion_video": shot["kind"] != "image"} for shot in shots]
+    try:
+        report = qa(video, plan["width"], plan["height"], plan["fps"], entries=entries)
+        if report["av_delivery"]["decoded_frames"] != plan["frames"]:
+            raise RuntimeError("Decoded frame count differs from the approved timeline")
+        if srt.stat().st_size:
+            report["subtitles"] = inspect_subtitles(
+                srt, report["duration_s"], require_russian=plan["language"] == "ru",
+            )
+        elif any(shot["voice"] for shot in shots):
+            raise ValueError("Spoken shots need subtitles")
+    except (RuntimeError, ValueError, OSError) as exc:
+        return {"technical_status": "BLOCKED", "status": "BLOCKED", "reason": str(exc),
+                "published": False}
+    return {"technical_status": "PASS", "status": "REVIEW REQUIRED", "delivery": report,
+            "review_required": ["acting", "identity", "speech", "lip_sync", "story_clues"],
+            "published": False}
+
+
 def assess(video: Path, srt: Path, cover: Path, *,
            episode: Path | None = None, assets: Path | None = None,
            original_transcript: Path | None = None,

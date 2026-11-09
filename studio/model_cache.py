@@ -6,11 +6,13 @@ page faults, preserves verified hashes and does not duplicate persisted weights.
 """
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import hashlib
 import json
 import shutil
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 
@@ -46,3 +48,48 @@ def stage_cached_tree(source: Path,*,max_bytes=18*1024**3) -> tuple[Path,dict]:
     except BaseException:
         shutil.rmtree(dest,ignore_errors=True)
         raise
+
+
+def cached_segment(cache: Path, fingerprint: str, destination: Path, render) -> tuple[dict, bool]:
+    """Reuse only verified outputs. Lease through the existing private production queue."""
+    from studio import production_queue as queue
+    from studio.release_gate import sha256
+
+    cache = queue.private_path(cache)
+    worker = "render." + uuid.uuid4().hex
+    job = "segment." + fingerprint
+    with closing(queue.open_queue(cache / "jobs.sqlite3")) as db:
+        queue.submit(db, job, "scene_animation", fingerprint)
+        artifact = cache / (fingerprint + ".mp4")
+        receipt = artifact.with_suffix(".json")
+        result = queue.completed_result(db, job)
+        if result is not None:
+            try:
+                data = json.loads(receipt.read_text(encoding="utf-8"))
+                verified = (sha256(receipt) == result and data["video_sha256"] == sha256(artifact)
+                            and isinstance(data["stats"], dict))
+            except (OSError, ValueError, KeyError, TypeError):
+                verified = False
+            if verified:
+                shutil.copyfile(artifact, destination)
+                return data["stats"], True
+            queue.invalidate_result(db, job, result)
+        lease = queue.claim(db, worker, job_id=job, lease_seconds=3600)
+        if lease is None:
+            raise RuntimeError("Shot cache job is in progress or waiting for a bounded retry")
+        try:
+            with tempfile.TemporaryDirectory(prefix=".building-", dir=cache) as folder:
+                temporary = Path(folder) / "shot.mp4"
+                stats = render(temporary)
+                data = {"video_sha256": sha256(temporary), "stats": stats}
+                proof = temporary.with_suffix(".json")
+                proof.write_text(json.dumps(data, sort_keys=True), encoding="utf-8")
+                shutil.copyfile(temporary, destination)
+                temporary.replace(artifact)
+                proof.replace(receipt)
+                queue.succeed(db, job, worker, sha256(receipt))
+        except BaseException as exc:
+            reason = "unsafe_input" if isinstance(exc, ValueError) else "unknown_error"
+            queue.fail(db, job, worker, reason)
+            raise
+    return stats, False

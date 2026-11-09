@@ -5,6 +5,7 @@ pixels with opaque repaint, never stack a closed lid over an open eyeball.
 Timed visemes take precedence; amplitude fallback is explicitly non-phonemic.
 """
 from __future__ import annotations
+from bisect import bisect_right
 import hashlib
 import math
 from pathlib import Path
@@ -14,12 +15,17 @@ from studio.character_engine import CharacterRig, _transformed_patch
 from studio.premium_assets import resolve_asset
 
 
-def _plate(root:Path,spec:dict,size:tuple[int,int]):
+def _plate(root:Path,spec:dict,size:tuple[int,int], *, master=False):
     if not isinstance(spec,dict) or not isinstance(spec.get('sha256'),str):
         raise ValueError('Every face plate requires a pinned PNG hash')
     file=resolve_asset(root,spec.get('path'))
     if hashlib.sha256(file.read_bytes()).hexdigest()!=spec['sha256']:
         raise ValueError('Face plate SHA-256 mismatch')
+    if master:
+        from studio.premium_assets import LICENSES
+        if (spec.get("review_status") != "approved" or spec.get("rights") not in LICENSES
+                or len(str(spec.get("rights_note", "")).strip()) < 8):
+            raise ValueError("Master face plate needs review and documented rights")
     with Image.open(file) as source:
         source.load()
         if source.size!=size or 'A' not in source.getbands():
@@ -35,7 +41,8 @@ class PerformanceRig:
     """Re-render eyes/lips on head parent transform at each frame."""
     def __init__(self,rig:CharacterRig,spec:dict,root:Path,*,
                  duration:float,voice_levels:list[float]|None=None,
-                 voice_step_ms:int=50,voice_delay_ms:int=0):
+                 voice_step_ms:int=50,voice_delay_ms:int=0,
+                 activity:dict|None=None, master=False):
         if rig.config.get('camera_view')=='back':
             raise ValueError('Face overlays cannot be attached to the BACK of a head')
         if 'head' not in rig.parts:
@@ -44,9 +51,14 @@ class PerformanceRig:
             raise ValueError('Positive scene duration required')
         self.rig=rig;self.duration=duration
         self.voice_levels=voice_levels
+        self.activity=activity
         self.voice_step_ms=voice_step_ms;self.voice_delay_ms=voice_delay_ms
-        self.eyes={key:_plate(root,plate,rig.size) for key,plate in spec.get('eyes',{}).items()}
-        self.mouth={key:_plate(root,plate,rig.size) for key,plate in spec.get('mouth',{}).items()}
+        if any(not isinstance(spec.get(key, {}), dict) for key in ("eyes", "mouth")):
+            raise ValueError("Facial plates must be keyed by shape")
+        self.eyes={key:_plate(root,plate,rig.size,master=master)
+                   for key,plate in spec.get('eyes',{}).items()}
+        self.mouth={key:_plate(root,plate,rig.size,master=master)
+                    for key,plate in spec.get('mouth',{}).items()}
         if self.eyes and not {'open','half','closed'}<=set(self.eyes):
             raise ValueError('Blink requires open, half and fully closed eye plates')
         if self.mouth and 'rest' not in self.mouth:
@@ -69,10 +81,13 @@ class PerformanceRig:
             if (not isinstance(item,dict) or set(item)!={'at','shape'} or
                 type(item['at']) not in (float,int) or
                 not math.isfinite(item['at']) or not 0<=item['at']<=duration or
-                item['at']<=prev or item['shape'] not in self.mouth):
+                item['at']<=prev or not isinstance(item['shape'], str)
+                or item['shape'] not in self.mouth):
                 raise ValueError('Viseme cue is invalid or cannot be rendered')
             prev=item['at']
-        self.mode=('timed_visemes' if self.cues else
+        self.cue_times = [cue["at"] for cue in self.cues]
+        self.mode=('waveform_gated_visemes' if self.cues and activity is not None else
+                   'timed_visemes' if self.cues else
                    'amplitude_only_not_phonemes' if voice_levels is not None else
                    'silent')
 
@@ -90,11 +105,14 @@ class PerformanceRig:
         if not self.mouth:
             return None
         if self.cues:
-            shape='rest'
-            for cue in self.cues:
-                if cue['at']>sec:break
-                shape=cue['shape']
-            return shape
+            time = sec - self.voice_delay_ms / 1000
+            if self.activity is not None:
+                i = math.floor(time * 1000 / self.activity["step_ms"] + 1e-9)
+                active = self.activity["active"]
+                if not 0 <= i < len(active) or not active[i]:
+                    return "rest"
+            index = bisect_right(self.cue_times, time + 1e-9) - 1
+            return self.cues[index]["shape"] if index >= 0 else "rest"
         if self.voice_levels is None:
             return 'rest'
         idx=round((sec*1000-self.voice_delay_ms)/self.voice_step_ms)
@@ -105,14 +123,29 @@ class PerformanceRig:
         return 'wide' if amp>=.6 and 'wide' in self.mouth else (
             'small' if 'small' in self.mouth else 'rest')
 
-    def frame(self,t:float)->Image.Image:
+    def _mouth_plate(self, seconds):
+        shape = self._mouth(seconds)
+        current, bounds = self.mouth[shape]
+        if shape == "rest" or not self.cues:
+            return current, bounds
+        time = seconds - self.voice_delay_ms / 1000
+        index = bisect_right(self.cue_times, time + 1e-9) - 1
+        blend = min(1., max(0., (time - self.cue_times[index]) / .045))
+        # Use the drawn neutral pose immediately in silence. Within speech,
+        # crossfade registered repaint plates across brief shape transitions.
+        previous, prev_bounds = self.mouth[self.cues[index - 1]["shape"] if index else "rest"]
+        if blend < 1 and bounds == prev_bounds:
+            return Image.blend(previous, current, blend), bounds
+        return current, bounds
+
+    def frame(self,t:float, *, seconds:float|None=None)->Image.Image:
         if not isinstance(t,(int,float)) or not math.isfinite(t) or not 0<=t<=1:
             raise ValueError('Normalized finite animation time required')
         frame=self.rig.frame(t)
         head=self.rig.pose(t)['head']
-        sec=t*self.duration
+        sec=t*self.duration if seconds is None else seconds
         if self.eyes:
             _transformed_patch(frame,self.eyes[self._eyes(sec)],head)
         if self.mouth:
-            _transformed_patch(frame,self.mouth[self._mouth(sec)],head)
+            _transformed_patch(frame,self._mouth_plate(sec),head)
         return frame

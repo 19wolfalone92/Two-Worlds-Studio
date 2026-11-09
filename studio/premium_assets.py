@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -81,9 +82,14 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
     opacity=layer.get("opacity",1.0)
     if isinstance(opacity,bool) or not isinstance(opacity,(float,int)) or not 0<=opacity<=1:
         raise ValueError("Layer opacity must be between 0 and 1")
+    engines = {"motion", "rig", "deform"} & layer.keys()
+    if engines and (layer["role"] != "character" or len(engines) != 1):
+        raise ValueError("Use one actor engine per character layer")
+    if "facial" in layer and ("rig" not in engines or not isinstance(layer["facial"], dict)):
+        raise ValueError("Facial performance requires a character rig")
+    if any(not isinstance(layer[key], dict) for key in engines):
+        raise ValueError("Actor engine settings must be objects")
     if "motion" in layer:
-        if layer["role"]!="character":
-            raise ValueError("Actor motion is only supported on character layers")
         from studio.actor_motion import validate_motion
         validate_motion(layer["motion"],root,publish=publish)
     path=resolve_asset(root,layer.get("path"))
@@ -131,7 +137,7 @@ def validate_premium_scene(scene:dict, root:Path, *, publish:bool=False,
     layers=config["layers"]
     if not 1<=len(layers)<=12:
         raise ValueError("cinematic needs 1..12 layers")
-    if layers[0].get("role")!="background":
+    if not isinstance(layers[0], dict) or layers[0].get("role")!="background":
         raise ValueError("First cinematic layer must be background")
     assets=[]
     warnings=[]
@@ -149,7 +155,7 @@ def validate_premium_scene(scene:dict, root:Path, *, publish:bool=False,
             raise ValueError("Camera keyframe must be an object")
         for coordinate in ("x","y"):
             v=state.get(coordinate,0.0)
-            if isinstance(v,bool) or not isinstance(v,(int,float)) or abs(v)>1:
+            if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or abs(v)>1:
                 raise ValueError("Camera x,y values must be normalized -1..+1")
         z=state.get("zoom",1.0)
         if isinstance(z,bool) or not isinstance(z,(int,float)) or not 1<=z<=1.4:

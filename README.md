@@ -163,3 +163,5 @@ The manual Kaggle and connection-check workflows now attempt to determine
 the authenticated Kaggle username via official CLI; no additional variable
 is needed if introspection works. GPU usage still requires an explicit
 manual workflow trigger, and the reference portraits remain unreviewed.
+
+[Кинематографическая сборка, проверка MP4 и возобновление рендера](docs/CINEMATIC_PRODUCTION_RU.md)

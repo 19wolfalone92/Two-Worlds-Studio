@@ -17,6 +17,7 @@ REGISTRY=ROOT/"audio/voice_registry.json"
 ALLOWED={".wav",".flac",".mp3",".ogg",".m4a"}
 MAX_AUDIO=60*1024*1024
 RIGHTS={"original","owned","commissioned","licensed"}
+TIMELINE_BUSES = frozenset({"dialogue", "narration", "music", "ambience", "sfx"})
 
 def read_registry(path:Path=REGISTRY)->dict:
     data=json.loads(path.read_text(encoding="utf-8"))
@@ -140,6 +141,64 @@ def mix_audio(video:Path,tracks:list[dict],*,output:Path=None)->Path:
           "-ar","48000","-ac","2","-shortest","-movflags","+faststart",str(out)]
     subprocess.run(args,check=True)
     return out
+
+
+def mix_timeline(tracks: list[dict], length: float, output: Path) -> dict:
+    """Mix validated timed stems to PCM. The video mux encodes AAC once."""
+    from studio.remaster_audio import normalize
+
+    if not tracks or not math.isfinite(length) or not 0 < length <= 600:
+        raise ValueError("A real, bounded sound timeline is required")
+    inputs, graph = [], []
+    buses = {name: [] for name in sorted(TIMELINE_BUSES)}
+    for index, track in enumerate(tracks):
+        bus = track["bus"]
+        if track.get("loop"):
+            inputs += ["-stream_loop", "-1"]
+        inputs += ["-i", str(track["path"])]
+        duration = min(length - track["start"], track["duration"])
+        delay_samples = round(track["start"] * 48000)
+        filters = ["aresample=48000", "aformat=channel_layouts=stereo",
+                   f"atrim=duration={duration:.9f}", "asetpts=PTS-STARTPTS"]
+        if bus in {"dialogue", "narration"} and track.get("cleanup"):
+            filters += ["highpass=f=68", "adeclick", "afftdn=nr=8:nf=-48",
+                        "equalizer=f=265:t=q:w=1.2:g=-1.5",
+                        "acompressor=threshold=0.10:ratio=2.3:attack=12:release=105:makeup=1.25"]
+        filters += [f"volume={track['gain']:.6f}", f"adelay={delay_samples}S:all=1",
+                    "apad", f"atrim=duration={length:.9f}"]
+        label = f"[t{index}]"
+        graph.append(f"[{index}:a:0]" + ",".join(filters) + label)
+        buses[bus].append(label)
+
+    def combine(labels, name):
+        if not labels:
+            return None
+        mix = "anull" if len(labels) == 1 else f"amix=inputs={len(labels)}:normalize=0"
+        graph.append("".join(labels) + mix + f"[{name}]")
+        return f"[{name}]"
+
+    voice = combine(buses["dialogue"] + buses["narration"], "voice")
+    bed = combine(buses["music"] + buses["ambience"], "bed")
+    sfx = combine(buses["sfx"], "sfx")
+    if voice and bed:
+        graph += [f"{voice}asplit=2[vo][key]",
+                  f"{bed}[key]sidechaincompress=threshold=0.025:ratio=7:"
+                  "attack=25:release=350[ducked]"]
+        voice, bed = "[vo]", "[ducked]"
+    combined = combine([label for label in (voice, bed, sfx) if label], "combined")
+    graph.append(f"{combined}alimiter=limit=0.84:level=0:latency=1,"
+                 f"atrim=duration={length:.9f}[mix]")
+    with tempfile.TemporaryDirectory(prefix="tw-sound-", dir=output.parent) as temp:
+        dry = Path(temp) / "mixed.wav"
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y",
+                        "-filter_complex_threads", "1", *inputs, "-filter_complex", ";".join(graph),
+                        "-map", "[mix]", "-c:a", "pcm_f32le", str(dry)],
+                       capture_output=True, check=True, timeout=240)
+        measured = normalize(dry, output, lufs=-16, tp=-1.7, channels=2)
+    return {"buses": {name: len(labels) for name, labels in buses.items() if labels},
+            "input_lufs": float(measured["input_i"]), "target_lufs": -16,
+            "target_true_peak_dbtp": -1.7, "automatic_ducking": bool(voice and bed),
+            "speech_speed_factor": 1.0}
 
 def main():
     p=argparse.ArgumentParser(description="Audit approved dialogue and music supplied by Work")

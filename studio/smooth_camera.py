@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 
 from PIL import Image, ImageOps
@@ -131,6 +132,26 @@ def render_still(image_path: Path, target_path: Path, width: int, height: int, f
                 target_path.unlink(missing_ok=True)
                 raise RuntimeError(f'FFmpeg static export failed: {result.stderr[-2000:]!r}')
         return
+    def images():
+        for i in range(frames):
+            zoom, px, py = camera_pose(i, frames, camera, strength)
+            scale = 1.0 / zoom
+            cx = iw / 2 + px * (iw - width) / 2
+            cy = ih / 2 + py * (ih - height) / 2
+            ox = cx - (width / 2) * scale
+            oy = cy - (height / 2) * scale
+            transform = (focal_transform(i, frames, camera, strength, (iw, ih),
+                                         (width, height), framing) if framing else
+                         (scale, 0.0, ox, 0.0, scale, oy))
+            yield src.transform((width, height), Image.Transform.AFFINE, transform,
+                                resample=Image.Resampling.BICUBIC)
+
+    encode_rgb_frames(target_path, width, height, fps, frames, images())
+
+
+def encode_rgb_frames(target_path: Path, width: int, height: int, fps: int,
+                      frames: int, images: Iterable[Image.Image]) -> None:
+    """Stream rendered frames without buffering a complete shot in RAM."""
     with tempfile.TemporaryFile() as error_file:
         proc = subprocess.Popen([
             "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
@@ -140,22 +161,14 @@ def render_still(image_path: Path, target_path: Path, width: int, height: int, f
             "-pix_fmt", "yuv420p", "-r", str(fps), str(target_path)
         ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=error_file)
         try:
-            for i in range(frames):
-                zoom, px, py = camera_pose(i, frames, camera, strength)
-                scale = 1.0 / zoom
-                cx = iw / 2 + px * (iw - width) / 2
-                cy = ih / 2 + py * (ih - height) / 2
-                ox = cx - (width / 2) * scale
-                oy = cy - (height / 2) * scale
-                transform = (focal_transform(i, frames, camera, strength, (iw, ih),
-                                             (width, height), framing) if framing else
-                             (scale, 0.0, ox, 0.0, scale, oy))
-                frame = src.transform(
-                    (width, height), Image.Transform.AFFINE,
-                    transform,
-                    resample=Image.Resampling.BICUBIC)
-                assert proc.stdin is not None
+            assert proc.stdin is not None
+            count = 0
+            for count, frame in enumerate(images, 1):
+                if count > frames or frame.mode != "RGB" or frame.size != (width, height):
+                    raise ValueError("Rendered frame does not match the target clock or canvas")
                 proc.stdin.write(frame.tobytes())
+            if count != frames:
+                raise ValueError("Rendered shot does not contain its full frame count")
         except BaseException:
             proc.kill()
             proc.wait()
