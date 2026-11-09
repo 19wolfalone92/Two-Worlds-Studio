@@ -244,6 +244,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                                duration=frames / fps, start=start / fps, camera=camera, strength=strength,
                                caption=caption.strip(), voice=voice, approved=approved,
                                subtitle_cues=validated_cues, voice_offset=voice_offset,
+                               dialogue_text=item.get("dialogue_text"),
                                voice_duration=voice_duration, voice_bus=voice_bus, voice_cleanup=cleanup,
                                shot_type=shot_type, caption_position=position, cinematic=cinematic,
                                protected_regions=regions, reference=reference, fallback=fallback,
@@ -298,7 +299,8 @@ def render_segment(shot: dict, path: Path, width: int, height: int, fps: int, *,
                  "protected_regions": shot["protected_regions"]}
         if shot["voice"]:
             scene["voice"] = {"path": shot["voice"].relative_to(shot["base"]).as_posix(),
-                              "offset_ms": round(shot["voice_offset"] * 1000)}
+                              "offset_ms": round(shot["voice_offset"] * 1000),
+                              "text": shot.get("dialogue_text")}
         if burn_subtitles:
             zone = (.06, .26) if shot["caption_position"] == "top" else (.64, .855)
             scene["caption_windows"] = [(c["start"], c["end"], *zone) for c in cue_rows(shot)]
@@ -537,8 +539,9 @@ def shot_sources(shot: dict) -> set[Path]:
             for category in ("blink", "mouth"):
                 if category in layer.get("motion", {}):
                     paths.add(resolve_asset(shot["base"], layer["motion"][category]["path"]))
-            if "viseme_track" in layer.get("facial", {}):
-                paths.add(source(shot["base"], layer["facial"]["viseme_track"], {".json"}))
+            for timing in ("viseme_track", "phoneme_track"):
+                if timing in layer.get("facial", {}):
+                    paths.add(source(shot["base"], layer["facial"][timing], {".json"}))
     return paths
 
 

@@ -19,8 +19,8 @@ from PIL import Image, ImageDraw
 
 from studio import cli, production_queue
 from studio.cinematic import CinematicPanel
-from studio.hybrid_master import check_manifest, produce
-from studio.lipsync import rhubarb_visemes, speech_activity
+from studio.hybrid_master import check_manifest, produce, shot_sources
+from studio.lipsync import PhonemeMotion, import_mfa, rhubarb_visemes, speech_activity
 from studio.model_cache import cached_segment
 from studio.release_gate import sha256
 
@@ -108,6 +108,58 @@ class CinematicProductionTests(unittest.TestCase):
         (self.root / "voice.wav").write_bytes(self.wav("other").read_bytes() + b"X")
         with self.assertRaisesRegex(ValueError, "exact WAV"):
             CinematicPanel(self.scene, self.root, *self.size)
+
+    @unittest.skipUnless(FFMPEG, "FFmpeg and ffprobe required")
+    def test_mfa_mesh_uses_source_pixels_and_locks_the_wav_and_words(self):
+        voice = self.wav()
+        document = {"end": 1., "tiers": {
+            "words": {"entries": [[.18, .72, "мама"]]},
+            "phones": {"entries": [[.18, .28, "m_B"], [.28, .42, "a_I"],
+                                   [.42, .55, "m_I"], [.55, .72, "a_E"]]},
+        }}
+        with self.assertRaisesRegex(ValueError, "locked dialogue"):
+            import_mfa(document, voice, "папа")
+        track = import_mfa(document, voice, "Мама.")
+        timing = self.root / "phones.json"
+        timing.write_text(json.dumps(track), encoding="utf-8")
+        self.layer["facial"] = {
+            "phoneme_track": timing.name,
+            "mouth_mesh": {"seam": [[126/288, 201/512], [141/288, 198/512],
+                                    [158/288, 201/512]]},
+        }
+        self.scene["voice"] = {"path": voice.name, "offset_ms": 0, "text": "Мама."}
+        panel = CinematicPanel(self.scene, self.root, *self.size)
+        still = panel.frame(0, seconds=.1)
+        closed = panel.frame(0, seconds=.48)
+        open_mouth = panel.frame(0, seconds=.35)
+        self.assertEqual(still.tobytes(), closed.tobytes())
+        self.assertNotEqual(still.getpixel((141, 201)), open_mouth.getpixel((141, 201)))
+        self.assertEqual(still.crop((110, 140, 171, 178)).tobytes(),
+                         open_mouth.crop((110, 140, 171, 178)).tobytes())
+
+        self.shot.update(voice=voice.name, dialogue_text="Мама.",
+                         subtitle_cues=[{"start": .18, "end": .72, "text": "Мама."}])
+        shots = check_manifest(self.manifest, self.root)["shots"]
+        self.assertIn(timing, shot_sources(shots[0]))
+        manifest = self.root / "mesh.json"
+        manifest.write_text(json.dumps(self.manifest), encoding="utf-8")
+        result = produce(manifest, self.root / "mesh_render.mp4", cache=self.root / "cache")
+        self.assertEqual(result["shot_reports"][0]["lipsync_modes"], ["mfa_phoneme_mesh"])
+        self.assertEqual(result["qc"]["technical_status"], "PASS")
+        self.scene["voice"]["text"] = "Папа."
+        with self.assertRaisesRegex(ValueError, "exact WAV and locked dialogue"):
+            CinematicPanel(self.scene, self.root, *self.size)
+
+    def test_phoneme_coarticulation_holds_plosive_and_fades_around_pauses(self):
+        activity = {"duration": 1., "step_ms": 20, "active": [False] * 10 + [True] * 30 + [False] * 10}
+        motion = PhonemeMotion([[.18, .36, "a_B"], [.36, .41, "p_I"],
+                                [.41, .70, "o_I"], [.70, .90, "t̪_E"]], activity)
+        self.assertEqual(motion.pose(.366), (0., 0., 0.))
+        self.assertEqual(motion.pose(.408), (0., 0., 0.))
+        self.assertGreater(motion.pose(.30)[0], .8)
+        self.assertLess(motion.pose(.54)[1], -.1)
+        self.assertEqual(motion.pose(.90), (0., 0., 0.))
+        self.assertLess(abs(motion.pose(.359)[0] - motion.pose(.360)[0]), .02)
 
     def test_protected_clue_rejects_camera_caption_and_layer_occlusion(self):
         region = {"id": "clue", "layer": 0, "box": [.3, .28, .45, .37], "start": 0., "end": 1.}

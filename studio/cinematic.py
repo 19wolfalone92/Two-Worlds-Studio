@@ -87,7 +87,7 @@ class CinematicPanel:
         from studio.character_engine import CharacterRig
         from studio.cinematic_lighting import LightStage
         from studio.facial_actor import PerformanceRig
-        from studio.lipsync import load_viseme_track, speech_activity
+        from studio.lipsync import load_phoneme_motion, load_viseme_track, speech_activity
 
         validate_premium_scene(scene, assets_root, publish=master, min_width=width, min_height=height)
         self.scene=scene
@@ -101,11 +101,13 @@ class CinematicPanel:
         voice=scene.get("voice")
         layers = scene["cinematic"]["layers"]
         if sum(bool(x.get("facial", {}).get("viseme_track") or
+                    x.get("facial", {}).get("phoneme_track") or
                     x.get("facial", {}).get("visemes")) for x in layers) > 1 and voice:
             raise ValueError("One shot voice can drive only one speaking facial rig")
         clip = None
         if voice and any(x.get("motion", {}).get("mouth") or
-                         x.get("facial", {}).get("mouth") for x in layers):
+                         x.get("facial", {}).get("mouth") or
+                         x.get("facial", {}).get("mouth_mesh") for x in layers):
             clip = audio_asset(assets_root, voice.get("path"))
             self.voice_delay_ms = int(voice.get("offset_ms", 100))
         if clip is not None and any(x.get("motion", {}).get("mouth") for x in layers):
@@ -138,6 +140,15 @@ class CinematicPanel:
                 if layer.get("facial") is not None:
                     face = layer["facial"]
                     activity = None
+                    phonemes = None
+                    if "mouth_mesh" in face or "phoneme_track" in face:
+                        if (clip is None or not isinstance(voice.get("text"), str)
+                                or not voice["text"].strip() or not face.get("phoneme_track")
+                                or "mouth_mesh" not in face or "viseme_track" in face):
+                            raise ValueError("Mouth mesh requires a phoneme track, WAV and locked dialogue")
+                        phonemes = load_phoneme_motion(
+                            assets_root, face["phoneme_track"], clip, voice["text"],
+                        )
                     if face.get("viseme_track") is not None:
                         if clip is None or face.get("visemes"):
                             raise ValueError("Recorded visemes require one shot voice and one timing source")
@@ -148,7 +159,7 @@ class CinematicPanel:
                             raise ValueError("The lip-sync voice contains no detectable speech activity")
                     actor = PerformanceRig(actor, face, assets_root,
                         duration=float(scene["duration"]), voice_delay_ms=self.voice_delay_ms,
-                        activity=activity, master=master)
+                        activity=activity, phonemes=phonemes, master=master)
                     self.performance_modes.append(actor.mode)
             elif layer.get("deform") is not None:
                 from studio.deformable_actor import DeformableActor
