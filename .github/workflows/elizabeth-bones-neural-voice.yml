@@ -16,12 +16,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install voice generator (no commercial account or secrets)
+      - name: Install offline Russian Piper speech engine (no credentials)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "edge-tts>=7.0,<9.0" "pydub>=0.25.1"
+          python -m pip install "piper-tts>=1.3,<2" "pydub>=0.25.1"
           sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg espeak-ng
+      - name: Fetch two open Russian Piper voice models
+        run: |
+          set -euo pipefail
+          mkdir -p dist/models
+          for name in irina dmitri; do
+            base="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/${name}/medium/ru_RU-${name}-medium.onnx"
+            curl --retry 3 -fLsS "$base" -o "dist/models/ru_RU-${name}-medium.onnx"
+            curl --retry 3 -fLsS "$base.json" -o "dist/models/ru_RU-${name}-medium.onnx.json"
+          done
+          ls -lh dist/models/*.onnx
       - name: Generate 21 independent voice lines and one synchronized 70s dialogue WAV
         run: python tools/elizabeth_bones_neural_voice.py
       - name: Inspect generated voice tracks
