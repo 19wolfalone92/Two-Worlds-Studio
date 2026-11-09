@@ -7,6 +7,9 @@ on:
       - "studio/contracts.py"
       - "studio/voice_engine.py"
       - "studio/quality_hub.py"
+      - "studio/provider_policy.py"
+      - "studio/production_queue.py"
+      - "studio/release_gate.py"
       - "tests/test_architecture_v4.py"
       - "pyproject.toml"
       - "audio/voice_routes.json"
@@ -30,7 +33,7 @@ jobs:
         run: python -m pip install -e '.[validation]'
       - name: Test CLI routing, privacy and typed manifests without model inference
         run: |
-          python -m unittest tests.test_architecture_v4 -v
+          python -m unittest tests.test_architecture_v4 tests.test_production_queue -v
           python -m studio.cli doctor > /tmp/tw-doctor.json
           python -m studio.cli validate --kind episode --input episodes/E01_THE_REFLECTION.json
           python -m studio.cli validate --kind visual_bible --input story/visual_bible.json

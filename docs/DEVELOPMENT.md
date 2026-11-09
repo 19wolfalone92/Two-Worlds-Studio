@@ -92,7 +92,12 @@ consent to run them. Generated audio remains **unreviewed**.
 6. **Editing:** \`studio/hybrid_master.py\`, \`studio/triptych_batch.py\`
    and \`studio/shorts_factory.py\`; do not substitute a placeholder for
    missing real source frames or recorded/generated approved voice.
-7. **Release:** \`studio/quality_hub.py\` consolidates technical film
+7. **Provider error policy:** `studio/provider_policy.py` centralizes safe
+   Kaggle failure categories and bounded retry plans reused by
+   `studio/production_queue.py`. A scheduled retry is not a new GPU request,
+   dynamic Kaggle API rate limits are not guessed, and there is no automatic
+   fallback provider or token cycling.
+8. **Release:** \`studio/quality_hub.py\` consolidates technical film
    \`studio/release_gate.py\`, physical-body identity
    \`studio/identity_qc.py\`, and independent transcript auditing from
    \`studio/voice_audit.py\`. A \`technical_pass_human_review_required\`
@@ -134,6 +139,8 @@ or discarded without retention review.
 - Enforce typed preflight in every legacy GPU producer after fixtures have
   been migrated without breaking existing live jobs.
 - Extend the review hub with opt-in captured encoded audio loudness and
-  scene motion continuity; keep the current release gate fail-closed.
+  scene motion continuity; keep the current release gate fail-closed. The
+  `quality --measure-loudness` option now includes read-only encoded-audio
+  loudness measurement via `studio/delivery_qc.py`, always needing review.
 - Keep the public repo clean of private content and do not prune old
   production branches until encrypted handoffs are recovered.
