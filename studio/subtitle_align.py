@@ -46,19 +46,34 @@ def ctc_spans(logp: np.ndarray, labels: list[int], blank: int) -> list[tuple[int
             for i, f in enumerate(frames)]
 
 
-def readable_cues(words: list[dict], max_chars: int = 70) -> list[dict]:
+def readable_cues(words: list[dict], max_chars: int = 56, *,
+                  max_seconds: float = 3.2, pause_seconds: float = .40) -> list[dict]:
+    """Short, pause-aware groups using only measured word boundaries."""
+    if (type(max_chars) is not int or max_chars < 12
+            or not np.isfinite(max_seconds) or not .5 <= max_seconds <= 10
+            or not np.isfinite(pause_seconds) or not 0 <= pause_seconds <= 3):
+        raise ValueError('Invalid readable caption limits')
     cues, current = [], []
     def finish():
         if current:
             cues.append({'start': current[0]['start'], 'end': current[-1]['end'],
                          'text': ' '.join(w['word'] for w in current)})
             current.clear()
+    previous_end = 0.
     for word in words:
+        if (not isinstance(word, dict) or not isinstance(word.get('word'), str)
+                or not word['word'].strip()
+                or any(type(word.get(k)) not in (int, float) or not np.isfinite(word[k])
+                       for k in ('start', 'end'))
+                or word['start'] < previous_end - .02 or word['end'] <= word['start']):
+            raise ValueError('Word captions require ordered, measured speech intervals')
         if current and (len(' '.join(w['word'] for w in current) + ' ' + word['word']) > max_chars
-                        or word['end'] - current[0]['start'] > 5.5):
+                        or word['end'] - current[0]['start'] > max_seconds
+                        or word['start'] - current[-1]['end'] > pause_seconds):
             finish()
         current.append(word)
-        if len(current) >= 3 and re.search(r'[.!?…][»"]?$', word['word']):
+        previous_end = word['end']
+        if len(current) >= 2 and re.search(r'[.!?…][»"]?$', word['word']):
             finish()
     finish()
     return cues
