@@ -2,6 +2,31 @@
 
 **Status:** tested technical motion-comic engine; professional illustrated master is **not yet produced**. Independently maintained from Williams Bot and Williams AI.
 
+## Branch consolidation — 2026-11-09 (PR #51)
+
+The validated Studio consolidation was **squash-merged into `main`** at
+`31eb2ff915a834b419de2f5b9345921fa7acc17f`. GitHub CI on the integration
+candidate completed four green checks: combined 391-test offline suite (13
+skipped), Studio v2 CPU video/release contract, Studio v3 Kaggle API quota/
+real-media verification, and ComfyUI reference-conditioning guard. Technical
+preview export was also verified. The merge preserved the current v2/v3 gates.
+
+`main` now includes the recovered character rig/art system, private-source
+media packaging, Russian shorts production, music/sound assembly, accurate
+frame-clock/subtitle/remaster helpers, private batch reconciliation, expanded
+regression tests, manual Kaggle Russian shorts/character factory workflows, and
+optional Elizabeth Bones voice preview scripts.
+
+Excluded by design: **72 encrypted request payloads, 9 historic private
+request/recipient files and 5 hard-coded old-branch production workflows**.
+They remain in historical branches; no unpublished source media, credentials
+or private decryption keys were copied to public `main`. Old branches must not
+be pruned until independent private-artifact verification and archival.
+**Passing CI does not prove a finished film, continuous character motion,
+approved voice acting, real GPU capacity, or publication readiness.**
+
+Full audit and remaining gates: `docs/STUDIO_CONSOLIDATION_AUDIT_20261109.md`.
+
 ## STORY GLITCH Studio v2 — production handoff (2026-11-06)
 
 The existing engine now includes a **verified offline 3-part review assembler**
@@ -69,7 +94,7 @@ The initial Work lock requires a real human approval, rights-clear images and vo
 - `release_plan.json` — review-gated preparation schedule; no public posting.
 
 ## Status and workflow
-The PR stack is staged as feature branches, not merged to main. Confirm passing CI and review before merge. **GitHub repo currently public** — switch visibility to Private if stories/art should remain undisclosed. Never commit credentials or copyrighted content without rights.
+The validated shared production modules from PR #51 are merged to main. Older feature branches and their external private artifacts are retained for verified archival, not for automatic re-merging. **GitHub repo currently public** — switch visibility to Private if stories/art should remain undisclosed. Never commit credentials or copyrighted content without rights.
 
 ## Automated artwork import (Work → Studio)
 

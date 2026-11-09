@@ -43,8 +43,13 @@ All other engineering branches are retained unchanged pending individual compari
 - [x] Compare the 53 non-main branches against main for ahead/behind and changed-path inventory
 - [x] Identify the largest supersets and overlapping v2/v3 code
 - [x] Create an isolated integration branch; retain old main and old feature branches
-- [ ] Verify all combined tests, previews, and sound/video contracts
-- [ ] Integrate approved newer voice tools and gated workflows where safe
+- [x] Verify all combined **offline** tests, previews, and sound/video contracts (four green PR checks; 391 unit tests, 13 skipped)
+- [x] Integrate optional Elizabeth Bones voice scripts and guarded manual Kaggle shorts / character factory workflows (voice listening not yet verified)
 - [ ] Verify private artifact handoffs with owner consent; no quota spending by default
-- [ ] Merge fully verified integration to main
+- [x] Merge CI-verified integration to main via PR #51 (squash commit `31eb2ff915a834b419de2f5b9345921fa7acc17f`)
 - [ ] Confirm post-merge equivalence/backups before any pruning
+
+## Post-merge notes
+
+Merged PR #51 successfully into `main` on 2026-11-09. The integration branch and merged main commit have identical tree SHA `c71daea857d4e17e5af954ce3551bb8764f195f6`. No historic branch was deleted. GitHub Actions main-push verification and external private asset handoff remain separate from the four green PR checks; no live GPU inference, finished STORY GLITCH episode, or published media is claimed.
+
