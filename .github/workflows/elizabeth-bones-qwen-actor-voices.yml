@@ -1,5 +1,10 @@
 name: Elizabeth Bones — Qwen3 actor voices, 21 lines
 on:
+  push:
+    branches: [feature/elizabeth-bones-neural-ru-voice-20261109]
+    paths:
+      - tools/elizabeth_bones_qwen_v5.py
+      - .github/workflows/elizabeth-bones-qwen-actor-voices.yml
   pull_request:
     paths:
       - tools/elizabeth_bones_qwen_v5.py
