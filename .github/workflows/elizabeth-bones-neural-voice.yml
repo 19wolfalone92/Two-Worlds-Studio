@@ -1,0 +1,84 @@
+name: Elizabeth Bones — Russian neural dialogue preview
+on:
+  pull_request:
+    paths:
+      - tools/elizabeth_bones_neural_voice.py
+      - tools/elizabeth_bones_qwen_v5.py
+      - .github/workflows/elizabeth-bones-neural-voice.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate-voice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install offline Russian Piper speech engine (no credentials)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "piper-tts>=1.3,<2" "pydub>=0.25.1"
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg espeak-ng
+      - name: Fetch two open Russian Piper voice models
+        run: |
+          set -euo pipefail
+          mkdir -p dist/models
+          for name in irina dmitri; do
+            base="https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/${name}/medium/ru_RU-${name}-medium.onnx"
+            curl --retry 3 -fLsS "$base" -o "dist/models/ru_RU-${name}-medium.onnx"
+            curl --retry 3 -fLsS "$base.json" -o "dist/models/ru_RU-${name}-medium.onnx.json"
+          done
+          ls -lh dist/models/*.onnx
+      - name: Generate 21 independent voice lines and one synchronized 70s dialogue WAV
+        run: python tools/elizabeth_bones_neural_voice.py
+      - name: Inspect generated voice tracks
+        run: |
+          test -s dist/elizabeth_bones_ru_voice/EP01_RU_NEURAL_DIALOGUE_70s.wav
+          test -s dist/elizabeth_bones_ru_voice/EP01_RU_NEURAL_DIALOGUE_70s.m4a
+          ffprobe -v error -show_entries format=duration -of default=nw=1 dist/elizabeth_bones_ru_voice/EP01_RU_NEURAL_DIALOGUE_70s.wav
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('dist/elizabeth_bones_ru_voice')
+          r=json.loads((p/'manifest.json').read_text())
+          assert len(r['lines'])==21
+          assert sum(1 for x in r['lines'] if x['speaker']=='ЭЛИЗАБЕТ')==11
+          assert sum(1 for x in r['lines'] if x['speaker']=='КОСТЯ')==10
+          assert len([x for x in p.glob('line_*_*.wav') if not x.name.endswith('.source.wav')])==21
+          PY
+      - name: Archive real voice samples — not public release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elizabeth-bones-ep01-neural-voices
+          path: dist/elizabeth_bones_ru_voice/
+          retention-days: 14
+          if-no-files-found: warn
+
+  qwen-acting-voices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU Qwen TTS
+        run: |
+          python -m pip install -U pip
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.5,<2.10" "torchaudio>=2.5,<2.10"
+          python -m pip install --no-cache-dir "qwen-tts>=0.0.5" "soundfile>=0.12" "numpy>=1.26"
+      - name: Make 21 naturally paced Russian voice performances
+        run: PYTHONPATH=. python tools/elizabeth_bones_qwen_v5.py
+      - name: Upload acting voice review pack
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_QWEN_V5_NATURAL_VOICES
+          path: dist/elizabeth_bones_qwen_v5/
+          retention-days: 14
+          if-no-files-found: warn
