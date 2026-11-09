@@ -9,7 +9,7 @@ import subprocess
 import time
 from pathlib import Path
 from pydub import AudioSegment
-import edge_tts
+import os
 
 ROOT=Path(__file__).resolve().parents[2]
 DEST=ROOT / "dist" / "elizabeth_bones_ru_voice"
@@ -37,20 +37,18 @@ LINES=[
  ("КОСТЯ","Не волнуйся. Руки-то у меня золотые! Почти.",59.198,62.669),
  ("ЭЛИЗАБЕТ","Ладно. Кажется, мы сработаемся.",63.239,66.129),
 ]
-VOICES={"ЭЛИЗАБЕТ":("ru-RU-SvetlanaNeural","+4%"),"КОСТЯ":("ru-RU-DmitryNeural","+7%")}
+VOICES={"ЭЛИЗАБЕТ":("ru_RU-irina-medium","offline"),"КОСТЯ":("ru_RU-dmitri-medium","offline")}
 async def generate_line(idx,speaker,text):
-    voice,rate=VOICES[speaker]
-    target=DEST / f"line_{idx:02d}_{'liz' if speaker=='ЭЛИЗАБЕТ' else 'kostya'}.mp3"
-    for attempt in range(3):
-        try:
-            await edge_tts.Communicate(text,voice=voice,rate=rate).save(str(target))
-            if target.stat().st_size<500:
-                raise RuntimeError("Empty output audio")
-            return target
-        except Exception:
-            target.unlink(missing_ok=True)
-            if attempt==2:raise
-            await asyncio.sleep(2**attempt)
+    model_name=VOICES[speaker][0]
+    model=ROOT / "dist" / "models" / (model_name+".onnx")
+    if not model.is_file():
+        raise FileNotFoundError("Piper model must be downloaded before synthesis: "+str(model))
+    target=DEST / f"line_{idx:02d}_{'liz' if speaker=='ЭЛИЗАБЕТ' else 'kostya'}.source.wav"
+    subprocess.run(["piper","--model",str(model),"--output_file",str(target)],
+                   input=text+"\\n",text=True,check=True,capture_output=True)
+    if not target.exists() or target.stat().st_size<1000:
+        raise RuntimeError("Neural TTS produced empty audio")
+    return target
 async def main():
     combined=AudioSegment.silent(duration=70300,frame_rate=48000).set_channels(2)
     metadata=[]
