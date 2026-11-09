@@ -1,0 +1,43 @@
+name: TWO WORLDS - Studio architecture and schema preflight
+
+on:
+  pull_request:
+    paths:
+      - "studio/cli.py"
+      - "studio/contracts.py"
+      - "studio/voice_engine.py"
+      - "studio/quality_hub.py"
+      - "tests/test_architecture_v4.py"
+      - "pyproject.toml"
+      - "audio/voice_routes.json"
+      - "audio/voice_registry.json"
+      - ".github/workflows/studio-architecture-v4.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU schema dependencies only
+        run: python -m pip install -e '.[validation]'
+      - name: Test CLI routing, privacy and typed manifests without model inference
+        run: |
+          python -m unittest tests.test_architecture_v4 -v
+          python -m studio.cli doctor > /tmp/tw-doctor.json
+          python -m studio.cli validate --kind episode --input episodes/E01_THE_REFLECTION.json
+          python -m studio.cli validate --kind visual_bible --input story/visual_bible.json
+          python -m studio.cli validate --kind identities --input story/identity_registry.json
+          python -m studio.cli voice-plan --speaker Mira --language en --text "Studio preview only."
+          python -m studio.cli voice-plan --speaker Elizabeth --language ru --text "Только проверка маршрутизации."
+          python -m studio.cli kaggle-quota
+          python -m studio.cli run --engine comfy
+      - name: Verify that no public posting or GPU was triggered
+        run: echo "PASS - offline preflight only, zero external inference requests"
