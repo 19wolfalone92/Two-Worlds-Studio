@@ -41,6 +41,16 @@ def run_job(config):
     OUTPUT.mkdir(parents=True, exist_ok=True)
     mode = config["mode"]
     result = {}
+    if mode=="design":
+        install("git+https://github.com/huggingface/diffusers.git",
+                "transformers", "accelerate", "safetensors", "sentencepiece", "Pillow", "numpy")
+        from studio.character_factory import create_design,run_batch,FluxBackend
+        spec_file=TEMP/"new_character_design.json"
+        spec_file.write_text(json.dumps(config["design_spec"],ensure_ascii=False))
+        project=OUTPUT/"character_factory"
+        create_design(spec_file,project)
+        result["design"]=run_batch(project,FluxBackend(project,width=768,height=1152),
+                    max_images=config["max_images"],views=("front","three_quarter","profile"))
     if mode in ("portrait", "both"):
         install("git+https://github.com/huggingface/diffusers.git",
                 "transformers", "accelerate", "safetensors", "sentencepiece")
@@ -66,22 +76,23 @@ def run_job(config):
         result["voice"] = voice
     return result
 
-def archive_output(config, result):
+def archive_output(config, result, *, success=True):
     manifest = {
         "schema": 1, "run_nonce": config["run_nonce"],
         "source_sha": config["source_sha"], "mode": config["mode"],
+        "success":success,
         "models_reviewed": False, "art_approved": False,
         "voices_approved": False, "result": result,
     }
     (OUTPUT / "output_manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     with zipfile.ZipFile(ARCHIVE, "w", zipfile.ZIP_DEFLATED) as z:
-        for file in sorted(OUTPUT.iterdir()):
+        for file in sorted(OUTPUT.rglob("*")):
             if not file.is_file() or file.suffix.lower() not in (".png", ".wav", ".json"):
                 continue
-            z.write(file, arcname=file.name)
+            z.write(file, arcname=file.relative_to(OUTPUT).as_posix())
     return {
-        "run_nonce": config["run_nonce"], "success": True,
+        "run_nonce": config["run_nonce"], "success": success,
         "source_sha": config["source_sha"], "mode": config["mode"],
         "result": result,
         "archive": ARCHIVE.name,
@@ -97,8 +108,19 @@ def main():
         print("TWO WORLDS Kaggle generation succeeded. Outputs are UNREVIEWED.")
     except BaseException as exc:
         receipt = {"run_nonce": config.get("run_nonce"), "success": False,
+                   "source_sha":config.get("source_sha"),"mode":config.get("mode"),
                    "error_type": type(exc).__name__,
                    "message": str(exc)[:600]}
+        # Preserve completed drawings and their ledger on a later GPU failure.
+        # They remain explicit partial results, never a successful batch.
+        if OUTPUT.exists():
+            try:
+                ledger=OUTPUT/"character_factory/ledger.json"
+                count=len(json.loads(ledger.read_text()).get("results",[])) if ledger.is_file() else 0
+                receipt.update(archive_output(config,{"partial":True,"completed_drawings":count},success=False))
+                receipt.update(error_type=type(exc).__name__,message=str(exc)[:600])
+            except Exception:
+                pass
         RECEIPT.write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
         print("TWO WORLDS Kaggle generation failed (see actual Kaggle logs).")
         raise
