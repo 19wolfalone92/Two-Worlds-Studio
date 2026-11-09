@@ -15,19 +15,25 @@ import json
 import os
 import re
 import time
+import tempfile
 from pathlib import Path
 
 from studio.art_director import ROOT,load_style
 
 DEFAULT_MODEL="black-forest-labs/FLUX.2-klein-4B"
-VIEWS={"front","three_quarter","profile","full_body","expression"}
+VIEWS={"front","three_quarter","profile","full_body","expression","back","rear_three_quarter"}
+# Keep the original five view seeds stable when new angles are introduced.
+VIEW_SEED_OFFSET={"expression":0,"front":1,"full_body":2,"profile":3,"three_quarter":4,
+                  "back":5,"rear_three_quarter":6}
 SAFE_ID=re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,32}$")
 VIEWHINT={
     "front":"neutral direct FRONT VIEW, level camera, shoulders squared, face fully visible",
     "three_quarter":"three-quarter 45 degree portrait, distinct facial anatomy unchanged",
     "profile":"strict SIDE PROFILE, same person, consistent facial bone structure",
     "full_body":"full-body standing turnaround, correct hands and proportion",
-    "expression":"cinematic expressive portrait, emotionally restrained, accurate face"
+    "expression":"cinematic expressive portrait, emotionally restrained, accurate face",
+    "back":"strict BACK view, back of head and clothes, no visible face, correct body proportions",
+    "rear_three_quarter":"REAR THREE-QUARTER view, same body, facing away from camera, never horizontally flip"
 }
 
 def sha256(path:Path)->str:
@@ -67,7 +73,7 @@ def character_job(style:dict,body:str,view:str,reference:Path|None=None)->dict:
         "job_kind":"character","body":body,"view":view,
         "prompt":prompt,"negative":style["negative"],
         # Same identity seed across all views is useful but NOT proof of identity.
-        "seed":int(ch["seed_anchor"])+list(sorted(VIEWS)).index(view),
+        "seed":int(ch["seed_anchor"])+VIEW_SEED_OFFSET[view],
         "reference":validate_reference(reference),
         "review_status":"unreviewed","visual_identity_verified":False
     }
@@ -92,6 +98,22 @@ def scene_job(pack:dict,scene_id:str,reference:Path|None=None)->dict:
     }
 
 def plan_job(args)->dict:
+    if getattr(args,"character_project",None):
+        from studio.character_art import get_job,resolve_asset
+        if not getattr(args,"job",None):
+            raise ValueError("--character-project requires --job from that project's jobs.json")
+        root=Path(args.character_project)
+        source=get_job(root,args.job)
+        if len(source["body_ids"])!=1 or source.get("edit_target"):
+            raise ValueError("FLUX worker currently supports one physical identity and no separate edit target")
+        ref=source["references"][0]
+        return {"job_kind":"character","body":source["body_ids"][0],"view":source["view"],
+                "prompt":source["prompt"],"negative":"duplicate anatomy, watermark, malformed eyes",
+                "seed":int(source["job_fingerprint"][:8],16),
+                "reference":validate_reference(resolve_asset(root,ref["file"])),
+                "source_job_fingerprint":source["job_fingerprint"],
+                "reference_mode":"single_primary_identity_reference",
+                "review_status":"unreviewed","visual_identity_verified":False}
     style=load_style()
     reference=Path(args.reference) if args.reference else None
     if args.mode=="character":
@@ -103,55 +125,109 @@ def plan_job(args)->dict:
     data=json.loads(Path(args.prompt_pack).read_text(encoding="utf-8"))
     return scene_job(data,args.scene,reference)
 
-def run_gpu(job:dict,output:Path,*,model_id:str=DEFAULT_MODEL,
-            width:int=576,height:int=1024,steps:int=4)->dict:
-    if model_id!=DEFAULT_MODEL:
-        raise ValueError("Only the reviewed Apache-2.0 FLUX.2 klein 4B checkpoint is allowed")
+def validate_gpu_request(job:dict,output:Path,*,width:int,height:int,steps:int)->None:
+    if any(type(x) is not int for x in (width,height,steps)):
+        raise ValueError("GPU dimensions and steps must be integers")
     if (width,height)!=(576,1024) and (width%64 or height%64 or
                                  min(width,height)<448 or max(width,height)>1344):
         raise ValueError("Use 576x1024 or safe multiples of 64 between 448 and 1344")
     if steps<1 or steps>8:
         raise ValueError("Klein distilled sampling uses 1..8 steps")
-    try:
-        import torch
-        from diffusers import Flux2KleinPipeline
-        from diffusers.utils import load_image
-    except ImportError as exc:
-        raise RuntimeError("Install Kaggle FLUX dependencies from the Notebook first") from exc
-    if not torch.cuda.is_available():
-        raise RuntimeError("No CUDA GPU. Enable Kaggle Notebook Settings > Accelerator > GPU.")
-    device_name=torch.cuda.get_device_name(0)
-    # NVIDIA T4 and P100 do not support BF16; dtype based on actual CUDA support.
-    dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    gpu_gb=torch.cuda.get_device_properties(0).total_memory/(1024**3)
-    print(f"Selected {device_name} ({gpu_gb:.1f} GiB), precision={dtype}; model loading may be slow.")
-    try:
-        pipe=Flux2KleinPipeline.from_pretrained(model_id,torch_dtype=dtype)
-        pipe.enable_model_cpu_offload()
-        pipe.set_progress_bar_config(disable=False)
+    if not isinstance(job.get("prompt"),str) or len(job["prompt"])<20:
+        raise ValueError("GPU job needs a detailed drawing prompt")
+    if type(job.get("seed")) is not int or not 0<=job["seed"]<2**63:
+        raise ValueError("GPU job needs a saved nonnegative integer seed")
+    if output.exists():
+        raise FileExistsError(f"Image exists — refusing overwrite: {output}")
+    if job.get("reference"):
+        current=validate_reference(Path(job["reference"]["path"]))
+        if current["sha256"]!=job["reference"].get("sha256"):
+            raise ValueError("Identity reference changed after drawing job compilation")
+
+def configure_gpu_memory(pipe,total_gib:float)->str:
+    """Use leaf-level offloading on small GPUs; retain native drawing pixels.
+
+    Diffusers' documented sequential offload trades speed for memory without
+    silently lowering the image's requested resolution or quantizing weights.
+    """
+    vae=getattr(pipe,"vae",None)
+    if vae is not None:
+        if callable(getattr(vae,"enable_tiling",None)):vae.enable_tiling()
+        if callable(getattr(vae,"enable_slicing",None)):vae.enable_slicing()
+    if total_gib<20:
+        pipe.enable_sequential_cpu_offload()
+        return "sequential_cpu_offload"
+    pipe.enable_model_cpu_offload()
+    return "model_cpu_offload"
+
+
+class GPUImageSession:
+    """Load the actual GPU pipeline once, reuse it across dependent drawings."""
+    def __init__(self,*,model_id:str=DEFAULT_MODEL):
+        if model_id!=DEFAULT_MODEL:
+            raise ValueError("Only the reviewed Apache-2.0 FLUX.2 klein 4B checkpoint is allowed")
+        try:
+            import torch
+            from diffusers import Flux2KleinPipeline
+            from diffusers.utils import load_image
+        except ImportError as exc:
+            raise RuntimeError("Install Kaggle FLUX dependencies from the Notebook first") from exc
+        if not torch.cuda.is_available():
+            raise RuntimeError("No CUDA GPU. Enable Kaggle Notebook Settings > Accelerator > GPU.")
+        self.torch,self.load_image,self.model_id = torch,load_image,model_id
+        self.device_name=torch.cuda.get_device_name(0)
+        self.total_gib=torch.cuda.get_device_properties(0).total_memory/(1024**3)
+        self.dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        try:
+            self.pipe=Flux2KleinPipeline.from_pretrained(model_id,torch_dtype=self.dtype)
+            self.memory_mode=configure_gpu_memory(self.pipe,self.total_gib)
+            self.pipe.set_progress_bar_config(disable=False)
+        except torch.cuda.OutOfMemoryError as exc:
+            raise RuntimeError("GPU memory insufficient while loading drawing model") from exc
+
+    def render(self,job:dict,output:Path,*,width:int=576,height:int=1024,steps:int=4)->dict:
+        validate_gpu_request(job,output,width=width,height=height,steps=steps)
         kwargs={
             "prompt":job["prompt"],"width":width,"height":height,
             "num_inference_steps":steps,"guidance_scale":1.0,
-            "generator":torch.Generator(device="cpu").manual_seed(job["seed"])
+            "generator":self.torch.Generator(device="cpu").manual_seed(job["seed"])
         }
-        if job["reference"]:
-            kwargs["image"]=load_image(job["reference"]["path"])
-        generated=pipe(**kwargs).images[0]
-    except torch.cuda.OutOfMemoryError as exc:
-        raise RuntimeError("GPU memory insufficient: restart Kaggle, use 448x768 or 512x768 "
-                           "and one image at a time. Loading on Kaggle T4 is not guaranteed.") from exc
-    output.parent.mkdir(parents=True,exist_ok=True)
-    if output.exists():
-        raise FileExistsError(f"Image exists — refusing overwrite: {output}")
-    generated.save(output,"PNG")
-    if output.stat().st_size<10000:
-        output.unlink(missing_ok=True)
-        raise RuntimeError("Generated PNG unexpectedly small")
-    return {"image":str(output),"sha256":sha256(output),"model":model_id,
-            "gpu_name":device_name,"precision":str(dtype),
-            "width":generated.width,"height":generated.height,
-            "reference":job["reference"],
-            "review_status":"unreviewed","identity_verified":False}
+        if job.get("reference"):
+            kwargs["image"]=self.load_image(job["reference"]["path"])
+        try:
+            generated=self.pipe(**kwargs).images[0]
+        except self.torch.cuda.OutOfMemoryError as exc:
+            raise RuntimeError(f"GPU memory insufficient on {self.device_name} at {width}x{height}, "
+                               f"mode={self.memory_mode}: {str(exc)[:300]}") from exc
+        if generated.size!=(width,height):
+            raise RuntimeError("Generator returned unexpected native image dimensions")
+        output.parent.mkdir(parents=True,exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=output.parent,suffix=".png",delete=False) as temp:
+            staged=Path(temp.name)
+        try:
+            generated.save(staged,"PNG")
+            if staged.stat().st_size<10000:
+                raise RuntimeError("Generated PNG unexpectedly small")
+            from studio.premium_assets import inspect_image
+            inspect_image(staged)
+            if output.exists():
+                raise FileExistsError("Another drawing appeared at the output path")
+            staged.replace(output)
+        finally:
+            staged.unlink(missing_ok=True)
+        return {"image":str(output),"sha256":sha256(output),"model":self.model_id,
+                "gpu_name":self.device_name,"precision":str(self.dtype),
+                "offload_mode":self.memory_mode,"gpu_total_gib":round(self.total_gib,2),
+                "width":generated.width,"height":generated.height,
+                "reference":job.get("reference"),"review_status":"unreviewed","identity_verified":False}
+
+
+def run_gpu(job:dict,output:Path,*,model_id:str=DEFAULT_MODEL,
+            width:int=576,height:int=1024,steps:int=4)->dict:
+    if model_id!=DEFAULT_MODEL:
+        raise ValueError("Only the reviewed Apache-2.0 FLUX.2 klein 4B checkpoint is allowed")
+    validate_gpu_request(job,output,width=width,height=height,steps=steps)
+    return GPUImageSession(model_id=model_id).render(job,output,width=width,height=height,steps=steps)
 
 def execute(args)->dict:
     job=plan_job(args)
@@ -180,6 +256,8 @@ def main():
     p.add_argument("--prompt-pack",type=Path)
     p.add_argument("--scene",help="Scene ID from a Work-approved art prompt pack")
     p.add_argument("--reference",help="Explicit image path to edit/reuse identity; keep rights")
+    p.add_argument("--character-project",type=Path,help="Current private reference project instead of legacy fixture prose")
+    p.add_argument("--job",help="Exact drawing job ID from that project")
     p.add_argument("--output-dir",default="/kaggle/working/two_worlds_art")
     p.add_argument("--width",type=int,default=576)
     p.add_argument("--height",type=int,default=1024)

@@ -21,7 +21,7 @@ SLUG = "two-worlds-visual-gpu"
 USERNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{1,29}$")
 BODY = {"earth_mira", "noctaris_lyra", "earth_eli", "noctaris_ilan"}
 VIEWS = {"front", "three_quarter", "profile", "full_body", "expression"}
-MODES = {"portrait", "voice", "both"}
+MODES = {"portrait", "voice", "both", "design"}
 STATUS = re.compile(r"KERNELWORKERSTATUS\.([A-Z_]+)")
 RECEIPT = "two_worlds_job_receipt.json"
 PACKAGE = "TWO_WORLDS_ARTIFACTS.zip"
@@ -35,6 +35,11 @@ FILES = (
     "studio/lipsync.py", "story/visual_bible.json",
     "story/identity_registry.json", "audio/kokoro_cast.json",
     "audio/voice_registry.json",
+    "studio/character_factory.py", "studio/character_art.py",
+    "studio/character_engine.py",
+    "studio/animation_pipeline.py", "studio/auto_matte.py",
+    "studio/facial_actor.py", "studio/deformable_actor.py",
+    "studio/cinematic_lighting.py",
 )
 
 def package_source(root: Path = ROOT) -> bytes:
@@ -55,7 +60,8 @@ def package_source(root: Path = ROOT) -> bytes:
 def build_job(username: str, nonce: str, mode: str = "portrait",
               body: str = "earth_mira", view: str = "front",
               *, source_root: Path = ROOT, output_dir: Path,
-              git_sha: str | None = None) -> dict:
+              git_sha: str | None = None, design_spec: dict | None = None,
+              max_images: int = 6) -> dict:
     if not USERNAME.fullmatch(username):
         raise ValueError("Kaggle username must be 2–30 safe characters")
     if not isinstance(nonce, str) or not re.fullmatch(r"[A-Za-z0-9_-]{3,90}", nonce):
@@ -68,6 +74,14 @@ def build_job(username: str, nonce: str, mode: str = "portrait",
         raise ValueError("Invalid source revision")
     payload = {"schema": 1, "run_nonce": nonce, "mode": mode, "body": body,
                "view": view, "source_sha": git_sha}
+    if mode=="design":
+        from studio.character_factory import _validate_spec
+        if not isinstance(design_spec,dict):
+            raise ValueError("New-character GPU job requires an explicit text-only design specification")
+        _validate_spec(design_spec)
+        if type(max_images) is not int or not 1<=max_images<=12:
+            raise ValueError("Use an explicit private GPU batch limit from 1 to 12 drawings")
+        payload.update(design_spec=design_spec,max_images=max_images)
     bundle = package_source(source_root)
     template = (source_root / "tools/kaggle_api_kernel_entry.py").read_text(encoding="utf-8")
     if template.count("__TW_CONFIG_B64__") != 1 or template.count("__TW_BUNDLE_B64__") != 1:
@@ -75,9 +89,12 @@ def build_job(username: str, nonce: str, mode: str = "portrait",
     config = base64.b64encode(json.dumps(payload, sort_keys=True).encode()).decode("ascii")
     data = base64.b64encode(bundle).decode("ascii")
     rendered = template.replace("__TW_CONFIG_B64__", config).replace("__TW_BUNDLE_B64__", data)
-    kernel = f"{username}/{SLUG}"
+    # New-design runs get their own private kernel; an existing studio notebook
+    # and its result history are never replaced by the factory proof.
+    kernel_slug = ("two-worlds-factory-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]) if mode=="design" else SLUG
+    kernel = f"{username}/{kernel_slug}"
     meta = {
-        "id": kernel, "title": "Two Worlds Visual GPU",
+        "id": kernel, "title": ("Two Worlds Factory "+kernel_slug.rsplit("-",1)[-1]) if mode=="design" else "Two Worlds Visual GPU",
         "code_file": "kernel_main.py", "language": "python",
         "kernel_type": "script", "is_private": "true",
         "enable_gpu": "true" if mode != "voice" else "false",
@@ -207,17 +224,22 @@ def main():
     create.add_argument("--body", choices=sorted(BODY), default="earth_mira")
     create.add_argument("--view", choices=sorted(VIEWS), default="front")
     create.add_argument("--output-dir", type=Path, required=True)
+    create.add_argument("--design-spec",type=Path)
+    create.add_argument("--max-images",type=int,default=6)
+    create.add_argument("--source-sha",default=None)
     poll = cmd.add_parser("poll")
     poll.add_argument("--kernel", required=True)
     poll.add_argument("--timeout", type=int, default=3300)
-    poll.add_argument("--interval", type=int, default=180)
+    poll.add_argument("--interval", type=int, default=45)
     verify = cmd.add_parser("verify")
     verify.add_argument("--output-dir", type=Path, required=True)
     verify.add_argument("--run-nonce", required=True)
     a = p.parse_args()
     if a.action == "prepare":
         result = build_job(a.username, a.run_nonce, a.mode, a.body, a.view,
-                           output_dir=a.output_dir)
+                           output_dir=a.output_dir,
+                           design_spec=json.loads(a.design_spec.read_text()) if a.design_spec else None,
+                           max_images=a.max_images,git_sha=a.source_sha)
     elif a.action == "poll":
         result = {"status": poll_kernel(a.kernel, timeout_seconds=a.timeout,
                                         interval_seconds=a.interval)}
