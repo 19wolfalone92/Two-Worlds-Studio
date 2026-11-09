@@ -1,0 +1,49 @@
+name: Elizabeth Bones — Russian neural dialogue preview
+on:
+  pull_request:
+    paths:
+      - tools/elizabeth_bones_neural_voice.py
+      - .github/workflows/elizabeth-bones-neural-voice.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate-voice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install voice generator (no commercial account or secrets)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "edge-tts>=7.0,<9.0" "pydub>=0.25.1"
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+      - name: Generate 21 independent voice lines and one synchronized 70s dialogue WAV
+        run: python tools/elizabeth_bones_neural_voice.py
+      - name: Inspect generated voice tracks
+        run: |
+          test -s dist/elizabeth_bones_ru_voice/EP01_RU_NEURAL_DIALOGUE_70s.wav
+          test -s dist/elizabeth_bones_ru_voice/EP01_RU_NEURAL_DIALOGUE_70s.m4a
+          ffprobe -v error -show_entries format=duration -of default=nw=1 dist/elizabeth_bones_ru_voice/EP01_RU_NEURAL_DIALOGUE_70s.wav
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('dist/elizabeth_bones_ru_voice')
+          r=json.loads((p/'manifest.json').read_text())
+          assert len(r['lines'])==21
+          assert sum(1 for x in r['lines'] if x['speaker']=='ЭЛИЗАБЕТ')==11
+          assert sum(1 for x in r['lines'] if x['speaker']=='КОСТЯ')==10
+          assert len(list(p.glob('line_*_*.wav')))==21
+          PY
+      - name: Archive real voice samples — not public release
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: elizabeth-bones-ep01-neural-voices
+          path: dist/elizabeth_bones_ru_voice/
+          retention-days: 14
+          if-no-files-found: warn
