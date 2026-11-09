@@ -257,7 +257,7 @@ class CharacterRig:
             world(name)
         return memo
 
-    def frame(self,t:float)->Image.Image:
+    def frame(self, t: float, *, head: Image.Image | None = None) -> Image.Image:
         out=Image.new("RGBA",self.size,(0,0,0,0))
         if self.shadow_part is not None:
             # Ground contact follows root travel horizontally, not vertical jumps.
@@ -268,5 +268,7 @@ class CharacterRig:
         transforms=self.pose(t)
         for name,(part,crop) in sorted(self.parts.items(),
             key=lambda e:(float(e[1][0].get("z",0)),e[0])):
+            if name == "head" and head is not None:
+                crop = (head, crop[1])
             _transformed_patch(out,crop,transforms[name])
         return out
