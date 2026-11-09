@@ -73,7 +73,7 @@ jobs:
           python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.5,<2.10" "torchaudio>=2.5,<2.10"
           python -m pip install --no-cache-dir "qwen-tts>=0.0.5" "soundfile>=0.12" "numpy>=1.26"
       - name: Make 21 naturally paced Russian voice performances
-        run: python tools/elizabeth_bones_qwen_v5.py
+        run: PYTHONPATH=. python tools/elizabeth_bones_qwen_v5.py
       - name: Upload acting voice review pack
         if: always()
         uses: actions/upload-artifact@v4
