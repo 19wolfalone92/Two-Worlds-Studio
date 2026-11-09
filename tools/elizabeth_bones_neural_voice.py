@@ -11,7 +11,7 @@ from pathlib import Path
 from pydub import AudioSegment
 import os
 
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[1]
 DEST=ROOT / "dist" / "elizabeth_bones_ru_voice"
 DEST.mkdir(parents=True,exist_ok=True)
 LINES=[
