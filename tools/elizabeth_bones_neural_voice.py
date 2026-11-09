@@ -45,7 +45,7 @@ async def generate_line(idx,speaker,text):
         raise FileNotFoundError("Piper model must be downloaded before synthesis: "+str(model))
     target=DEST / f"line_{idx:02d}_{'liz' if speaker=='ЭЛИЗАБЕТ' else 'kostya'}.source.wav"
     subprocess.run(["piper","--model",str(model),"--output_file",str(target)],
-                   input=text+"\\n",text=True,check=True,capture_output=True)
+                   input=text+"\n",text=True,check=True,capture_output=True)
     if not target.exists() or target.stat().st_size<1000:
         raise RuntimeError("Neural TTS produced empty audio")
     return target
