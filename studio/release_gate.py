@@ -197,6 +197,17 @@ def check_video(video: Path, srt: Path, cover: Path,
     }
 
 
+
+def consolidated_check(video: Path, srt: Path, cover: Path, **options) -> dict:
+    """Single read-only aggregation with identity, voice and delivery review.
+
+    The existing check_video remains the authority for technical H.264/AAC,
+    opening frames, captions and covers. Human approval is NEVER inferred.
+    """
+    from studio.quality_hub import assess
+    return assess(video, srt, cover, **options)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Read-only technical QA; never publishes")
     parser.add_argument("--video", type=Path, required=True)

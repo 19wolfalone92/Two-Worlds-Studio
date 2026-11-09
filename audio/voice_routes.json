@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "description": "Explicit Russian Qwen3-TTS routing. English Kokoro presets remain in kokoro_cast.json. All output is unreviewed.",
+  "russian": {
+    "Mira": {
+      "voice": "Serena",
+      "style": "warm"
+    },
+    "Lyra": {
+      "voice": "Vivian",
+      "style": "mysterious"
+    },
+    "Eli": {
+      "voice": "Ryan",
+      "style": "neutral"
+    },
+    "Ilan": {
+      "voice": "Aiden",
+      "style": "neutral"
+    },
+    "Taren": {
+      "voice": "Eric",
+      "style": "tense"
+    },
+    "Varos": {
+      "voice": "Uncle_Fu",
+      "style": "tense"
+    },
+    "Elizabeth": {
+      "voice": "Vivian",
+      "style": "neutral"
+    },
+    "Kostya": {
+      "voice": "Ryan",
+      "style": "warm"
+    }
+  }
+}

@@ -25,6 +25,14 @@
     "Varos": {
       "version": "VAROS_VOICE_v001",
       "review_status": "unreviewed"
+    },
+    "Elizabeth": {
+      "version": "ELIZABETH_VOICE_v001",
+      "review_status": "unreviewed"
+    },
+    "Kostya": {
+      "version": "KOSTYA_VOICE_v001",
+      "review_status": "unreviewed"
     }
   }
 }
