@@ -1,5 +1,12 @@
 # TWO WORLDS — Visual Production Studio
 
+## Developer quickstart — unified studio interface
+
+Run `python -m pip install -e '.[validation]'`, then `python -m studio.cli doctor`.
+Use `python -m studio.cli validate --kind episode --input episodes/E01_THE_REFLECTION.json` before generating. `python -m studio.cli voice-plan --speaker Mira --language en --text 'Hello.'` does **not** synthesize audio, and `python -m studio.cli kaggle-quota` does **not** contact Kaggle unless `--live` is given. Production and release remain subject to the existing explicit rights/quality gates.
+
+Active developer guide: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md); document index: [docs/INDEX.md](docs/INDEX.md).
+
 **Status:** tested technical motion-comic engine; professional illustrated master is **not yet produced**. Independently maintained from Williams Bot and Williams AI.
 
 ## Branch consolidation — 2026-11-09 (PR #51)
