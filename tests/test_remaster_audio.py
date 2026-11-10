@@ -1,9 +1,36 @@
+import shutil
+import subprocess
 import tempfile,unittest,wave
 from pathlib import Path
 import numpy as np
+from studio.audio_master import mix_timeline
+from studio.delivery_qc import loudness
 from studio.remaster_audio import SR,scene_wave,write_wave,wood_knocks
 
 class RemasterAudioTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg required")
+    def test_short_dynamic_mix_meets_encoded_loudness_and_peak_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            seconds = 11
+            t = np.arange(seconds * SR) / SR
+            envelope = np.maximum(0., np.sin(t * 11)) ** 1.5
+            active = ((t > .6) & (t < 2.5)) | ((t > 4.) & (t < 5.5))
+            voice = .27 * active * envelope * (.73 * np.sin(2 * np.pi * 183 * t) +
+                                                 .27 * np.sin(2 * np.pi * 451 * t))
+            source, master, aac = (root / name for name in ("take.wav", "master.wav", "master.m4a"))
+            write_wave(source, .02 * np.sin(2 * np.pi * 180 * t) + voice)
+            mix = mix_timeline([{"bus": "dialogue", "path": source, "start": 0,
+                                 "duration": seconds, "gain": 1.}], seconds, master)
+            self.assertIn("integrated_lufs", mix["mastered_pcm"])
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-i", str(master),
+                            "-c:a", "aac", "-b:a", "192k", str(aac)], check=True)
+            measured = loudness(aac)
+            self.assertTrue(-18 <= measured["integrated_lufs"] <= -14, measured)
+            self.assertLessEqual(measured["true_peak_dbtp"], -1.)
+            with wave.open(str(master), "rb") as output:
+                self.assertEqual(output.getnframes(), seconds * SR)
+
     def test_exterior_silence_edit_preserves_native_speech_samples_and_clock(self):
         with tempfile.TemporaryDirectory() as td:
             path=Path(td)/'take.wav'

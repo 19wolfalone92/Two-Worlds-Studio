@@ -324,7 +324,7 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
                 frames = max(1,round(float(scene["duration"])*fps))
                 for frame in range(frames):
                     # Cinematic scene layers replace procedural stand-ins entirely.
-                    frame_base = premium.frame(frame/max(1,frames-1)) if premium else base
+                    frame_base = premium.exposed_frame(frame, frames, fps) if premium else base
                     image = animate_frame(frame_base, scene, frame/fps, frame, fps)
                     proc.stdin.write(image.tobytes())
                 total_frames += frames

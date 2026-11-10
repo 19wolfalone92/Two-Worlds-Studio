@@ -21,8 +21,38 @@ class InvalidArtwork(ValueError):
     """Invalid/corrupt/non-image payload, not an aesthetic judgment."""
 
 
+def _luminance(image: Image.Image) -> np.ndarray:
+    pixels = np.asarray(image.convert("RGB"), dtype=np.float32)
+    return pixels[:, :, 0] * .2126 + pixels[:, :, 1] * .7152 + pixels[:, :, 2] * .0722
+
+
+def _laplacian(luma: np.ndarray) -> np.ndarray:
+    return (4 * luma[1:-1, 1:-1] - luma[:-2, 1:-1] - luma[2:, 1:-1] -
+            luma[1:-1, :-2] - luma[1:-1, 2:])
+
+
+def _focus_crop(image: Image.Image, box: list) -> dict:
+    if (not isinstance(box, list) or len(box) != 4 or
+            any(type(x) not in (int, float) or not 0 <= x <= 1 for x in box)):
+        raise InvalidArtwork("Required focus box needs normalized [left, top, right, bottom]")
+    left, top, right, bottom = (round(x * size) for x, size in zip(box, image.size * 2))
+    if min(right - left, bottom - top) < 24:
+        raise InvalidArtwork("Required focus box must span at least 24 source pixels on each side")
+    crop = image.crop((left, top, right, bottom)).convert("RGBA")
+    crop.thumbnail((256, 448), Image.Resampling.BOX)
+    # The cutout silhouette and hidden RGB must not count as subject texture.
+    opaque = np.asarray(crop.getchannel("A")) >= 230
+    interior = (opaque[1:-1, 1:-1] & opaque[:-2, 1:-1] & opaque[2:, 1:-1] &
+                opaque[1:-1, :-2] & opaque[1:-1, 2:])
+    coverage = float(interior.mean())
+    detail = float(_laplacian(_luminance(crop))[interior].std()) if coverage >= .25 else None
+    return {"box": box, "opaque_interior": round(coverage, 5),
+            "edge_detail": None if detail is None else round(detail, 2),
+            "pass": detail is not None and detail >= 4.}
+
+
 def inspect_image_bytes(data: bytes, *, expected_size: tuple[int,int] | None = None,
-                        require_png: bool = True) -> dict:
+                        require_png: bool = True, focus_box: list | None = None) -> dict:
     if not isinstance(data, bytes) or not 32 < len(data) <= MAX_IMAGE_BYTES:
         raise InvalidArtwork("Empty or oversized artwork bytes")
     try:
@@ -38,22 +68,21 @@ def inspect_image_bytes(data: bytes, *, expected_size: tuple[int,int] | None = N
                 raise InvalidArtwork("Artwork is not a PNG")
             if expected_size is not None and image.size != expected_size:
                 raise InvalidArtwork("Artwork dimensions differ from approved job")
-            small = ImageOps.exif_transpose(image).convert("RGB")
+            oriented = ImageOps.exif_transpose(image)
+            focus = _focus_crop(oriented, focus_box) if focus_box is not None else None
+            small = oriented.convert("RGB")
             small.thumbnail((256, 448), Image.Resampling.BOX)
-            pixels = np.asarray(small, dtype=np.float32)
+            luminance = _luminance(small)
     except (OSError, UnidentifiedImageError, Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
         raise InvalidArtwork("Artwork cannot be fully decoded") from None
     # Relative sRGB luma is sufficient for diagnostics; it is not a color grade.
-    luminance = pixels[:,:,0]*0.2126 + pixels[:,:,1]*0.7152 + pixels[:,:,2]*0.0722
     dark_fraction = float(np.mean(luminance < 12))
     white_fraction = float(np.mean(luminance > 246))
     mean = float(np.mean(luminance))
     deviation = float(np.std(luminance))
     # 4-neighbor Laplacian catches exceptionally blurred outputs.
     # Low values are WARNINGS: intentional soft-focus cinema may be valid.
-    center = luminance[1:-1,1:-1]
-    lap = 4*center-luminance[:-2,1:-1]-luminance[2:,1:-1] - luminance[1:-1,:-2] - luminance[1:-1,2:]
-    detail = float(np.std(lap))
+    detail = float(_laplacian(luminance).std())
     # Difference hash: useful for detecting suspicious near-identical shots.
     small_hash = Image.fromarray(np.uint8(luminance), "L").resize(
         (9,8), Image.Resampling.BOX)
@@ -67,6 +96,8 @@ def inspect_image_bytes(data: bytes, *, expected_size: tuple[int,int] | None = N
         issues.append("nearly_all_black")
     if white_fraction > .975:
         issues.append("nearly_all_white")
+    if focus is not None and not focus["pass"]:
+        issues.append("required_region_out_of_focus_or_transparent")
     warnings=[]
     if detail < 4:
         warnings.append("very_low_edge_detail_check_focus")
@@ -83,6 +114,7 @@ def inspect_image_bytes(data: bytes, *, expected_size: tuple[int,int] | None = N
         "technical_pass":not issues, "technical_issues":issues,
         "artistic_warnings":warnings,
         "identity_verified":False, "art_review_required":True,
+        **({"required_focus": focus} if focus is not None else {}),
     }
 
 
