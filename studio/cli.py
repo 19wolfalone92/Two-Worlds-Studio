@@ -23,6 +23,7 @@ ENGINES = {
     "batch": "studio.triptych_batch",
     "master": "studio.hybrid_master",
     "lipsync": "studio.lipsync",
+    "blender": "studio.blender_clip",
 }
 PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen"}
 
@@ -31,7 +32,7 @@ def doctor() -> dict:
     return {
         "status": "offline_inventory", "python": sys.version.split()[0],
         "binaries": {k: shutil.which(k) is not None
-                     for k in ("ffmpeg", "ffprobe", "kaggle", "nvidia-smi", "rhubarb")},
+                     for k in ("ffmpeg", "ffprobe", "kaggle", "nvidia-smi", "rhubarb", "blender")},
         "optional_modules": {
             name: importlib.util.find_spec(name) is not None
             for name in ("pydantic", "soundfile", "torch", "kokoro", "cryptography")
