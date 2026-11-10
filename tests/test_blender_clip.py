@@ -1,9 +1,13 @@
+import json
 import shutil
 import subprocess
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
+
+from PIL import Image
 
 from studio.blender_clip import render_clip
 from studio.cli import run_engine
@@ -23,6 +27,41 @@ class BlenderClipTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "distinct collision mesh names"):
             render_clip(Path("scene.blend"), Path("take.mp4"), frames=3,
                         collision_pairs=[("Skin", "Skin")])
+
+    def test_external_asset_manifest_rejects_missing_and_out_of_project_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, manifest, output = (root / name for name in ("scene.blend", "assets.json", "shot.mp4"))
+            source.touch()
+            for name, message in (("../private.png", "relative paths"),
+                                  ("expression_0001.png", "missing or outside")):
+                manifest.write_text(json.dumps({"schema": 1, "assets": {name: "0" * 64}}))
+                with self.assertRaisesRegex(ValueError, message):
+                    render_clip(source, output, frames=1, asset_manifest=manifest)
+            self.assertFalse(output.exists())
+
+    def test_external_asset_changed_during_render_blocks_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, manifest, output = (root / name for name in ("scene.blend", "assets.json", "shot.mp4"))
+            source.touch()
+            asset = root / "expression_0001.png"
+            Image.new("RGB", (4, 4)).save(asset)
+            manifest.write_text(json.dumps({"schema": 1, "assets": {asset.name: sha256(asset)}}))
+
+            def render(args, **kwargs):
+                temporary = Path(args[args.index("--python") + 1]).parent
+                Image.new("RGB", (180, 320)).save(temporary / "shot_0001.png")
+                Image.new("RGB", (4, 4), "white").save(asset)
+                return subprocess.CompletedProcess(args, 0)
+
+            with (patch("studio.blender_clip.shutil.which", return_value="/bin/true"),
+                  patch("studio.blender_clip.subprocess.run", side_effect=render),
+                  patch("studio.blender_clip.encode_rgb_frames",
+                        side_effect=lambda path, *args: path.write_bytes(b"draft"))):
+                with self.assertRaisesRegex(ValueError, "different SHA-256"):
+                    render_clip(source, output, frames=1, width=180, asset_manifest=manifest)
+            self.assertFalse(output.exists())
 
     @unittest.skipUnless(all(shutil.which(x) for x in ("blender", "ffmpeg", "ffprobe")),
                          "Blender 4.3+ and FFmpeg required")

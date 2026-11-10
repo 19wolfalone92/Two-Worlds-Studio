@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +17,29 @@ from PIL import Image
 from studio.production_queue import private_path
 from studio.release_gate import sha256
 from studio.smooth_camera import encode_rgb_frames
+
+
+def _verify_external_assets(source: Path, manifest: Path) -> dict:
+    if not manifest.is_file() or manifest.stat().st_size > 512 * 1024:
+        raise ValueError("Expected a readable Blender asset manifest under 512 KiB")
+    raw = manifest.read_bytes()
+    document = json.loads(raw)
+    assets = document.get("assets") if isinstance(document, dict) else None
+    if (not isinstance(assets, dict) or not 1 <= len(assets) <= 1000
+            or type(document.get("schema")) is not int or document["schema"] != 1):
+        raise ValueError("Asset manifest requires schema 1 and 1–1000 asset hashes")
+    for name, digest in assets.items():
+        relative = Path(name)
+        if (not 1 <= len(name) <= 250 or not name.isprintable() or "\\" in name
+                or relative.is_absolute() or relative.as_posix() != name or ".." in relative.parts
+                or not isinstance(digest, str) or re.fullmatch("[0-9a-f]{64}", digest) is None):
+            raise ValueError("Asset manifest requires relative paths and lowercase SHA-256 values")
+        path = (source.parent / relative).resolve()
+        if not path.is_relative_to(source.parent) or not path.is_file():
+            raise ValueError(f"Blender asset is missing or outside the project: {name}")
+        if sha256(path) != digest:
+            raise ValueError(f"Blender asset has a different SHA-256: {name}")
+    return {"files": len(assets), "manifest_sha256": hashlib.sha256(raw).hexdigest()}
 
 
 _CHECK_MESHES = """
@@ -103,7 +128,8 @@ def render_clip(source: Path, output: Path, *, first_frame: int = 1, frames: int
                 width: int = 540, fps: int = 30, samples: int = 16,
                 threads: int = 4, passes_output: Path | None = None,
                 collision_pairs: tuple[tuple[str, str], ...] = (),
-                self_collision_meshes: tuple[str, ...] = ()) -> dict:
+                self_collision_meshes: tuple[str, ...] = (),
+                asset_manifest: Path | None = None) -> dict:
     """Use offline Cycles CPU, validate every frame, then atomically commit the MP4."""
     limits = ((first_frame, 1, 9700), (frames, 1, 300), (width, 180, 1080),
               (fps, 12, 30), (samples, 4, 128), (threads, 1, 16))
@@ -129,6 +155,7 @@ def render_clip(source: Path, output: Path, *, first_frame: int = 1, frames: int
     source, output = source.resolve(), private_path(output)
     if output.exists():
         raise FileExistsError("Choose a new output path")
+    asset_snapshot = _verify_external_assets(source, asset_manifest) if asset_manifest is not None else None
     if passes_output is not None:
         if passes_output.suffix.lower() != ".zip" or passes_output.is_symlink():
             raise ValueError("Render passes require a new private .zip output")
@@ -212,10 +239,15 @@ def render_clip(source: Path, output: Path, *, first_frame: int = 1, frames: int
         temporary = work / "complete.mp4"
         encode_rgb_frames(temporary, width, height, fps, frames, images())
         digest = sha256(temporary)
+        if asset_manifest is not None:
+            if _verify_external_assets(source, asset_manifest) != asset_snapshot or sha256(source) != fingerprint:
+                raise ValueError("Blender project inputs changed during the render")
         report = {"status": "rendered", "backend": "blender_cycles_cpu",
                   "first_frame": first_frame, "frames": frames, "fps": fps,
                   "width": width, "height": height, "scene_sha256": fingerprint,
                   "clip_sha256": digest, "published": False}
+        if asset_snapshot is not None:
+            report["external_assets"] = asset_snapshot
         if collision_pairs or self_collision_meshes:
             report["geometry_qc"] = {"frames_checked": frames, "mesh_pairs": len(collision_pairs),
                                      "self_collision_meshes": len(self_collision_meshes)}
@@ -252,6 +284,8 @@ def main() -> int:
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--samples", type=int, default=16)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument("--asset-manifest", type=Path,
+                        help="JSON with SHA-256 checks for external project files")
     parser.add_argument("--passes-output", type=Path, help="Multilayer float32 EXR frames in a ZIP")
     parser.add_argument("--collision-pair", dest="collision_pairs", nargs=2, action="append",
                         default=[], metavar=("MESH_A", "MESH_B"), help="Reject surface crossings")
