@@ -13,13 +13,15 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import numpy as np
 from PIL import Image, ImageDraw, ImageOps, ImageStat
 
 
-def _run(args: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess:
-    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+def _run(args: list[str], *, timeout: int = 180, text: bool = True) -> subprocess.CompletedProcess:
+    result = subprocess.run(args, capture_output=True, text=text, timeout=timeout)
     if result.returncode:
-        raise RuntimeError("Delivery measurement failed: " + result.stderr[-1500:])
+        error = result.stderr if text else result.stderr.decode("utf-8", errors="replace")
+        raise RuntimeError("Delivery measurement failed: " + error[-1500:])
     return result
 
 
@@ -37,6 +39,63 @@ def loudness(video: Path) -> dict:
     if not all(math.isfinite(v) for v in values.values()):
         raise RuntimeError("Encoded audio is silent or has no finite loudness")
     return values
+
+
+def dialogue_clock(video: Path, shots: list[dict], fps: int) -> list[dict]:
+    """Locate audible, locked WAVs in the encoded mix using a bounded waveform search."""
+    locked = [(i + 1, shot) for i, shot in enumerate(shots)
+              if shot.get("dialogue_text") and shot.get("voice")]
+    if not locked:
+        return []
+    rate = 8000
+
+    def pcm(path):
+        result = _run(["ffmpeg", "-v", "error", "-nostdin", "-i", str(path), "-map", "0:a:0",
+                       "-af", f"aresample={rate},highpass=f=120", "-ac", "1",
+                       "-f", "s16le", "-"], text=False)
+        return np.frombuffer(result.stdout, dtype="<i2")
+
+    mix = pcm(video)
+    tolerance = round(rate / fps)
+    reports = []
+    for index, shot in locked:
+        reference = pcm(shot["voice"]).astype(np.float64)
+        expected = shot["start"] + shot["voice_offset"]
+        result = {"shot": index, "expected_start_seconds": round(expected, 4),
+                  "status": "REVIEW REQUIRED", "reason": "waveform_match_unverified"}
+        reports.append(result)
+        length = min(len(reference), round(rate * .6))
+        if length < rate * .12:
+            continue
+        energy = np.cumsum(np.r_[0., reference ** 2])
+        anchor = int(np.argmax(energy[length:] - energy[:-length]))
+        template = reference[anchor:anchor + length].copy()
+        template -= template.mean()
+        strength = np.linalg.norm(template)
+        center = round(expected * rate) + anchor
+        left = max(0, center - 5 * rate)
+        right = min(len(mix) - length, center + 5 * rate)
+        if strength < 10 * math.sqrt(length) or right < left:
+            continue
+        excerpt = mix[left:right + length].astype(np.float64)
+        fft_size = 1 << (len(excerpt) + length - 2).bit_length()
+        cross = np.fft.irfft(np.fft.rfft(excerpt, fft_size) *
+                             np.fft.rfft(template, fft_size).conj())[:right - left + 1]
+        energy = np.cumsum(np.r_[0., excerpt ** 2])
+        scores = cross / np.maximum(1., strength * np.sqrt(energy[length:] - energy[:-length]))
+        offsets = np.arange(left, right + 1) - center
+        nearby = np.abs(offsets) <= tolerance
+        if np.any(nearby) and scores[nearby].max() >= .35:
+            best = int(np.argmax(np.where(nearby, scores, -np.inf)))
+            result.update(status="PASS", reason="waveform_within_one_frame")
+        else:
+            best = int(scores.argmax())
+            if scores[best] >= .70:
+                result.update(status="BLOCKED", reason="waveform_outside_one_frame")
+        result["correlation"] = round(float(scores[best]), 4)
+        if result["status"] != "REVIEW REQUIRED":
+            result["offset_ms"] = round(1000 * int(offsets[best]) / rate, 3)
+    return reports
 
 
 def inspect_av(video: Path, info: dict, fps: int, *, strict_loudness: bool = True) -> dict:

@@ -165,10 +165,18 @@ def mix_timeline(tracks: list[dict], length: float, output: Path) -> dict:
             filters += ["highpass=f=68", "adeclick", "afftdn=nr=8:nf=-48",
                         "equalizer=f=265:t=q:w=1.2:g=-1.5",
                         "acompressor=threshold=0.10:ratio=2.3:attack=12:release=105:makeup=1.25"]
-        filters += [f"volume={track['gain']:.6f}", f"adelay={delay_samples}S:all=1",
-                    "apad", f"atrim=duration={length:.9f}"]
+        filters.append(f"volume={track['gain']:.6f}")
+        source = f"[{index}:a:0]"
+        if delay_samples:
+            # Materialize leading silence before the nested bus mixes. On
+            # FFmpeg 7, adelay lost a later voice offset in this graph.
+            graph.append(f"anullsrc=r=48000:cl=stereo,atrim=end_sample={delay_samples}[lead{index}]")
+            graph.append(source + ",".join(filters) + f"[stem{index}]")
+            source = f"[lead{index}][stem{index}]"
+            filters = ["concat=n=2:v=0:a=1"]
+        filters += ["apad", f"atrim=duration={length:.9f}"]
         label = f"[t{index}]"
-        graph.append(f"[{index}:a:0]" + ",".join(filters) + label)
+        graph.append(source + ",".join(filters) + label)
         buses[bus].append(label)
 
     def combine(labels, name):
