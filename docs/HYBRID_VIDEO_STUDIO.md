@@ -1,6 +1,6 @@
 # TWO WORLDS — offline hybrid video mastering (CPU)
 
-This feature adds a reproducible **actual video export** route for the six STORY GLITCH stories. It can splice licensed pre-generated image-to-video clips with real still artwork (animated as slow Ken Burns camera movement), align recorded voice-over to individual shots, add optional music, and export H.264/AAC + SRT + QA receipt. **It does not generate images or AI video, acquire GPU access, make scripts, approve media or post videos.** Existing `studio.production` gates remain unchanged.
+This feature adds a reproducible **actual video export** route for the six STORY GLITCH stories. It can splice licensed pre-generated image-to-video clips with real still artwork, align recorded voice-over to individual shots, add optional music, and export H.264/AAC + SRT + QA receipt. The CPU compositor can also consume locally generated character takes.
 
 ## Run
 
@@ -37,13 +37,36 @@ Default mode exports a visibly identified **unreviewed preview**. For `--master`
 
 - Start with a 9:16 still per shot. Use `push_in`, `pull_out`, `pan_left`, `pan_right` or `static` for CPU-based camera motion.
 - Generate 3–5-second action clips separately **only when a real supported GPU or approved external provider is available**; add with `clip`. Voice and music are optional; a silent AAC track is added to preserve platform compatibility when no audio supplied.
-- All clips are scaled/cropped to the requested 9:16 resolution, normalized to constant FPS and padded by holding the final frame if necessary. No interpolation or fabricated actor movement is claimed. Shot cuts are direct, not dissolves.
+- Clips are scaled and cropped to the requested 9:16 resolution and normalized to constant FPS. Only legacy clips without an action requirement can hold their final frame to cover a shortfall.
 - Narration must fit within shot duration: the preflight rejects overlong speech rather than silently truncating it. Soundtrack and voice use an audio limiter to reduce clipping; this is not a substitute for listening and loudness mastering.
 - Inspect the exported MP4/SRT/JSON on a real phone before publication, verify voices/rights and manually approve. The JSON receipt carries source and video hashes, duration, media mix and an explicit `published: false` field.
 
 ### Compute constraints
 
 Standard GitHub-hosted CI runs CPU-only. Kaggle may provide T4/P100 GPU access under availability/quota restrictions, but no guaranteed production-grade image-to-video model fits unmodified on one 16 GiB T4. The official Wan2.2 TI2V-5B recipe requires **at least 24 GB VRAM** and is not silently scheduled as a free Kaggle job. This is deliberately a dependable *assembly/QA pipeline*, not a promise of free unlimited GPU inference.
+
+## Local neural character takes
+
+Choose `echo-flash` for a dialogue take from an opaque portrait and the locked speech WAV. The driver aligns the source audio to the shot with silence and generates a full portrait video. The compositor mixes the original WAV again at the locked offset. Check the Russian articulation, cheeks and jaw on the decoded output. Upstream reports 12 GB VRAM for Flash and up to 768×768 generation. [EchoMimicV3 runtime](https://github.com/antgroup/echomimic_v3) · [Flash checkpoint](https://huggingface.co/BadToBest/EchoMimicV3/tree/main/echomimicv3-flash-pro)
+
+Choose `wan-animate` to transfer a filmed performance to a character. Supply an authorized MP4 that covers the shot, with the head, neck and shoulders visible, a locked camera and an initial pose close to the reference. The adapter uses the upstream face and pose preprocessing in animation mode. It expects compatible framing and proportions in the reference and driving footage. The 24 GiB of free VRAM and native BF16 checks are preflight floors. Actual memory requirements depend on the checkpoint, shot and runtime. [Wan2.2 Animate model](https://huggingface.co/Wan-AI/Wan2.2-Animate-14B) · [Preprocessing guide](https://github.com/Wan-Video/Wan2.2/blob/main/wan/modules/animate/preprocess/UserGuider.md)
+
+Install the official runtime and checkpoints in an isolated local environment. For EchoMimic, arrange the base model, audio encoder and Flash transformer as in the upstream README. For Wan, include the native model directory and `process_checkpoint` assets. The main checkpoints are published under Apache 2.0. Review the terms of their dependencies and the rights to the performance inputs separately. A local run uses the operator's GPU and disk.
+
+```bash
+python -m studio.neural_character --model echo-flash \
+  --reference /private/job/portrait.png --driver /private/job/line.wav \
+  --duration 3 --voice-offset-ms 430 --prompt-file /private/job/direction.txt \
+  --runtime /opt/echomimic_v3 --weights /models/echo-flash \
+  --python /opt/echo-venv/bin/python --output /private/job/take \
+  --execute-local-gpu
+```
+
+For `wan-animate`, point `--driver` at the actor MP4 and omit the voice offset and prompt. Use the official Wan checkout, its model directory and a Python interpreter from its environment. The command defaults to an offline plan without `--execute-local-gpu`. It writes the silent take and its receipt together in a new private directory. CPU tests exercise the adapter contract and actual MP4 import with fixtures. GPU inference and the acting quality of production footage require a separate run.
+
+In the production manifest, put the result in `clip` and set `clip_take.engine` to `neural_character`. Use the matching `visual_profile`, the receipt's `clip_sha256` in `sha256`, and the relative `receipt`, `reference` and `driver` paths. Set the same shot duration used at generation. For EchoMimic, also set `voice`, `voice_offset` and `dialogue_text` to the locked WAV, offset in seconds and caption text. Then use the regular `studio.cli produce` route.
+
+Author `qc_regions` in the final shot coordinates. Every neural take needs a static camera anchor and face and wardrobe references pinned to the input image. For dialogue, use an upper-face anchor and distinct `mouth`, `cheek` and `jaw` regions with the same speech windows. Place cheek and jaw regions outside the lips. For reactions, measure the face relative to the shoulders while checking the shoulders against the camera in the same windows. The decoded motion report lists time ranges that need review. A neural take with unresolved motion or identity checks can be reviewed as a preview and is blocked from `--master`.
 
 ## Smooth-camera correction (2026-11-04)
 

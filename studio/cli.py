@@ -24,6 +24,7 @@ ENGINES = {
     "master": "studio.hybrid_master",
     "lipsync": "studio.lipsync",
     "blender": "studio.blender_clip",
+    "character": "studio.neural_character",
 }
 PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen"}
 

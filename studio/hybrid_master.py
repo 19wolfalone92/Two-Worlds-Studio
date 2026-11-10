@@ -169,8 +169,9 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
             if video_stream is None:
                 raise ValueError(f"Shot {i}: clip has no video stream")
         if take is not None and (kind != "clip" or not isinstance(take, dict)
-                or set(take) != {"engine", "visual_profile", "sha256"}
-                or not isinstance(take["engine"], str) or take["engine"] not in CLIP_ENGINES
+                or not isinstance(take.get("engine"), str) or take["engine"] not in CLIP_ENGINES
+                or set(take) != ({"engine", "visual_profile", "sha256", "receipt", "reference", "driver"}
+                                 if take["engine"] == "neural_character" else {"engine", "visual_profile", "sha256"})
                 or profile is None or take["visual_profile"] != profile or sha256(media) != take["sha256"]):
             raise ValueError(f"Shot {i}: clip take must match the locked source and visual profile")
         if kind == "clip" and profile is not None and take is None:
@@ -270,6 +271,20 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         fallback = None
         reference = media
         motion_receipt = None
+        motion_inputs = []
+        if take is not None and take["engine"] == "neural_character":
+            from studio.neural_character import ECHO, import_take as import_character_take
+
+            reference = source(base, take["reference"], IMAGES)
+            driver = source(base, take["driver"], {".wav", ".mp4"})
+            proof = source(base, take["receipt"], {".json"})
+            motion_receipt = import_character_take(
+                media, proof, reference, driver, duration=frames / fps, voice=voice,
+                voice_offset=voice_offset, voice_bus=voice_bus, regions=qc_regions,
+            )
+            if motion_receipt["model"] == ECHO and not item.get("dialogue_text"):
+                raise ValueError("Audio-driven performance requires locked dialogue text")
+            motion_inputs = [driver, proof]
         preserve_portrait = (backend == "auto" and profile == "photoreal_cinematic" and cinematic is not None
                              and any(layer.get("role") == "character" and layer.get("sha256")
                                      and ("rig" in layer or "deform" in layer)
@@ -314,7 +329,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                                protected_regions=regions, reference=reference, fallback=fallback,
                                qc_regions=qc_regions, strict_clip=strict_clip or kind == "i2v",
                                visual_profile=profile, animation_engine=engine, fade_out=fade,
-                               motion_receipt=motion_receipt, base=base.resolve()))
+                               motion_receipt=motion_receipt, motion_inputs=motion_inputs, base=base.resolve()))
         start += frames
     if start / fps > 600:
         raise ValueError("Video longer than 10 minutes")
@@ -620,7 +635,7 @@ def shot_sources(shot: dict) -> set[Path]:
     from studio.performance_take import take_sources
     from studio.premium_assets import resolve_asset
 
-    paths = {shot["path"], shot["reference"]}
+    paths = {shot["path"], shot["reference"], *shot.get("motion_inputs", ())}
     if shot["voice"]:
         paths.add(shot["voice"])
     if shot["kind"] == "layered":
@@ -727,6 +742,8 @@ def produce(manifest: Path, output: Path, *, master: bool = False, cache: Path |
                                 f"BLOCKED: shot {n + 1}, {region['id']}, {event['code']}, "
                                 f"{event['start_seconds']:.3f}–{event['end_seconds']:.3f}s"
                             )
+                if master and shot["animation_engine"] == "neural_character" and temporal["status"] != "PASS":
+                    raise ValueError(f"Shot {n + 1}: character performance has unresolved motion or identity review")
                 stats = {**stats, "temporal_qc": temporal}
             shot_reports.append({"shot": n + 1, "shot_type": shot["shot_type"], "backend": shot["kind"],
                                  "frames": shot["frames"], "cached": reused, "start_seconds": shot["start"],

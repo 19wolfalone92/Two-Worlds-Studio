@@ -147,7 +147,8 @@ def inspect_flow(video: Path, regions: list[dict], width: int, height: int, fps:
             continue
         row = rows[i]
         values = [x[0] if x is not None else None for x in row]
-        component = "facial_actor/lipsync" if kind in {"eyes", "mouth"} else "character_engine/deformable_actor"
+        component = ("facial_actor/lipsync" if kind in {"eyes", "mouth", "jaw", "cheek"}
+                     else "character_engine/deformable_actor")
         for window in region.get("motion_windows", []):
             start = math.ceil(window["start"] * fps - 1e-7)
             end = min(expected, math.ceil(window["end"] * fps - 1e-7))

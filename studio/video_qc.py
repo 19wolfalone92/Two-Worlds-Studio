@@ -34,8 +34,8 @@ def validate_regions(regions: list, size: tuple[int, int] | None = None, *,
             raise ValueError("Invalid temporal QC region")
         name, kind, box = region.get("id"), region.get("kind"), region.get("box")
         if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", name)
-                or name in ids or kind not in ("face", "eyes", "mouth", "wardrobe", "hands", "prop",
-                                               "background", "camera")
+                or name in ids or kind not in ("face", "eyes", "mouth", "jaw", "cheek", "wardrobe",
+                                               "hands", "prop", "background", "camera")
                 or not isinstance(box, list) or len(box) != 4
                 or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in box)
                 or box[2] - box[0] < .025 or box[3] - box[1] < .025
