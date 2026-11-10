@@ -520,6 +520,7 @@ def add_audio(video: Path, output: Path, plan: dict) -> dict:
     length = plan["duration"]
     if plan["upgraded"]:
         from studio.audio_master import mix_timeline
+        from studio.delivery_qc import MAX_AAC_TRUE_PEAK_DBTP, loudness
 
         tracks = list(plan["sound_stems"])
         if plan["music"] and plan["music_volume"] > 0:
@@ -534,10 +535,21 @@ def add_audio(video: Path, output: Path, plan: dict) -> dict:
         if tracks:
             wav = output.with_suffix(".wav")
             receipt = mix_timeline(tracks, length, wav)
-            run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(video), "-i", str(wav),
-                 "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
-                 "-b:a", "192k", "-ar", "48000", "-t", f"{length:.8f}",
-                 "-movflags", "+faststart", str(output)])
+
+            def mux(audio_filters: list[str]) -> None:
+                run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(video), "-i", str(wav),
+                     "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac",
+                     "-b:a", "192k", "-ar", "48000", *audio_filters, "-t", f"{length:.8f}",
+                     "-movflags", "+faststart", str(output)])
+
+            mux([])
+            peak = loudness(output)["true_peak_dbtp"]
+            if peak > MAX_AAC_TRUE_PEAK_DBTP:
+                # AAC reconstruction can exceed the true peak of its source PCM.
+                # Encode from that PCM again with room for a second AAC overshoot.
+                reduction = round(peak - MAX_AAC_TRUE_PEAK_DBTP + .5, 2)
+                mux(["-af", f"volume=-{reduction:.2f}dB"])
+                receipt["aac_peak_correction_db"] = reduction
             return receipt
     inputs = ["-i", str(video)]
     music_index = None

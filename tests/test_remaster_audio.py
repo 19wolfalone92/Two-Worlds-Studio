@@ -2,9 +2,11 @@ import shutil
 import subprocess
 import tempfile,unittest,wave
 from pathlib import Path
+from unittest.mock import patch
 import numpy as np
 from studio.audio_master import mix_timeline
-from studio.delivery_qc import dialogue_clock, loudness
+from studio.delivery_qc import MAX_AAC_TRUE_PEAK_DBTP, dialogue_clock, loudness
+from studio.hybrid_master import add_audio
 from studio.remaster_audio import SR,scene_wave,write_wave,wood_knocks
 
 class RemasterAudioTests(unittest.TestCase):
@@ -63,6 +65,40 @@ class RemasterAudioTests(unittest.TestCase):
             self.assertLessEqual(measured["true_peak_dbtp"], -1.)
             with wave.open(str(master), "rb") as output:
                 self.assertEqual(output.getnframes(), seconds * SR)
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg required")
+    def test_hybrid_master_reencodes_aac_overshoot_from_pcm_without_moving_dialogue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            silent, output, voice = (root / name for name in ("silent.mp4", "final.mp4", "voice.wav"))
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi",
+                            "-i", "color=c=blue:s=64x112:r=30:d=3",
+                            "-an", "-c:v", "libx264", str(silent)], check=True)
+            t = np.arange(SR) / SR
+            envelope = np.sin(np.pi * t) ** 2
+            write_wave(voice, .2 * envelope * np.sin(2 * np.pi * (173 * t + 60 * t * t)))
+            shot = {"dialogue_text": "Locked take", "voice": voice, "start": 1.,
+                    "voice_offset": .23, "voice_bus": "dialogue", "voice_duration": 1.,
+                    "voice_cleanup": False}
+            initial_aac = []
+
+            def measure(path):
+                result = loudness(path)
+                if path == output:
+                    initial_aac.append(result["integrated_lufs"])
+                    # Exercise the retry on any FFmpeg version with real AAC output.
+                    return {**result, "true_peak_dbtp": -.8}
+                return result
+
+            with patch("studio.delivery_qc.loudness", side_effect=measure):
+                report = add_audio(silent, output, {"duration": 3., "upgraded": True,
+                                   "sound_stems": [], "music": None, "shots": [shot]})
+            self.assertEqual(report["aac_peak_correction_db"], .7)
+            self.assertEqual(len(initial_aac), 1)
+            corrected = loudness(output)
+            self.assertAlmostEqual(initial_aac[0] - corrected["integrated_lufs"], .7, delta=.15)
+            self.assertLessEqual(corrected["true_peak_dbtp"], MAX_AAC_TRUE_PEAK_DBTP)
+            self.assertEqual(dialogue_clock(output, [shot], 30)[0]["status"], "PASS")
 
     def test_exterior_silence_edit_preserves_native_speech_samples_and_clock(self):
         with tempfile.TemporaryDirectory() as td:

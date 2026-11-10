@@ -16,6 +16,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps, ImageStat
 
+MAX_AAC_TRUE_PEAK_DBTP = -1.0
+
 
 def _run(args: list[str], *, timeout: int = 180, text: bool = True) -> subprocess.CompletedProcess:
     result = subprocess.run(args, capture_output=True, text=text, timeout=timeout)
@@ -142,7 +144,7 @@ def inspect_av(video: Path, info: dict, fps: int, *, strict_loudness: bool = Tru
     if abs(video_start) > .05 or start_difference > .08 or end_difference > .12:
         raise RuntimeError("Audio/video start or end drift exceeds the delivery tolerance")
     levels = loudness(video)
-    if levels["true_peak_dbtp"] > -1.0:
+    if levels["true_peak_dbtp"] > MAX_AAC_TRUE_PEAK_DBTP:
         raise RuntimeError("Encoded AAC true peak exceeds -1 dBTP")
     target_ok = -18 <= levels["integrated_lufs"] <= -14
     if strict_loudness and not target_ok:
