@@ -224,6 +224,8 @@ class DeliveryDiagnosticsTests(unittest.TestCase):
                             'sine=frequency=440:sample_rate=48000:duration=2',
                             '-vf', "settb=1/90000,setpts='PTS+if(eq(N,20),900,0)'", '-fps_mode:v', 'vfr',
                             '-enc_time_base:v', '1:90000', '-c:v', 'libx264', '-threads', '1',
+                            # Preserve the nominal packet duration with FFmpeg 7 and older muxers.
+                            '-bf', '0', '-bsf:v', 'setts=duration=3000',
                             '-pix_fmt', 'yuv420p', '-ac', '2', '-c:a', 'aac', str(target)], check=True)
             info = probe(target)
             video = next(s for s in info['streams'] if s['codec_type'] == 'video')

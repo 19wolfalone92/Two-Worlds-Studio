@@ -22,6 +22,7 @@ from PIL import Image
 
 from studio.smooth_camera import CAMERAS, encode_rgb_frames, render_still
 from studio.release_gate import sha256
+from studio.video_qc import inspect_temporal, validate_regions
 IMAGES = {".png", ".jpg", ".jpeg", ".webp"}
 CLIPS = {".mp4", ".mov", ".mkv", ".webm"}
 AUDIO = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
@@ -164,6 +165,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         regions = shot_regions(item, frames / fps, fps)
         if regions and (cinematic is None or backend == "i2v"):
             raise ValueError("Protected regions require a tracked layered composition")
+        qc_regions = validate_regions(item["qc_regions"], (width, height)) if "qc_regions" in item else []
         caption = item.get("caption", "")
         if not isinstance(caption, str) or len(caption) > 240:
             raise ValueError(f"Shot {i}: caption too long")
@@ -248,6 +250,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                                voice_duration=voice_duration, voice_bus=voice_bus, voice_cleanup=cleanup,
                                shot_type=shot_type, caption_position=position, cinematic=cinematic,
                                protected_regions=regions, reference=reference, fallback=fallback,
+                               qc_regions=qc_regions,
                                motion_receipt=motion_receipt, base=base.resolve()))
         start += frames
     if start / fps > 600:
@@ -309,10 +312,11 @@ def render_segment(shot: dict, path: Path, width: int, height: int, fps: int, *,
             raise ValueError("I2V fallback requires an articulated or deformable actor")
         frames = shot["frames"]
         encode_rgb_frames(path, width, height, fps, frames,
-                          (panel.frame(i / max(1, frames - 1), seconds=i / fps) for i in range(frames)))
+                          (panel.exposed_frame(i, frames, fps) for i in range(frames)))
         return {"active_actor_layers": panel.active_actors,
                 "lipsync_modes": panel.performance_modes,
-                "protected_windows_checked": len(panel.regions)}
+                "protected_windows_checked": len(panel.regions),
+                **panel.optics_report()}
     if shot["kind"] == "image":
         render_still(shot["path"], path, width, height, fps,
                      shot["frames"], shot["camera"], shot["strength"])
@@ -605,6 +609,17 @@ def produce(manifest: Path, output: Path, *, master: bool = False, cache: Path |
                     return result
 
                 stats, reused = cached_segment(cache, fingerprint, segment, render_unchanged)
+            if shot["qc_regions"]:
+                temporal = inspect_temporal(segment, shot["qc_regions"], plan["width"],
+                                            plan["height"], plan["fps"], shot["frames"])
+                for region in temporal["regions"]:
+                    for event in region["events"]:
+                        if event["severity"] == "BLOCKED":
+                            raise ValueError(
+                                f"BLOCKED: shot {n + 1}, {region['id']}, {event['code']}, "
+                                f"{event['start_seconds']:.3f}–{event['end_seconds']:.3f}s"
+                            )
+                stats = {**stats, "temporal_qc": temporal}
             shot_reports.append({"shot": n + 1, "shot_type": shot["shot_type"], "backend": shot["kind"],
                                  "frames": shot["frames"], "cached": reused,
                                  "fallback": shot["fallback"], "motion_source": shot["motion_receipt"],
@@ -636,12 +651,14 @@ def produce(manifest: Path, output: Path, *, master: bool = False, cache: Path |
         srt = temp / "out.srt"
         srt.write_text(subtitles(plan["shots"]), encoding="utf-8")
         qc = None
-        if plan["upgraded"] or quality_check:
+        if plan["upgraded"] or quality_check or any("temporal_qc" in s for s in shot_reports):
             from studio.quality_hub import assess_cinematic
 
             qc = assess_cinematic(staged, srt, plan)
             if qc["status"] == "BLOCKED":
                 raise RuntimeError("BLOCKED: " + qc["reason"])
+            if any(s.get("temporal_qc", {}).get("status") == "REVIEW REQUIRED" for s in shot_reports):
+                qc["review_required"].append("temporal_artifacts")
         receipt = {
             "schema": 1, "source_manifest": manifest.name, "source_sha256": sha256(manifest),
             "video_sha256": sha256(staged), "resolution": [plan["width"], plan["height"]],

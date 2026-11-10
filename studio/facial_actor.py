@@ -61,7 +61,7 @@ class MouthMesh:
     """Articulate the registered lip seam and jaw on the source head sprite."""
 
     def __init__(self, rig: CharacterRig, spec: dict):
-        if not isinstance(spec, dict) or set(spec) - {"seam", "max_open"}:
+        if not isinstance(spec, dict) or set(spec) - {"seam", "max_open", "opening_peak"}:
             raise ValueError("Mouth mesh requires a registered lip seam")
         points = spec.get("seam")
         if (not isinstance(points, list) or not 3 <= len(points) <= 12 or any(
@@ -72,6 +72,9 @@ class MouthMesh:
         max_open = spec.get("max_open", .20)
         if type(max_open) not in (int, float) or not .08 <= max_open <= .30:
             raise ValueError("Mouth opening must be within .08–.30 of lip width")
+        peak = spec.get("opening_peak")
+        if "opening_peak" in spec and (type(peak) not in (int, float) or not .25 <= peak <= .75):
+            raise ValueError("Mouth opening_peak must be within .25–.75 of the seam")
         self.head, bounds = rig.parts["head"][1]
         coords = np.asarray(points, dtype=np.float32) * rig.size - bounds[:2]
         xs, ys = coords.T
@@ -91,12 +94,22 @@ class MouthMesh:
         self.source = np.asarray(self.head.crop(self.box), dtype=np.float32)
         self.xs, self.ys = xs - left, ys - top
         self.center = float((self.xs[0] + self.xs[-1]) / 2)
+        self.peak = self.center if peak is None else self.xs[0] + width * peak
         self.width, self.max_open = width, max_open
         self.y, self.x = np.indices(self.source.shape[:2], dtype=np.float32)
         self.seam = np.interp(self.x, self.xs, self.ys)
         self.lip_reach = _ease_field(1 - np.abs(self.y - self.seam) / (.35 * width))
         # Keep the face contour and nearby hair fixed in a three-quarter view.
         self.side_reach = _ease_field((.60 - np.abs(self.x - self.center) / width) / .18)
+        self.cavity_dark = np.array([32., 16., 16.])
+        self.cavity_fill = np.array([48., 21., 17.])
+        if peak is not None:
+            # Photographic close-ups inherit the local color of the lip seam.
+            sample_x = np.linspace(self.xs[0] + .2 * width, self.xs[-1] - .2 * width, 24)
+            lip = _sample(self.source, sample_x, np.interp(sample_x, self.xs, self.ys))
+            tone = np.percentile(lip[:, :3], 35, axis=0)
+            self.cavity_dark = np.clip(tone * .40, 4, 50)
+            self.cavity_fill = np.clip(tone * .55, 6, 60)
 
     def frame(self, pose: tuple[float, float, float]) -> Image.Image:
         if pose == REST:
@@ -106,7 +119,8 @@ class MouthMesh:
         horizontal = spread / (1 + spread)
         source_x = self.x - (self.x - self.center) * horizontal * self.lip_reach * self.side_reach
         centerline = np.interp(source_x, self.xs, self.ys)
-        distance = 2 * (source_x - self.center) / width
+        span = np.where(source_x <= self.peak, self.peak - self.xs[0], self.xs[-1] - self.peak)
+        distance = (source_x - self.peak) / span
         shape = np.maximum(0., 1. - distance ** 2) ** (.85 + .78 * rounding)
         gap = width * self.max_open * opening * shape
         upper = centerline - gap * (.18 + .10 * rounding)
@@ -129,8 +143,7 @@ class MouthMesh:
                          np.maximum(self.y - .5, upper), 0, 1) * valid_skin
         depth = np.clip((self.y - upper) / np.maximum(gap, 1), 0, 1)
         shade = np.maximum(0., (depth - .34) / .66) * np.sqrt(shape)
-        dark = np.array([32., 16., 16.])
-        inner = dark + shade[..., None] * np.array([48., 21., 17.])
+        inner = self.cavity_dark + shade[..., None] * self.cavity_fill
         rgb = rgb * (1. - cavity[..., None]) + inner * cavity[..., None]
         pixels = np.dstack((rgb, self.source[..., 3]))
         head = self.head.copy()

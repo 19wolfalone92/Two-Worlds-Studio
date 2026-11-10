@@ -7,6 +7,7 @@ and encodes H.264/AAC MP4.
 """
 from __future__ import annotations
 import math
+from dataclasses import asdict
 from pathlib import Path
 
 import numpy as np
@@ -85,7 +86,7 @@ class CinematicPanel:
     """Cache source layers once per scene; composite a requested frame."""
     def __init__(self, scene:dict, assets_root:Path, width:int,height:int, *, master=False):
         from studio.character_engine import CharacterRig
-        from studio.cinematic_lighting import LightStage
+        from studio.cinematic_lighting import LightStage, validate_lens
         from studio.facial_actor import PerformanceRig
         from studio.lipsync import load_phoneme_motion, load_viseme_track, speech_activity
 
@@ -168,6 +169,10 @@ class CinematicPanel:
             self.layers.append((layer, layer_image, blink_overlay, mouth_overlay, actor))
         self.lighting = LightStage(scene["cinematic"].get("lights"), (width, height))
         self.regions = scene.get("protected_regions", [])
+        config = scene["cinematic"]
+        self.lens = validate_lens(config["optics"], layers) if "optics" in config else None
+        self.defocus = [self.lens.blur_radius(layer["distance_m"], width) if self.lens else 0.
+                        for layer in layers]
         for region in self.regions:
             index = region["layer"]
             if index >= len(self.layers):
@@ -175,6 +180,8 @@ class CinematicPanel:
             layer, image, *_, actor = self.layers[index]
             if actor is not None or "motion" in layer or layer.get("opacity", 1) < .95:
                 raise ValueError("Protected region must be on a stable, visible layer")
+            if self.defocus[index] > .75:
+                raise ValueError("Optics defocus a protected region")
             w, h = image.size
             x0, y0, x1, y1 = region["box"]
             roi = image.getchannel("A").crop((math.floor(x0 * w), math.floor(y0 * h),
@@ -199,6 +206,29 @@ class CinematicPanel:
         radial=np.clip((xs*xs*.6+ys*ys*.7),0,1)
         brightness=(1-self.vignette*radial)*255
         return Image.fromarray(np.uint8(brightness))
+
+    def optics_report(self) -> dict:
+        if self.lens is None:
+            return {}
+        return {"optics": {**asdict(self.lens), "model": "2.5d_thin_lens",
+                           "blur_radius_px": [round(radius, 3) for radius in self.defocus],
+                           "protected_windows_use_single_sample": bool(self.regions)}}
+
+    def exposed_frame(self, index: int, frames: int, fps: int) -> Image.Image:
+        duration = max(1, frames - 1) / fps
+        seconds = index / fps
+        center = self.frame(seconds / duration, seconds=seconds)
+        if self.lens is None or self.lens.shutter_angle == 0:
+            return center
+        half_exposure = self.lens.shutter_angle / (720 * fps)
+        first = max(0., seconds - half_exposure)
+        last = min(duration, seconds + half_exposure)
+        if any(r["start"] <= last and r["end"] > first for r in self.regions):
+            return center
+        from studio.cinematic_lighting import integrate_exposure
+
+        return integrate_exposure(self.frame(first / duration, seconds=first), center,
+                                  self.frame(last / duration, seconds=last))
 
     def frame(self,t:float, *, seconds:float | None = None)->Image.Image:
         camera = camera_state(self.scene, t)
@@ -226,6 +256,10 @@ class CinematicPanel:
             else:
                 moving=im
             current = _place(canvas, moving, zoom=zoom, cx=cx, cy=cy, depth=depth, role=meta["role"])
+            if self.defocus[index] > .15:
+                # Premultiplied alpha prevents dark or bright halos around cutouts.
+                current = current.convert("RGBa").filter(
+                    ImageFilter.GaussianBlur(self.defocus[index])).convert("RGBA")
             opacity = float(meta.get("opacity", 1))
             if covered_regions and opacity > .25 and meta.get("blend", "over") == "over":
                 alpha = current.getchannel("A")

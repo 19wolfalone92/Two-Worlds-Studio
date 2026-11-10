@@ -146,6 +146,7 @@ def mix_audio(video:Path,tracks:list[dict],*,output:Path=None)->Path:
 def mix_timeline(tracks: list[dict], length: float, output: Path) -> dict:
     """Mix validated timed stems to PCM. The video mux encodes AAC once."""
     from studio.remaster_audio import normalize
+    from studio.delivery_qc import loudness
 
     if not tracks or not math.isfinite(length) or not 0 < length <= 600:
         raise ValueError("A real, bounded sound timeline is required")
@@ -164,10 +165,18 @@ def mix_timeline(tracks: list[dict], length: float, output: Path) -> dict:
             filters += ["highpass=f=68", "adeclick", "afftdn=nr=8:nf=-48",
                         "equalizer=f=265:t=q:w=1.2:g=-1.5",
                         "acompressor=threshold=0.10:ratio=2.3:attack=12:release=105:makeup=1.25"]
-        filters += [f"volume={track['gain']:.6f}", f"adelay={delay_samples}S:all=1",
-                    "apad", f"atrim=duration={length:.9f}"]
+        filters.append(f"volume={track['gain']:.6f}")
+        source = f"[{index}:a:0]"
+        if delay_samples:
+            # Materialize leading silence before the nested bus mixes. On
+            # FFmpeg 7, adelay lost a later voice offset in this graph.
+            graph.append(f"anullsrc=r=48000:cl=stereo,atrim=end_sample={delay_samples}[lead{index}]")
+            graph.append(source + ",".join(filters) + f"[stem{index}]")
+            source = f"[lead{index}][stem{index}]"
+            filters = ["concat=n=2:v=0:a=1"]
+        filters += ["apad", f"atrim=duration={length:.9f}"]
         label = f"[t{index}]"
-        graph.append(f"[{index}:a:0]" + ",".join(filters) + label)
+        graph.append(source + ",".join(filters) + label)
         buses[bus].append(label)
 
     def combine(labels, name):
@@ -195,8 +204,29 @@ def mix_timeline(tracks: list[dict], length: float, output: Path) -> dict:
                         "-map", "[mix]", "-c:a", "pcm_f32le", str(dry)],
                        capture_output=True, check=True, timeout=240)
         measured = normalize(dry, output, lufs=-16, tp=-1.7, channels=2)
+        input_lufs = float(measured["input_i"])
+        input_peak = float(measured["input_tp"])
+        mastered = loudness(output)
+        mode = "two_pass_loudnorm"
+        # Short dialogue mixes can miss the target when loudnorm's
+        # dynamic mode engages. A peak-safe static gain preserves the mix.
+        gain = min(-16 - input_lufs, -1.7 - input_peak)
+        if (not -17.5 <= mastered["integrated_lufs"] <= -14.5 and
+                -17.5 <= input_lufs + gain <= -14.5):
+            candidate = dry.with_name("peak_safe.wav")
+            subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(dry),
+                            "-af", f"volume={gain:.6f}dB", "-ar", "48000",
+                            "-c:a", "pcm_s16le", str(candidate)],
+                           capture_output=True, check=True, timeout=60)
+            corrected = loudness(candidate)
+            if (-17.5 <= corrected["integrated_lufs"] <= -14.5 and
+                    corrected["true_peak_dbtp"] <= -1.6):
+                candidate.replace(output)
+                mastered = corrected
+                mode = "peak_safe_static_gain"
     return {"buses": {name: len(labels) for name, labels in buses.items() if labels},
-            "input_lufs": float(measured["input_i"]), "target_lufs": -16,
+            "input_lufs": input_lufs, "target_lufs": -16, "mastering_mode": mode,
+            "mastered_pcm": mastered,
             "target_true_peak_dbtp": -1.7, "automatic_ducking": bool(voice and bed),
             "speech_speed_factor": 1.0}
 

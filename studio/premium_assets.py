@@ -94,6 +94,16 @@ def validate_layer(layer:dict, root:Path, *, publish:bool=False, min_width:int=2
         validate_motion(layer["motion"],root,publish=publish)
     path=resolve_asset(root,layer.get("path"))
     result=inspect_image(path)
+    if "required_focus_box" in layer:
+        from studio.art_image_qc import MAX_IMAGE_BYTES, inspect_image_bytes
+
+        with path.open("rb") as stream:
+            scan = inspect_image_bytes(stream.read(MAX_IMAGE_BYTES + 1), require_png=False,
+                                       focus_box=layer["required_focus_box"])
+        focus = scan.get("required_focus")
+        if focus is None or not focus["pass"]:
+            raise ValueError(f"{layer['path']}: required art detail is soft or transparent")
+        result["required_focus"] = focus
     warnings=[]
     if result["width"]<min_width or result["height"]<min_height:
         warnings.append("Artwork resolution below target for chosen output")
@@ -146,6 +156,10 @@ def validate_premium_scene(scene:dict, root:Path, *, publish:bool=False,
                                    min_width=min_width,min_height=min_height)
         assets.append(asset)
         warnings += [f"{item['path']}: {note}" for note in notes]
+    if "optics" in config:
+        from studio.cinematic_lighting import validate_lens
+
+        validate_lens(config["optics"], layers)
     camera=config.get("camera",{})
     if not isinstance(camera,dict):
         raise ValueError("cinematic.camera must be object")

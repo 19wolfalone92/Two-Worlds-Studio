@@ -12,6 +12,7 @@ from pathlib import Path
 def assess_cinematic(video: Path, srt: Path, plan: dict) -> dict:
     """Inspect the rendered film, including its decoded frame count and AAC."""
     from studio.release_gate import inspect_subtitles
+    from studio.delivery_qc import dialogue_clock
     from studio.shorts_factory import qa
 
     shots = plan["shots"]
@@ -28,11 +29,20 @@ def assess_cinematic(video: Path, srt: Path, plan: dict) -> dict:
             )
         elif any(shot["voice"] for shot in shots):
             raise ValueError("Spoken shots need subtitles")
+        timing = dialogue_clock(video, shots, plan["fps"])
+        if timing:
+            report["dialogue_clock"] = timing
+        for row in timing:
+            if row["status"] == "BLOCKED":
+                raise ValueError(f"Shot {row['shot']}: encoded dialogue is {row['offset_ms']:+.1f} ms off")
     except (RuntimeError, ValueError, OSError) as exc:
         return {"technical_status": "BLOCKED", "status": "BLOCKED", "reason": str(exc),
                 "published": False}
+    review = ["acting", "identity", "speech", "lip_sync", "story_clues"]
+    if any(row["status"] == "REVIEW REQUIRED" for row in timing):
+        review.append("dialogue_waveform")
     return {"technical_status": "PASS", "status": "REVIEW REQUIRED", "delivery": report,
-            "review_required": ["acting", "identity", "speech", "lip_sync", "story_clues"],
+            "review_required": review,
             "published": False}
 
 

@@ -36,6 +36,17 @@ The GitHub Actions workflow tests and produces a PROCEDURAL LAYERED DEMO
 to prove rendering works; the demonstration is **not** a polished comic episode
 and is never marked publishable.
 
+## Focus and temporal checks
+
+| Stage | Evidence | Outcome |
+| --- | --- | --- |
+| Layer preflight | In a declared `required_focus_box`, measure edge detail only within opaque artwork | Reject soft or transparent required detail before rendering |
+| Shot before captions | Decode every frame in each declared `qc_regions` box. Register translations before measuring luma and texture changes | Block unexpected holds in regions marked for motion and strong repeated flashes. Review isolated flashes, unexplained local change, or low registration confidence |
+| Protected clue | Verify crop, overlay, captions and optical focus during its authored time window | Block an obscured or defocused clue. Use one exposure sample in its window |
+| Delivery | Verify the final MP4 frame clock, audio, black frames and subtitles | Preserve separate technical and editorial statuses |
+
+Review close-ups at native size for anatomy, hand geometry, morphing, ghosting, and face identity. A region can pass the measured temporal checks and still require an anatomy review. Intentional holds and light changes are explicit shot decisions.
+
 ## Cost and scalability
 
 FFmpeg/Pillow/NumPy layer compositing is free software and runs on CPU.

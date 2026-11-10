@@ -4,6 +4,8 @@ A stylized screen-space light pass, NOT physically correct 3D relighting.
 """
 from __future__ import annotations
 import math
+from dataclasses import dataclass
+
 import numpy as np
 from PIL import Image
 
@@ -30,6 +32,55 @@ def validate_lights(lights):
                 for v in rgb)):
             raise ValueError('Light RGB should be three 0..255 values')
     return lights
+
+
+@dataclass(frozen=True)
+class Lens:
+    focal_mm: float
+    sensor_width_mm: float
+    aperture: float
+    focus_m: float
+    shutter_angle: float
+
+    def blur_radius(self, distance_m: float, width: int) -> float:
+        """Approximate the thin-lens circle of confusion with a Gaussian."""
+        focus, distance = self.focus_m * 1000, distance_m * 1000
+        diameter = (self.focal_mm ** 2 * abs(distance - focus) /
+                    (self.aperture * distance * (focus - self.focal_mm)))
+        return min(24 * width / 1080, diameter * width / (2 * self.sensor_width_mm))
+
+
+def validate_lens(spec, layers) -> Lens:
+    ranges = {"focal_mm": (14, 150), "sensor_width_mm": (12, 65),
+              "aperture": (1.2, 22), "focus_m": (.25, 150), "shutter_angle": (0, 270)}
+    if not isinstance(spec, dict) or set(spec) - ranges.keys():
+        raise ValueError("Invalid lens profile")
+    values = {**{"sensor_width_mm": 24, "shutter_angle": 0}, **spec}
+    for key, (lo, hi) in ranges.items():
+        value = values.get(key)
+        if type(value) not in (int, float) or not lo <= value <= hi:
+            raise ValueError(f"Optics {key} must be within {lo}–{hi}")
+    for layer in layers:
+        distance = layer.get("distance_m")
+        if type(distance) not in (int, float) or not .25 <= distance <= 150:
+            raise ValueError("Every layer in an optics shot needs a distance_m within 0.25–150")
+    return Lens(**values)
+
+
+_SRGB = np.linspace(0, 1, 256)
+_LINEAR = np.linspace(0, 1, 8192)
+_TO_LINEAR = np.rint(np.where(_SRGB < .04045, _SRGB / 12.92,
+                              ((_SRGB + .055) / 1.055) ** 2.4) * 8191).astype(np.uint16)
+_TO_SRGB = np.rint(np.where(_LINEAR < .0031308, _LINEAR * 12.92,
+                           1.055 * _LINEAR ** (1 / 2.4) - .055) * 255).astype(np.uint8)
+
+
+def integrate_exposure(before: Image.Image, center: Image.Image, after: Image.Image) -> Image.Image:
+    """Integrate three samples of the same motion curve in linear light."""
+    light = _TO_LINEAR[np.asarray(center)] * 4
+    light += _TO_LINEAR[np.asarray(before)]
+    light += _TO_LINEAR[np.asarray(after)]
+    return Image.fromarray(_TO_SRGB[(light + 3) // 6])
 
 
 class LightStage:

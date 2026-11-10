@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import unittest
 
-from PIL import Image,ImageDraw
+from PIL import Image,ImageDraw,ImageFilter
 
 from studio.art_image_qc import InvalidArtwork, inspect_image_bytes, near_duplicate_checks
 
@@ -52,6 +52,19 @@ class ImageQualityTests(unittest.TestCase):
     def test_wrong_size_rejected(self):
         with self.assertRaises(InvalidArtwork):
             inspect_image_bytes(make(),expected_size=(720,1280))
+
+    def test_required_focus_checks_only_opaque_subject_detail(self):
+        image = Image.open(io.BytesIO(make())).convert("RGBA")
+        box = [.2, .2, .8, .8]
+        self.assertTrue(inspect_image_bytes(make(), focus_box=box)["required_focus"]["pass"])
+        soft = image.filter(ImageFilter.GaussianBlur(8))
+        image.putalpha(0)
+        for bad in (soft, image):
+            output = io.BytesIO()
+            bad.save(output, format="PNG")
+            report = inspect_image_bytes(output.getvalue(), focus_box=box)
+            self.assertFalse(report["technical_pass"])
+            self.assertIn("required_region_out_of_focus_or_transparent", report["technical_issues"])
 
     def test_advisory_duplicate_detection_without_shot_approval(self):
         a=inspect_image_bytes(make())
