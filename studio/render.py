@@ -312,7 +312,7 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
         total_frames = 0
         try:
             for scene in scenes:
-                premium = CinematicPanel(scene,assets,width,height) if scene.get("cinematic") else None
+                premium = CinematicPanel(scene,assets,width,height,fps=fps) if scene.get("cinematic") else None
                 palette = scene.get("palette","earth")
                 if scene.get("background"):
                     with Image.open(assets / scene["background"]) as original:

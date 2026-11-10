@@ -5,7 +5,6 @@ import json
 import math
 import re
 import subprocess
-import tempfile
 from fractions import Fraction
 from pathlib import Path
 
@@ -22,18 +21,21 @@ def _crop_pixels(box, width, height):
     return x, y, w, h
 
 
-def validate_regions(regions: list, size: tuple[int, int] | None = None) -> list[dict]:
+def validate_regions(regions: list, size: tuple[int, int] | None = None, *,
+                     duration: float | None = None) -> list[dict]:
     """Authored areas in decoded shot coordinates, before captions."""
     if not isinstance(regions, list) or not 1 <= len(regions) <= 6:
         raise ValueError("Specify one to six temporal QC regions")
     result, ids = [], set()
     for region in regions:
         if (not isinstance(region, dict) or
-                set(region) - {"id", "kind", "box", "motion_required", "allow_exposure_change"}):
+                set(region) - {"id", "kind", "box", "motion_required", "allow_exposure_change",
+                               "motion_windows", "relative_to", "identity_reference"}):
             raise ValueError("Invalid temporal QC region")
         name, kind, box = region.get("id"), region.get("kind"), region.get("box")
         if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", name)
-                or name in ids or kind not in ("face", "hands", "prop", "background")
+                or name in ids or kind not in ("face", "eyes", "mouth", "wardrobe", "hands", "prop",
+                                               "background", "camera")
                 or not isinstance(box, list) or len(box) != 4
                 or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in box)
                 or box[2] - box[0] < .025 or box[3] - box[1] < .025
@@ -43,7 +45,37 @@ def validate_regions(regions: list, size: tuple[int, int] | None = None) -> list
         ids.add(name)
         if size is not None:
             _crop_pixels(box, *size)
+        relative_to = region.get("relative_to")
+        if relative_to is not None and (not isinstance(relative_to, str) or relative_to == name):
+            raise ValueError("Optical flow reference must be a different region")
+        windows = region.get("motion_windows", [])
+        if (not isinstance(windows, list) or len(windows) > 20
+                or kind == "camera" and (windows or relative_to)):
+            raise ValueError("Invalid independent motion windows")
+        previous = 0.
+        for window in windows:
+            if not isinstance(window, dict) or set(window) != {"start", "end"}:
+                raise ValueError("Motion window needs start and end seconds")
+            start, end = window["start"], window["end"]
+            if (any(type(v) not in (int, float) or not math.isfinite(v) for v in (start, end))
+                    or not previous <= start < end or end - start < .12
+                    or duration is not None and end > duration + 1e-7):
+                raise ValueError("Motion windows must be ordered, non-overlapping, and inside the shot")
+            previous = end
+        if "identity_reference" in region:
+            ref = region["identity_reference"]
+            if (kind not in {"face", "wardrobe"} or not isinstance(ref, dict)
+                    or set(ref) != {"path", "sha256", "box"} or not isinstance(ref["path"], str)
+                    or not isinstance(ref["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", ref["sha256"])
+                    or not isinstance(ref["box"], list) or len(ref["box"]) != 4
+                    or any(type(v) not in (int, float) or not 0 <= v <= 1 for v in ref["box"])
+                    or min(ref["box"][2] - ref["box"][0], ref["box"][3] - ref["box"][1]) < .025):
+                raise ValueError("Invalid pinned face or wardrobe reference region")
         result.append({"motion_required": False, "allow_exposure_change": False, **region})
+    if sum(r["kind"] == "camera" for r in result) > 1:
+        raise ValueError("Use one stationary camera reference region per shot")
+    if any(r.get("relative_to") is not None and r["relative_to"] not in ids for r in result):
+        raise ValueError("Optical flow reference region is missing")
     return result
 
 
@@ -134,52 +166,97 @@ def _events(rows, region, fps):
 
 
 def inspect_temporal(video: Path, regions: list, width: int, height: int,
-                     fps: float, expected_frames: int) -> dict:
+                     fps: float, expected_frames: int, *,
+                     speech: dict | None = None, voice_offset: float = 0.,
+                     assets: Path | None = None) -> dict:
     """Check every frame of a bounded shot in the specified native crops."""
     if (type(expected_frames) is not int or not 2 <= expected_frames <= 1800 or
             not 1 <= fps <= 60 or not 64 <= width <= 4096 or not 64 <= height <= 4096):
         raise ValueError("Temporal QC requires a bounded shot and a known frame clock")
-    regions = validate_regions(regions, (width, height))
-    reports = []
+    from studio.motion_qc import gray_frames, inspect_flow
+
+    regions = validate_regions(regions, (width, height), duration=expected_frames / fps)
+    crops = []
     for region in regions:
         x, y, w, h = _crop_pixels(region["box"], width, height)
         factor = min(1., 160 / max(w, h))
         window = np.outer(np.hanning(max(12, round(h * factor))),
                           np.hanning(max(12, round(w * factor))))
-        args = ["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-threads", "2",
-                "-i", str(video), "-map", "0:v:0", "-an",
-                "-vf", f"crop={w}:{h}:{x}:{y}:exact=1,format=gray",
-                "-fps_mode", "passthrough", "-frames:v", str(expected_frames + 1),
-                "-threads:v", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"]
-        rows = []
-        previous = None
-        count = 0
-        with tempfile.TemporaryFile() as errors, subprocess.Popen(
-            args, stdout=subprocess.PIPE, stderr=errors,
-        ) as proc:
-            try:
-                assert proc.stdout is not None
-                while raw := proc.stdout.read(w * h):
-                    if len(raw) != w * h:
-                        raise ValueError("Truncated frame in temporal QC")
-                    frame = np.frombuffer(raw, dtype=np.uint8).reshape(h, w)
-                    if previous is not None:
-                        rows.append(_pair(previous, frame, window))
-                    previous = frame
-                    count += 1
-                if proc.wait(timeout=15) or count != expected_frames:
-                    raise ValueError(f"Temporal QC decoded {count} frames, expected {expected_frames}")
-            except BaseException:
-                proc.kill()
-                raise
+        crops.append(((slice(y, y + h), slice(x, x + w)), window, []))
+    previous = None
+    for frame in gray_frames(video, width, height, expected_frames):
+        if previous is not None:
+            for crop, window, rows in crops:
+                rows.append(_pair(previous[crop], frame[crop], window))
+        previous = frame
+    reports = []
+    for region, (crop, _, rows) in zip(regions, crops):
+        y, x = crop
+        w, h = x.stop - x.start, y.stop - y.start
         reports.append({"id": region["id"], "kind": region["kind"], "crop_pixels": [w, h],
-                        "frames_checked": count, "registered_pairs": sum(x[1] is not None for x in rows),
-                        "events": _events(rows, region, fps)})
+                        "frames_checked": expected_frames, "registered_pairs": sum(x[1] is not None for x in rows),
+                        "events": [{**event, "component": "video_qc",
+                                    "reproduce": "Inspect the specified decoded region at native frame rate"}
+                                   for event in _events(rows, region, fps)]})
     severities = {event["severity"] for report in reports for event in report["events"]}
     status = ("BLOCKED" if "BLOCKED" in severities else
               "REVIEW REQUIRED" if severities else "PASS")
-    return {"status": status, "method": "native_roi_translation_compensated_luma",
-            "regions": reports, "anatomy_requires_review": True}
+    result = {"status": status, "method": "native_roi_translation_compensated_luma",
+              "regions": reports, "anatomy_requires_review": True}
+    if any(r["kind"] in {"camera", "mouth", "eyes"} or r.get("motion_windows") or r.get("relative_to")
+           or "identity_reference" in r for r in regions):
+        flow = inspect_flow(video, regions, width, height, fps, expected_frames,
+                            speech=speech, voice_offset=voice_offset, assets=assets or video.parent)
+        result["optical_flow"] = flow
+        if status == "PASS":
+            result["status"] = flow["status"]
+    return result
+
+
+def inspect_cinematic_picture(video: Path, shots: list[dict], fps: int) -> dict:
+    """Measure picture levels and a blur proxy independently for each shot."""
+    keys = ("YLOW", "YAVG", "YHIGH", "UAVG", "VAVG", "SATAVG", "YDIF")
+    total = sum(shot["frames"] for shot in shots)
+    vf = ("scale=270:480:flags=area,signalstats,"
+          "blurdetect=block_width=32:block_height=32:block_pct=80,metadata=mode=print:file=-")
+    process = subprocess.run(
+        ["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-threads", "2", "-i", str(video),
+         "-map", "0:v:0", "-an", "-vf", vf, "-frames:v", str(total + 1), "-f", "null", "-"],
+        capture_output=True, text=True, timeout=180,
+    )
+    if process.returncode and "No such filter" in process.stderr:
+        return {"status": "REVIEW REQUIRED", "reason": "FFmpeg picture diagnostics filters are unavailable"}
+    if process.returncode:
+        raise ValueError("FFmpeg could not decode the picture diagnostics")
+    rows = []
+    for line in process.stdout.splitlines():
+        if line.startswith("frame:"):
+            rows.append({})
+        elif rows and line.startswith("lavfi.") and "=" in line:
+            key, value = line.split("=", 1)
+            rows[-1][key.rsplit(".", 1)[-1]] = float(value)
+    if len(rows) != total or any(not all(key in row for key in keys) for row in rows):
+        raise ValueError("Picture diagnostic clock differs from the decoded edit")
+    reports, first = [], 0
+    for shot in shots:
+        last = first + shot["frames"]
+        values = rows[first:last]
+        measures = {key: round(float(np.median([row[key] for row in values])), 3) for key in keys}
+        blur = [row["blur"] for row in values if "blur" in row and math.isfinite(row["blur"])]
+        events = []
+        for i, (a, b) in enumerate(zip(values, values[1:]), first):
+            if abs(a["YAVG"] - b["YAVG"]) >= 12 or math.hypot(a["UAVG"] - b["UAVG"], a["VAVG"] - b["VAVG"]) >= 8:
+                events.append({"code": "abrupt_picture_level_change", "severity": "REVIEW REQUIRED",
+                               "start_seconds": round(i / fps, 4), "end_seconds": round((i + 2) / fps, 4),
+                               "component": "cinematic_lighting/grade",
+                               "reproduce": "Compare the adjacent decoded frames at this timestamp"})
+        reports.append({"start_seconds": round(first / fps, 4), "frames": len(values),
+                        "median_signalstats": measures,
+                        "median_blur_proxy": round(float(np.median(blur)), 3) if blur else None,
+                        "events": events})
+        first = last
+    return {"status": "REVIEW REQUIRED" if any(r["events"] for r in reports) else "PASS",
+            "sample_dimensions": [270, 480], "shots": reports}
 
 
 def sample_video(video:Path, *, fps:float=2.0, sample_width:int=72,
@@ -239,7 +316,7 @@ def main():
         fps = float(Fraction(stream["avg_frame_rate"]))
         regions = json.loads(args.regions_json.read_text(encoding="utf-8"))
         d = inspect_temporal(args.video, regions, stream["width"], stream["height"],
-                             fps, int(stream["nb_frames"]))
+                             fps, int(stream["nb_frames"]), assets=args.regions_json.parent)
     else:
         d=report(args.video)
     out=json.dumps(d,ensure_ascii=False,indent=2)+"\n"

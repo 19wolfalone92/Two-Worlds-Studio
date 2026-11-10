@@ -108,6 +108,48 @@ def verify_episode_characters(episode:dict,assets:Path,*,registry_path:Path=REGI
     return {"episode":episode.get("id"),"scenes":results,
             "human_identity_review_required":True}
 
+def locked_region_path(reference: dict, assets: Path) -> Path:
+    from studio.release_gate import sha256
+
+    path = resolve_asset(assets, reference["path"])
+    if sha256(path) != reference["sha256"]:
+        raise ValueError("Decoded identity check requires the exact pinned reference")
+    return path
+
+
+class RegionAppearance:
+    """Geometric texture match for an approved view of a fictional character."""
+
+    def __init__(self, cv, assets: Path, reference: dict, size: tuple[int, int]):
+        import numpy as np
+        from PIL import Image
+
+        self.cv = cv
+        self.features = cv.SIFT_create(nfeatures=140)
+        with Image.open(locked_region_path(reference, assets)) as image:
+            w, h = image.size
+            box = tuple(round(v * d) for v, d in zip(reference["box"], (w, h, w, h)))
+            crop = image.convert("L").crop(box).resize(size, Image.Resampling.LANCZOS)
+        self.points, self.descriptors = self.features.detectAndCompute(np.asarray(crop), None)
+
+    def compare(self, pixels):
+        import numpy as np
+
+        if self.descriptors is None or len(self.descriptors) < 8:
+            return None
+        points, descriptions = self.features.detectAndCompute(pixels, None)
+        if descriptions is None or len(descriptions) < 4:
+            return 0
+        matches = self.cv.BFMatcher().knnMatch(descriptions, self.descriptors, k=2)
+        good = [pair[0] for pair in matches if len(pair) == 2 and pair[0].distance < .75 * pair[1].distance]
+        if len(good) < 4:
+            return 0
+        source = np.float32([points[m.queryIdx].pt for m in good])
+        target = np.float32([self.points[m.trainIdx].pt for m in good])
+        _, inliers = self.cv.estimateAffinePartial2D(source, target, ransacReprojThreshold=3)
+        return int(inliers.sum()) if inliers is not None else 0
+
+
 def main():
     p=argparse.ArgumentParser(description="Physical-body reference asset gate")
     p.add_argument("--episode",required=True,type=Path)

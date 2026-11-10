@@ -15,6 +15,7 @@ from PIL import Image
 
 from studio.character_engine import CharacterRig, _transformed_patch
 from studio.lipsync import PhonemeMotion, REST
+from studio.performance_take import PerformanceTake
 from studio.premium_assets import resolve_asset
 
 
@@ -156,7 +157,8 @@ class PerformanceRig:
     def __init__(self,rig:CharacterRig,spec:dict,root:Path,*,
                  duration:float,voice_levels:list[float]|None=None,
                  voice_step_ms:int=50,voice_delay_ms:int=0,
-                 activity:dict|None=None, phonemes:PhonemeMotion|None=None, master=False):
+                 activity:dict|None=None, phonemes:PhonemeMotion|None=None,
+                 take:PerformanceTake|None=None, master=False):
         if rig.config.get('camera_view')=='back':
             raise ValueError('Face overlays cannot be attached to the BACK of a head')
         if 'head' not in rig.parts:
@@ -167,6 +169,7 @@ class PerformanceRig:
         self.voice_levels=voice_levels
         self.activity=activity
         self.phonemes=phonemes
+        self.take=take
         self.voice_step_ms=voice_step_ms;self.voice_delay_ms=voice_delay_ms
         if any(not isinstance(spec.get(key, {}), dict) for key in ("eyes", "mouth")):
             raise ValueError("Facial plates must be keyed by shape")
@@ -182,7 +185,9 @@ class PerformanceRig:
             raise ValueError('Blink requires open, half and fully closed eye plates')
         if self.mouth and 'rest' not in self.mouth:
             raise ValueError('Mouth needs neutral rest plate')
-        if not self.eyes and not self.mouth and self.mesh is None:
+        if take is not None and (self.eyes or self.mouth or self.mesh is not None):
+            raise ValueError("An offline performance cannot be stacked over other facial plates")
+        if not self.eyes and not self.mouth and self.mesh is None and take is None:
             raise ValueError('At least one genuine facial performance layer required')
         self.blinks=spec.get('blinks',[])
         if not isinstance(self.blinks,list) or any(
@@ -205,7 +210,9 @@ class PerformanceRig:
                 raise ValueError('Viseme cue is invalid or cannot be rendered')
             prev=item['at']
         self.cue_times = [cue["at"] for cue in self.cues]
-        self.mode=('mfa_phoneme_mesh' if self.mesh is not None else
+        self.mode=('registered_phoneme_take' if take is not None and phonemes is not None else
+                   'registered_facial_take' if take is not None else
+                   'mfa_phoneme_mesh' if self.mesh is not None else
                    'waveform_gated_visemes' if self.cues and activity is not None else
                    'timed_visemes' if self.cues else
                    'amplitude_only_not_phonemes' if voice_levels is not None else
@@ -262,6 +269,8 @@ class PerformanceRig:
         if not isinstance(t,(int,float)) or not math.isfinite(t) or not 0<=t<=1:
             raise ValueError('Normalized finite animation time required')
         sec=t*self.duration if seconds is None else seconds
+        if self.take is not None:
+            return self.rig.frame(t, head=self.take.frame(sec))
         if self.mesh is not None:
             pose = self.phonemes.pose(sec - self.voice_delay_ms / 1000)
             frame = self.rig.frame(t, head=self.mesh.frame(pose))
