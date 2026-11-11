@@ -26,8 +26,9 @@ ENGINES = {
     "blender": "studio.blender_clip",
     "character": "studio.neural_character",
     "neural": "studio.comfy_neural",
+    "wan-animate2": "studio.wan_animate2_run",
 }
-PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen", "neural"}
+PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen", "neural", "wan-animate2"}
 
 
 def doctor() -> dict:
