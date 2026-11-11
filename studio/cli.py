@@ -25,8 +25,9 @@ ENGINES = {
     "lipsync": "studio.lipsync",
     "blender": "studio.blender_clip",
     "character": "studio.neural_character",
+    "neural": "studio.comfy_neural",
 }
-PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen"}
+PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen", "neural"}
 
 
 def doctor() -> dict:
