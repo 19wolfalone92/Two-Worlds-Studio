@@ -4,6 +4,7 @@
 
 The studio supports **private model inference**, not merely camera moves on stills:
 - `python -m studio.comfy_neural`: native **Wan2.2 TI2V-5B I2V** over local ComfyUI and **LTX-2.5 DFR** with the installed official API template and binding map.
+- `python -m studio.model_install`: explicit official Hugging Face model-weight staging **only in a private ComfyUI folder**, never in GitHub.
 - `python -m studio.wan_animate2_run`: **Wan-Animate-2 distilled** on an appropriately configured multi-GPU upstream worker, with a real driving video.
 - `python -m studio.cli produce`: verifies input reference, full generated MP4 frame clock, driver (if any), source hashes, and review gates before assembly.
 
