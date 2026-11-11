@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from studio.model_install import COMPONENTS, install, inventory
+from studio.model_install import COMPONENTS, _verify_checkpoint, install, inventory
 
 
 class ModelInstallerTests(unittest.TestCase):
@@ -33,6 +33,27 @@ class ModelInstallerTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             install("wan22-5b", self.comfy, execute=True, accept_license=False)
         self.assertEqual(len(list(self.comfy.rglob("*.safetensors"))), 0)
+
+    def test_same_size_but_wrong_sha_is_rejected(self):
+        import hashlib
+        model = self.comfy / "models" / "fake_checkpoint.safetensors"
+        model.write_bytes(b"BAD" * 400)
+        legitimate = hashlib.sha256(b"OK!" * 400).hexdigest()
+        self.assertEqual(model.stat().st_size, 1200)
+        with self.assertRaisesRegex(RuntimeError, "SHA-256"):
+            _verify_checkpoint(model, 1200, legitimate)
+        with self.assertRaisesRegex(RuntimeError, "byte count"):
+            _verify_checkpoint(model, 1199, None)
+        with self.assertRaisesRegex(RuntimeError, "Invalid upstream"):
+            _verify_checkpoint(model, 1200, "not-a-sha")
+        _verify_checkpoint(model, 1200, hashlib.sha256(model.read_bytes()).hexdigest())
+
+    def test_source_tree_does_not_accept_private_model_downloads(self):
+        from studio.model_install import _safe_root
+        from studio import model_install
+        source = Path(model_install.__file__).resolve().parent.parent
+        with self.assertRaises(ValueError):
+            _safe_root(source)
 
     def test_symlink_as_destination_is_refused(self):
         target = self.comfy / "models" / "diffusion_models"

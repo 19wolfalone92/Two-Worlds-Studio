@@ -136,8 +136,13 @@ class ComfyLocal:
                 if isinstance(status, dict) and status.get("status_str") in {"error", "interrupted"}:
                     raise NeuralBlocked("ComfyUI generation failed; review the private server logs")
                 if isinstance(job.get("outputs"), dict) and job.get("outputs"):
-                    if isinstance(status, dict) and status.get("completed") is False:
-                        raise NeuralBlocked("ComfyUI emitted a partial video; generation was not completed")
+                    # Incomplete Comfy history may expose preview/output nodes
+                    # before the final SaveVideo node completes. A nonempty
+                    # 'outputs' dictionary is not a completed inference.
+                    if not (isinstance(status, dict)
+                            and status.get("completed") is True
+                            and status.get("status_str") == "success"):
+                        raise NeuralBlocked("ComfyUI has partial/unknown history; final generation was not proven complete")
                     return job
             time.sleep(poll_s)
         raise NeuralBlocked("ComfyUI generation exceeded its timeout (job may still run; inspect the server)")

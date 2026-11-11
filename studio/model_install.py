@@ -11,6 +11,7 @@ import errno
 import hashlib
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -50,9 +51,11 @@ def _safe_root(comfy: Path) -> Path:
     root = Path(comfy).expanduser().resolve()
     if not (root / "models").is_dir():
         raise ValueError("Supply an installed private ComfyUI directory containing models/")
-    if root == Path.cwd().resolve():
-        # Avoid staging gigabytes beside the public Git sources accidentally.
-        raise ValueError("The current repository cannot be used as a model installation root")
+    source = Path(__file__).resolve().parent.parent
+    if root == source or source in root.parents:
+        raise ValueError("Public Studio source tree cannot contain giant private checkpoint weights")
+    if (root / "models").is_symlink():
+        raise ValueError("Private model root must not be a symlink")
     return root
 
 
@@ -69,6 +72,23 @@ def inventory(model: str, root: Path) -> dict:
                       "installed": target.is_file(), "size_bytes": target.stat().st_size if target.is_file() else None})
     return {"model": model, "license": LICENSES[model], "files": files,
             "download_performed": False, "gpu_inference": False, "published": False}
+
+
+def _verify_checkpoint(path: Path, expected_size: int, sha256: str | None) -> None:
+    """Never accept corrupt same-size checkpoint files as healthy."""
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("The staged checkpoint must be a regular file, not a symlink")
+    if path.stat().st_size != expected_size:
+        raise RuntimeError("Checkpoint byte count disagrees with pinned Hugging Face metadata")
+    if sha256 is not None:
+        if not isinstance(sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", sha256):
+            raise RuntimeError("Invalid upstream LFS SHA-256 checksum")
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(4 * 1024**2), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != sha256:
+            raise RuntimeError("Checkpoint SHA-256 disagrees with pinned upstream checksum")
 
 
 def install(model: str, root: Path, *, accept_license: bool, execute: bool) -> dict:
@@ -112,8 +132,7 @@ def install(model: str, root: Path, *, accept_license: bool, execute: bool) -> d
     for entry in report["files"]:
         target = Path(entry["target"])
         if target.is_file():
-            if target.stat().st_size != entry["expected_bytes"]:
-                raise RuntimeError("Existing model file has the wrong size; inspect it manually")
+            _verify_checkpoint(target, entry["expected_bytes"], entry["expected_sha256"])
             continue
         repo = entry["repo"]
         local = cache / repo.replace("/", "__")
@@ -121,15 +140,7 @@ def install(model: str, root: Path, *, accept_license: bool, execute: bool) -> d
             repo_id=repo, filename=entry["remote_path"], revision=revisions[repo],
             local_dir=local,
         ))
-        if raw.stat().st_size != entry["expected_bytes"]:
-            raise RuntimeError("Downloaded model file size does not match pinned HF metadata")
-        if entry["expected_sha256"]:
-            digest = hashlib.sha256()
-            with raw.open("rb") as handle:
-                for chunk in iter(lambda: handle.read(4 * 1024**2), b""):
-                    digest.update(chunk)
-            if digest.hexdigest() != entry["expected_sha256"]:
-                raise RuntimeError("Downloaded model file has a mismatched official LFS SHA-256")
+        _verify_checkpoint(raw, entry["expected_bytes"], entry["expected_sha256"])
         target.parent.mkdir(parents=True, exist_ok=True)
         # Stage as hardlinks, avoiding a second 10-66GiB copy on the same disk.
         # No symlink to GitHub repo, no automatic archive upload.
@@ -138,6 +149,7 @@ def install(model: str, root: Path, *, accept_license: bool, execute: bool) -> d
     return {"status": "WEIGHTS_STAGED_PRIVATELY_GPU_NOT_RUN", "model": model,
             "pinned_revisions": revisions, "installed_files": staged,
             "license": LICENSES[model], "download_performed": bool(staged),
+            "metadata_validated": True, "available_weights_sha_checked": True,
             "gpu_inference": False, "published": False}
 
 

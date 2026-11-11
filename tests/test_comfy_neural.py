@@ -43,6 +43,25 @@ class GraphAndNetworkTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 wan22_workflow("ref.png", prompt, 42, width=bad[0], height=bad[1], frames=bad[2])
 
+    def test_incomplete_comfy_history_cannot_count_as_a_finished_video(self):
+        from unittest.mock import Mock
+        client = ComfyLocal("http://127.0.0.1:8188")
+        client.json = Mock(return_value={"123": {
+            "status": {"status_str": "running", "completed": False},
+            "outputs": {"57": {"images": [{"filename": "preview.png"}]}}
+        }})
+        with self.assertRaisesRegex(NeuralBlocked, "partial/unknown"):
+            client.result("123", max_wait=1, poll_s=.1)
+
+    def test_history_success_is_required_even_if_output_is_present(self):
+        from unittest.mock import Mock
+        client = ComfyLocal("http://127.0.0.1:8188")
+        client.json = Mock(return_value={"123": {
+            "status": {"status_str": "success", "completed": True},
+            "outputs": {"58": {"videos": [{"filename": "final.mp4"}]}}
+        }})
+        self.assertEqual(client.result("123", max_wait=3)["status"]["status_str"], "success")
+
     def test_loopback_only_even_with_redirect_or_http_credentials(self):
         for origin in (
             "http://example.com:8188", "http://169.254.169.254:8188",
