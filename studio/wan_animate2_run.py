@@ -113,6 +113,21 @@ def generate(*, runtime: Path, reference: Path, driver: Path, output: Path,
         raise ValueError("Bound the model runtime to 120–14400 seconds")
     device = hardware_preflight()
     runtime = Path(runtime).resolve()
+    # The official distillation YAML ships with sp_size=8/sharding_size=8.
+    # On a 2-GPU server this MUST be customized; a 2x80GiB GPU check alone
+    # does not make the unmodified 8-way distributed config executable.
+    config_text = Path(spec["config"]).read_text(encoding="utf-8")
+    parallel = {key: int(match.group(1))
+                for key in ("sp_size", "sharding_size")
+                if (match := re.search(r"^\\s*" + key + r":\\s*(\\d+)\\s*$",
+                                       config_text, flags=re.MULTILINE))}
+    if (set(parallel) != {"sp_size", "sharding_size"}
+            or any(n < 1 or n > device["gpus"] for n in parallel.values())):
+        raise NeuralBlocked("Adapt the official YAML sp_size/sharding_size to your actual GPU topology")
+    checkpoint = re.search(r"^\\s*model_path:\\s*['\\\"]?([^'\\\"\\n]+)",
+                           config_text, flags=re.MULTILINE)
+    if checkpoint is None or not (runtime / "infer" / checkpoint.group(1).strip()).resolve().is_file():
+        raise NeuralBlocked("Stage the official Wan Animate-2 distilled checkpoint referenced by the YAML")
     cmd = subprocess.run(["git", "-C", str(runtime), "rev-parse", "HEAD"],
                          check=True, capture_output=True, text=True, timeout=30)
     revision = cmd.stdout.strip()
