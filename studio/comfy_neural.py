@@ -96,15 +96,18 @@ class ComfyLocal:
     def upload_image(self, source: Path) -> str:
         # Direct multipart upload via the official /upload/image endpoint.
         boundary = "TW" + uuid.uuid4().hex
-        raw = source.read_bytes()
-        if len(raw) > 32 * 1024 * 1024:
+        if source.stat().st_size > 32 * 1024 * 1024:
             raise NeuralBlocked("Reference image exceeds 32 MiB")
+        raw = source.read_bytes()
+        # Deterministic filename is content-hashed; overwriting that exact
+        # name makes repeated generations idempotent instead of having ComfyUI
+        # create "(1)" suffixed filenames rejected by provenance checks.
         filename = "tw_" + sha256(source)[:32] + source.suffix.lower()
         payload = (
             ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"image\"; filename=\"" +
              filename + "\"\r\nContent-Type: application/octet-stream\r\n\r\n").encode()
             + raw +
-            ("\r\n--" + boundary + "\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\nfalse"
+            ("\r\n--" + boundary + "\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\ntrue"
              "\r\n--" + boundary + "--\r\n").encode()
         )
         response = self._read("/upload/image", data=payload,
