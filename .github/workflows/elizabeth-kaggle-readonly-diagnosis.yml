@@ -43,8 +43,17 @@ jobs:
               print("WORKER_STATUS",json.dumps({k:report.get(k) for k in ("success","error_type","error_summary","provider","pipeline","shots","voices")},ensure_ascii=False))
           for file in root.rglob("*.log"):
               lines=file.read_text(errors="replace").splitlines()
-              clean=[x for x in lines if any(s in x for s in ("Traceback","Error","Exception","No module","Requirement","CUDA","version","[ERROR]"))]
-              print("DIAGNOSTIC_LOG_MATCHES",file.name,"\n".join(clean[-25:])[:3500])
+              decoded=[]
+              for entry in lines:
+                  try: msg=json.loads(entry).get("data","")
+                  except ValueError: msg=entry
+                  if isinstance(msg,str) and msg.strip():
+                      decoded.extend(msg.splitlines())
+              anchors=[i for i,x in enumerate(decoded) if any(k in x for k in
+                  ("Traceback (most recent call last)","TW_ELIZABETH_STUDIO_EXECUTION_FAILED","torch.AcceleratorError"))]
+              for i in anchors[-4:]:
+                  print("STACK_TRACE_AT",i,"\n".join(decoded[max(0,i-3):i+32])[:5000])
+              print("LAST_GPU_WORKER_LINES","\n".join(decoded[-65:])[:9000])
           PY
       - name: Erase downloaded private Kaggle data
         if: always()
