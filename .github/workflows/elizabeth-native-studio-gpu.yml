@@ -1,9 +1,9 @@
 name: TWO WORLDS - Elizabeth Bones real native Studio production (private Kaggle)
 
+# Legacy full-budget producer is quarantined after visual QA failed.
+# A manual dispatch is not sufficient to launch a GPU run; new workflow requires
+# an independently reviewed seven-scene storyboard + an approved I2V pilot.
 on:
-  push:
-    branches: ["production/elizabeth-bones-native-studio-pilot-20261111"]
-    paths: ["ops/elizabeth_native_gpu.trigger"]
   workflow_dispatch:
 
 permissions:
@@ -15,6 +15,9 @@ concurrency:
 
 jobs:
   elizabeth-native-7-shot-pilot:
+    # Prevent wasting Kaggle GPU quota on independent SDXL shots that change
+    # Kostya into a human / drift Elizabeth's face. Legacy pipeline disabled.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     timeout-minutes: 105
     env:
