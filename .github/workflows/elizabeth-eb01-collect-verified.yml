@@ -1,0 +1,128 @@
+name: TWO WORLDS - deliver verified native Elizabeth E01 MP4 (NO GPU, no InVideo)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-native-studio-pilot-20261111"]
+    paths: ["ops/elizabeth_native_collect.trigger"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect-only-after-real-kaggle-success:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      # A single pre-existing, explicitly launched GPU kernel; this workflow never pushes a new one.
+      KERNEL_HANDLE: wolf19loner92/tw-elizabeth-native-02233574da68
+      EXPECTED_NONCE: eliznative-43076560451-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install read-only Kaggle CLI and native Studio validation dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install -q -r requirements.txt 'kaggle>=2.2.4' 'six>=1.16,<2' static-ffmpeg
+          python - <<'PY'
+          from static_ffmpeg import run
+          from pathlib import Path
+          import os
+          ffmpeg,ffprobe=run.get_or_fetch_platform_executables_else_raise()
+          target=Path(os.environ['RUNNER_TEMP'])/'portable_ffmpeg'
+          target.mkdir(parents=True,exist_ok=True)
+          (target/'ffmpeg').symlink_to(Path(ffmpeg).resolve())
+          (target/'ffprobe').symlink_to(Path(ffprobe).resolve())
+          with open(os.environ['GITHUB_PATH'],'a') as stream:
+              stream.write(str(target)+'\n')
+          PY
+      - name: Pull ONLY previously completed private Kaggle output (never start GPU)
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(kaggle kernels status "$KERNEL_HANDLE")"
+          echo "$STATUS"
+          echo "$STATUS" | grep -q 'KernelWorkerStatus.COMPLETE'
+          mkdir -p "$RUNNER_TEMP/eb01_input"
+          kaggle kernels output "$KERNEL_HANDLE" -p "$RUNNER_TEMP/eb01_input" --force
+      - name: Validate real native Studio provenance, six voices and MP4 playback
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/portable_ffmpeg:$PATH"
+          python -m studio.elizabeth_episode_pilot verify --path "$RUNNER_TEMP/eb01_input" --nonce "$EXPECTED_NONCE"
+          mkdir -p "$RUNNER_TEMP/eb01_delivery"
+          python - <<'PY'
+          import json,zipfile,os,subprocess,hashlib,re
+          from pathlib import Path
+          root=Path(os.environ['RUNNER_TEMP'])
+          src=root/'eb01_input'/'ELIZABETH_BONES_STUDIO_PILOT.zip'
+          out=root/'eb01_delivery'
+          with zipfile.ZipFile(src) as z:
+              wanted=['ELIZABETH_BONES_SOBESEDOVANIE_STUDIO_PREVIEW.mp4',
+                      'ELIZABETH_BONES_SOBESEDOVANIE_STUDIO_PREVIEW.srt',
+                      'ELIZABETH_BONES_SOBESEDOVANIE_STUDIO_PREVIEW.json',
+                      'production_provenance.json','studio_shot_manifest.json']
+              assert set(z.namelist())==set(wanted)
+              for name in wanted:
+                  (out/name).write_bytes(z.read(name))
+          film=out/wanted[0]
+          report=json.loads((out/wanted[2]).read_text(encoding='utf-8'))
+          manifest=json.loads((out/'studio_shot_manifest.json').read_text(encoding='utf-8'))
+          assert report.get('shots')==7 and report.get('audio_tracks')==7
+          assert report.get('static_camera_shots')==7 and report.get('published') is False
+          assert len(manifest['shots'])==7 and sum(bool(x.get('voice')) for x in manifest['shots'])==6
+          text=(out/wanted[1]).read_text(encoding='utf-8')
+          assert text.count('-->')==6, 'Expected exactly six subtitle cues'
+          p=subprocess.run(['ffprobe','-v','error','-show_entries',
+                            'stream=codec_type,codec_name,width,height,avg_frame_rate:format=duration',
+                            '-of','json',str(film)],check=True,text=True,capture_output=True)
+          tracks=json.loads(p.stdout)
+          video=[s for s in tracks['streams'] if s.get('codec_type')=='video']
+          audio=[s for s in tracks['streams'] if s.get('codec_type')=='audio']
+          assert len(video)==1 and len(audio)==1
+          assert video[0]['width']==576 and video[0]['height']==1024
+          assert video[0]['avg_frame_rate']=='24/1'
+          assert float(tracks['format']['duration'])>18
+          assert hashlib.sha256(film.read_bytes()).hexdigest()==report['video_sha256']
+          subprocess.run(['ffmpeg','-nostdin','-v','error','-xerror','-i',str(film),
+                          '-f','null','-'],capture_output=True,check=True,timeout=240)
+          # A positive mean level in each six speech cue segment. Independent from Studio's six source WAV checks.
+          timeline=0.0
+          measured={}
+          for i,shot in enumerate(manifest['shots']):
+              duration=round(shot['duration']*24)/24
+              if shot.get('voice'):
+                  cmd=['ffmpeg','-nostdin','-ss',str(timeline+.15),
+                       '-t',str(max(.5,duration-.35)),'-i',str(film),
+                       '-vn','-af','volumedetect','-f','null','-']
+                  v=subprocess.run(cmd,capture_output=True,text=True,timeout=80,check=True)
+                  found=re.search(r'mean_volume:\s*(-?[\d.]+) dB',v.stderr)
+                  assert found and float(found.group(1)) > -65, 'Output silent in speech shot '+str(i)
+                  measured['S'+str(i).zfill(2)]=float(found.group(1))
+              timeline+=duration
+          assert len(measured)==6
+          (out/'FINAL_DELIVERY_QA.json').write_text(json.dumps({
+              'status':'verified_real_native_studio_preview_needs_creative_review',
+              'native_compositor':'studio.hybrid_master.produce','invideo_used':False,
+              'synthetic_fixture':False,'social_published':False,
+              'source_kaggle':os.environ['KERNEL_HANDLE'],
+              'source_nonce':os.environ['EXPECTED_NONCE'],'duration_s':float(tracks['format']['duration']),
+              'frames':'576x1024 24fps','six_voice_cues':list(measured),
+              'measured_audio_db':measured,'sha256':report['video_sha256']},ensure_ascii=False,indent=2))
+          print('FINAL_REVIEW_MP4_QA_PASS',film.name,film.stat().st_size,report['video_sha256'])
+          PY
+      - name: Return final MP4 and QA only - no private source PNG or WAV
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_BONES_E01_REAL_TWO_WORLDS_STUDIO_MP4_FOR_REVIEW
+          path: ${{ runner.temp }}/eb01_delivery/*
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+      - name: Erase private temporary media
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01_input" "$RUNNER_TEMP/eb01_delivery" "$RUNNER_TEMP/portable_ffmpeg"
