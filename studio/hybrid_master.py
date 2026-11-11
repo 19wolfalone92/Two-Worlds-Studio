@@ -29,7 +29,7 @@ AUDIO = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
 SHOT_TYPES = frozenset({"establishing", "wide", "medium", "close", "extreme_close",
                         "over_shoulder", "reaction", "insert"})
 VISUAL_PROFILES = {"photoreal_cinematic", "stylized_cinematic", "3d_character"}
-CLIP_ENGINES = {"blender_3d", "neural_character"}
+CLIP_ENGINES = {"blender_3d", "neural_character", "neural_comfy"}
 MOBILE_DELIVERY = (576, 1024, 24)
 
 
@@ -179,6 +179,8 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                 or not isinstance(take.get("engine"), str) or take["engine"] not in CLIP_ENGINES
                 or set(take) != ({"engine", "visual_profile", "sha256", "receipt", "reference", "driver"}
                                  if take["engine"] == "neural_character" else
+                                 {"engine", "visual_profile", "sha256", "receipt", "reference"}
+                                 if take["engine"] == "neural_comfy" else
                                  {"engine", "visual_profile", "sha256"} | ({"receipt"} if "receipt" in take else set()))
                 or profile is None or take["visual_profile"] != profile or sha256(media) != take["sha256"]):
             raise ValueError(f"Shot {i}: clip take must match the locked source and visual profile")
@@ -293,6 +295,18 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
             if motion_receipt["model"] == ECHO and not item.get("dialogue_text"):
                 raise ValueError("Audio-driven performance requires locked dialogue text")
             motion_inputs = [driver, proof]
+        elif take is not None and take["engine"] == "neural_comfy":
+            from studio.comfy_neural import import_take as import_comfy_take
+
+            reference = source(base, take["reference"], IMAGES)
+            proof = source(base, take["receipt"], {".json"})
+            motion_receipt = import_comfy_take(media, proof, reference, duration=frames / fps)
+            motion_inputs = [proof]
+            if master and not any(r.get("motion_windows") and
+                                  r.get("kind") in {"face", "wardrobe", "mouth", "jaw", "cheek"}
+                                  for r in qc_regions):
+                raise ValueError("Neural master requires independent character-motion QC windows")
+
         elif take is not None and "receipt" in take:
             from studio.blender_clip import import_take as import_blender_take
 
