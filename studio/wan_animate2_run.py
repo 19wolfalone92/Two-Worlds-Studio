@@ -119,12 +119,12 @@ def generate(*, runtime: Path, reference: Path, driver: Path, output: Path,
     config_text = Path(spec["config"]).read_text(encoding="utf-8")
     parallel = {key: int(match.group(1))
                 for key in ("sp_size", "sharding_size")
-                if (match := re.search(r"^\\s*" + key + r":\\s*(\\d+)\\s*$",
+                if (match := re.search(r"^\s*" + key + r":\s*(\d+)\s*$",
                                        config_text, flags=re.MULTILINE))}
     if (set(parallel) != {"sp_size", "sharding_size"}
             or any(n < 1 or n > device["gpus"] for n in parallel.values())):
         raise NeuralBlocked("Adapt the official YAML sp_size/sharding_size to your actual GPU topology")
-    checkpoint = re.search(r"^\\s*model_path:\\s*['\\\"]?([^'\\\"\\n]+)",
+    checkpoint = re.search(r"^\s*model_path:\s*['\"]?([^'\"\n]+)",
                            config_text, flags=re.MULTILINE)
     if checkpoint is None or not (runtime / "infer" / checkpoint.group(1).strip()).resolve().is_file():
         raise NeuralBlocked("Stage the official Wan Animate-2 distilled checkpoint referenced by the YAML")
