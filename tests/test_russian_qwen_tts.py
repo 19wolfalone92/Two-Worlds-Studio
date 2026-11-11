@@ -3,6 +3,9 @@ import hashlib
 import json
 import tempfile
 import unittest
+import sys
+from types import SimpleNamespace
+from unittest.mock import Mock
 from pathlib import Path
 from unittest.mock import patch
 
@@ -97,6 +100,28 @@ class RussianVoiceTests(unittest.TestCase):
         self.assertEqual(" ".join(chunks), " ".join(RUSSIAN.split()))
         with self.assertRaises(ValueError):
             split_text("Ы" * 400, limit=100)
+
+    def test_tts_cuda_dtype_contract_t4_fp32_ampere_bf16_cpu_fp32(self):
+        # Prevent Qwen3 TTS issue #43: FP16 triggers device-side assert on Turing.
+        from studio.russian_qwen_tts import _get_model
+        for cuda, bf16, want in (
+            (True, False, "float32"), (True, True, "bfloat16"), (False, False, "float32"),
+        ):
+            with self.subTest(cuda=cuda, bf16=bf16):
+                torch_stub = SimpleNamespace(
+                    cuda=SimpleNamespace(is_available=lambda: cuda,
+                                         is_bf16_supported=lambda: bf16),
+                    float32="float32", bfloat16="bfloat16")
+                factory = Mock()
+                factory.from_pretrained.return_value = object()
+                with patch.dict(sys.modules, {"torch": torch_stub,
+                                               "qwen_tts": SimpleNamespace(Qwen3TTSModel=factory)}):
+                    _get_model.cache_clear()
+                    _get_model(MODEL_SMALL)
+                    factory.from_pretrained.assert_called_once_with(
+                        MODEL_SMALL, device_map="cuda:0" if cuda else "cpu",
+                        dtype=want, attn_implementation="sdpa")
+        _get_model.cache_clear()
 
     def test_catalog_contains_emotional_options(self):
         self.assertIn("Serena", VOICES)
