@@ -149,10 +149,18 @@ class CharacterTakeTests(unittest.TestCase):
         self.assertIn("no_independent_action", groups["cheek"])
         self.assertIn("no_independent_action", groups["shoulders"])
         self.assertEqual(result["qc"]["status"], "REVIEW REQUIRED")
-        rejected = self.root / "approved.mp4"
-        with self.assertRaisesRegex(ValueError, "unresolved motion or identity"):
-            produce(manifest, rejected, master=True)
-        self.assertFalse(rejected.exists())
+        for engine in ("neural_character", "blender_3d"):
+            with self.subTest(engine=engine):
+                if engine == "blender_3d":
+                    shot = doc["shots"][0]
+                    shot["clip_take"] = {"engine": engine, "visual_profile": "photoreal_cinematic",
+                                         "sha256": take["clip_sha256"]}
+                    manifest.write_text(json.dumps(doc), encoding="utf-8")
+                rejected = self.root / (engine + "-approved.mp4")
+                with self.assertRaisesRegex(ValueError, "unresolved motion or identity"):
+                    produce(manifest, rejected, master=True)
+                self.assertFalse(rejected.exists())
+                self.assertFalse(rejected.with_suffix(".json").exists())
 
     def test_wan_requires_a_driver_and_head_motion_separate_from_shoulders(self):
         runtime, weights = self.root / "wan", self.root / "wan-weights"

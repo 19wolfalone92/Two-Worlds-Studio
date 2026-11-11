@@ -75,6 +75,13 @@ coordinate frame. A detached or sliding contact blocks export with its frame
 number. The receipt records the measured peaks and the manifest hash. Marker
 placement and tolerances remain part of scene authoring. Combine these checks
 with the existing mesh collision checks to inspect surface intersections.
+Save the Blender worker's JSON result beside the take and pass its relative
+path as `clip_take.receipt` with `engine: blender_3d`. The compositor verifies
+the take's native frame clock and contact evidence, includes the receipt in
+the cache key, and carries those measurements into the final shot report.
+For Blender and neural character takes with authored motion checks, unresolved
+temporal or identity findings prevent `--master` export. A preview remains
+available for inspection; passing contact geometry alone does not approve acting.
 
 ### Production guidance
 

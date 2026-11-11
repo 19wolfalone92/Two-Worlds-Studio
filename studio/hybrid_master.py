@@ -178,7 +178,8 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         if take is not None and (kind != "clip" or not isinstance(take, dict)
                 or not isinstance(take.get("engine"), str) or take["engine"] not in CLIP_ENGINES
                 or set(take) != ({"engine", "visual_profile", "sha256", "receipt", "reference", "driver"}
-                                 if take["engine"] == "neural_character" else {"engine", "visual_profile", "sha256"})
+                                 if take["engine"] == "neural_character" else
+                                 {"engine", "visual_profile", "sha256"} | ({"receipt"} if "receipt" in take else set()))
                 or profile is None or take["visual_profile"] != profile or sha256(media) != take["sha256"]):
             raise ValueError(f"Shot {i}: clip take must match the locked source and visual profile")
         if kind == "clip" and profile is not None and take is None:
@@ -292,6 +293,12 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
             if motion_receipt["model"] == ECHO and not item.get("dialogue_text"):
                 raise ValueError("Audio-driven performance requires locked dialogue text")
             motion_inputs = [driver, proof]
+        elif take is not None and "receipt" in take:
+            from studio.blender_clip import import_take as import_blender_take
+
+            proof = source(base, take["receipt"], {".json"})
+            motion_receipt = import_blender_take(media, proof, frames / fps)
+            motion_inputs = [proof]
         preserve_portrait = (backend == "auto" and profile == "photoreal_cinematic" and cinematic is not None
                              and any(layer.get("role") == "character" and layer.get("sha256")
                                      and ("rig" in layer or "deform" in layer)
@@ -749,7 +756,7 @@ def produce(manifest: Path, output: Path, *, master: bool = False, cache: Path |
                                 f"BLOCKED: shot {n + 1}, {region['id']}, {event['code']}, "
                                 f"{event['start_seconds']:.3f}–{event['end_seconds']:.3f}s"
                             )
-                if master and shot["animation_engine"] == "neural_character" and temporal["status"] != "PASS":
+                if master and shot["animation_engine"] in CLIP_ENGINES and temporal["status"] != "PASS":
                     raise ValueError(f"Shot {n + 1}: character performance has unresolved motion or identity review")
                 stats = {**stats, "temporal_qc": temporal}
             shot_reports.append({"shot": n + 1, "shot_type": shot["shot_type"], "backend": shot["kind"],

@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import zipfile
+from fractions import Fraction
 from pathlib import Path
 
 from PIL import Image
@@ -18,6 +19,58 @@ from PIL import Image
 from studio.production_queue import private_path
 from studio.release_gate import sha256
 from studio.smooth_camera import encode_rgb_frames
+
+
+def import_take(clip: Path, receipt: Path, duration: float) -> dict:
+    """Verify a Blender worker's geometry and contact receipt at composition time."""
+    if receipt.stat().st_size > 64 * 1024:
+        raise ValueError("Blender take receipt is too large")
+    data = json.loads(receipt.read_text(encoding="utf-8"))
+    if (not isinstance(data, dict) or data.get("status") != "rendered"
+            or data.get("backend") != "blender_cycles_cpu" or data.get("clip_sha256") != sha256(clip)
+            or not re.fullmatch(r"[0-9a-f]{64}", str(data.get("scene_sha256")))
+            or any(type(data.get(key)) is not int for key in ("frames", "fps", "width", "height", "first_frame"))
+            or not 1 <= data["frames"] <= 300 or not 12 <= data["fps"] <= 30
+            or data["frames"] / data["fps"] + .0001 < duration):
+        raise ValueError("Blender receipt must match the exact full-length take")
+    measured = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+         "-show_entries", "stream=width,height,avg_frame_rate,nb_read_frames", "-of", "json", str(clip)],
+        capture_output=True, text=True, check=True, timeout=90,
+    )
+    try:
+        stream, = json.loads(measured.stdout)["streams"]
+        matches = (int(stream["nb_read_frames"]) == data["frames"]
+                   and Fraction(stream["avg_frame_rate"]) == data["fps"]
+                   and all(stream[k] == data[k] for k in ("width", "height")))
+    except (KeyError, ValueError, ZeroDivisionError, TypeError) as exc:
+        raise ValueError("Blender take has no usable native frame clock") from exc
+    if measured.stderr or not matches:
+        raise ValueError("Blender take differs from the worker frame clock")
+    result = {key: data[key] for key in ("backend", "scene_sha256", "frames", "fps")}
+    if "geometry_qc" in data:
+        geometry = data["geometry_qc"]
+        if not isinstance(geometry, dict) or geometry.get("frames_checked") != data["frames"]:
+            raise ValueError("Blender geometry checks must cover the complete take")
+        result["geometry_qc"] = geometry
+    if "contact_qc" in data:
+        contact = data["contact_qc"]
+        if (not isinstance(contact, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(contact.get("manifest_sha256")))
+                or not isinstance(contact.get("windows"), list) or not 1 <= len(contact["windows"]) <= 24):
+            raise ValueError("Missing Blender contact evidence")
+        for row in contact["windows"]:
+            if (not isinstance(row, dict) or any(type(row.get(k)) is not int for k in
+                                               ("start_frame", "end_frame", "frames_checked"))
+                    or not data["first_frame"] <= row["start_frame"] < row["end_frame"] < data["first_frame"] + data["frames"]
+                    or row["frames_checked"] != row["end_frame"] - row["start_frame"] + 1
+                    or any(type(row.get(k)) not in (int, float) or not math.isfinite(row[k])
+                           for k in ("peak_gap_m", "peak_slip_m", "max_gap_m", "max_slip_m"))
+                    or not 0 < row["max_gap_m"] <= .10 or not 0 < row["max_slip_m"] <= .10
+                    or not 0 <= row["peak_gap_m"] <= row["max_gap_m"]
+                    or not 0 <= row["peak_slip_m"] <= row["max_slip_m"]):
+                raise ValueError("Blender contact evidence is incomplete or exceeds its tolerances")
+        result["contact_qc"] = contact
+    return result
 
 
 def _object_name(value) -> bool:
