@@ -79,7 +79,7 @@ class GraphAndNetworkTests(unittest.TestCase):
             client = ComfyLocal("http://127.0.0.1:8188", opener=opener)
             self.assertEqual(client.upload_image(image), client.upload_image(image))
             self.assertEqual(len(opener.names), 2)
-            self.assertTrue(all(b'name=\\\"overwrite\\\"\\r\\n\\r\\ntrue' in body
+            self.assertTrue(all(b'name="overwrite"\r\n\r\ntrue' in body
                                 for body in opener.names))
 
     def test_ltx_dfr_api_binding_requires_real_model_components(self):
