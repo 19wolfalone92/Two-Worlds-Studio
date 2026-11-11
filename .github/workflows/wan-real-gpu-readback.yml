@@ -1,0 +1,57 @@
+name: TWO WORLDS - Inspect existing private Wan5B GPU job without resubmission
+
+on:
+  push:
+    branches: ["gpu/wan5b-first-real-proof-20261111"]
+    paths: ["ops/wan_gpu_readback.trigger"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+
+jobs:
+  inspect-original-submission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      ORIGINAL_NONCE: wan5b-42980760929-1
+      EXISTING_TITLE_SLUG: two-worlds-wan2-2-5b-private-video-proof
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Authenticate and resolve the original private notebook
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m pip install -q -r requirements.txt "kaggle>=2.2.4" "six>=1.16,<2"
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+      - name: Poll original actually submitted kernel, do NOT push another GPU job
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.kaggle_api poll \
+            --kernel "$KAGGLE_USERNAME/$EXISTING_TITLE_SLUG" \
+            --timeout 3500 --interval 90
+      - name: Readback ONLY existing receipt and MP4 archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tw-previous-wan5b"
+          python -m studio.kaggle_api_limits output \
+            --kernel "$KAGGLE_USERNAME/$EXISTING_TITLE_SLUG" \
+            --output-dir "$RUNNER_TEMP/tw-previous-wan5b"
+      - name: Verify genuine generated MP4 and source receipt
+        run: |
+          python -m studio.kaggle_neural_video verify \
+            --path "$RUNNER_TEMP/tw-previous-wan5b" --nonce "$ORIGINAL_NONCE"
+      - name: Do not publish user-private results
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/tw-previous-wan5b"
