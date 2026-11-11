@@ -63,9 +63,10 @@ def prepare(username: str, nonce: str, destination: Path, *, root: Path = ROOT,
     if source.count("__TW_VIDEO_CONFIG__") != 1 or source.count("__TW_VIDEO_BUNDLE__") != 1:
         raise ValueError("Worker template has unexpected placeholders")
     blob = _bundle(root)
+    slug = "two-worlds-wan5b-" + hashlib.sha256(nonce.encode()).hexdigest()[:12]
     metadata = {
-        "id": username + "/two-worlds-wan5b-" + hashlib.sha256(nonce.encode()).hexdigest()[:12],
-        "title": "Two Worlds Wan2.2 5B private video proof",
+        "id": username + "/" + slug,
+        "title": slug,  # Kaggle enforces title->slug matching; otherwise it saves under the title slug.
         "code_file": "kernel_main.py", "language": "python", "kernel_type": "script",
         "is_private": "true", "enable_gpu": "true",
         "enable_internet": "true", "machine_shape": "NvidiaTeslaT4",
