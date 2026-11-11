@@ -54,6 +54,43 @@ class GraphAndNetworkTests(unittest.TestCase):
         self.assertEqual(_server("http://127.0.0.1:8188"), "http://127.0.0.1:8188")
         self.assertEqual(_server("http://localhost:8188/"), "http://localhost:8188")
 
+    def test_ltx_dfr_api_binding_requires_real_model_components(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            template = root / "ltx_dfr_api.json"
+            mapping = root / "slots.json"
+            slots = {
+                "reference": ["1", "image"], "prompt": ["2", "text"],
+                "seed": ["3", "seed"], "width": ["4", "width"],
+                "height": ["4", "height"], "frames": ["4", "frames"],
+            }
+            graph = {
+                "1": {"class_type": "LoadImage", "inputs": {"image": "old.png"}},
+                "2": {"class_type": "CLIPTextEncode", "inputs": {"text": "Old prompt"}},
+                "3": {"class_type": "KSampler", "inputs": {"seed": 0}},
+                "4": {"class_type": "VideoLatent", "inputs": {"width": 576, "height": 1024, "frames": 81}},
+                "5": {"class_type": "SaveVideo", "inputs": {"video": ["4", 0]}},
+                "6": {"class_type": "UNETLoader", "inputs": {"unet_name":
+                    "ltx-2.5-22b-distilled-transformer-bf16.safetensors"}},
+                "7": {"class_type": "LoraLoader", "inputs": {"lora_name":
+                    "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors"}},
+                "8": {"class_type": "VAELoader", "inputs": {"vae_name":
+                    "ltx-2.5-video-vae-bf16.safetensors"}},
+            }
+            template.write_text(json.dumps(graph))
+            mapping.write_text(json.dumps(slots))
+            assembled = template_workflow(template, mapping, image_name="locked.png",
+                       prompt="A woman moves naturally across the frame.",
+                       seed=4, width=576, height=1024, frames=121)
+            self.assertEqual(assembled["1"]["inputs"]["image"], "locked.png")
+            self.assertEqual(assembled["4"]["inputs"]["frames"], 121)
+            del graph["7"]
+            template.write_text(json.dumps(graph))
+            with self.assertRaisesRegex(ValueError, "detailing LoRA"):
+                template_workflow(template, mapping, image_name="locked.png",
+                       prompt="A woman moves naturally across the frame.",
+                       seed=4, width=576, height=1024, frames=121)
+
     def test_template_rejects_ui_format_and_missing_bindings(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
