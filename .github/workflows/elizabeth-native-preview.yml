@@ -4,6 +4,9 @@ on:
   push:
     branches: ["feature/elizabeth-native-review-pipeline-20261111"]
     paths: ["ops/elizabeth_native_promo.trigger"]
+  pull_request:
+    branches: ["main"]
+    paths: ["tools/elizabeth_native_promo.py", "tests/test_elizabeth_native_promo.py", ".github/workflows/elizabeth-native-preview.yml"]
   workflow_dispatch:
 
 permissions:
