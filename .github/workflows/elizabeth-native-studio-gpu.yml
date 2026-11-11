@@ -47,7 +47,7 @@ jobs:
           PY
           export PATH="$RUNNER_TEMP/tw_portable_video_bin:$PATH"
           ffmpeg -version | head -n 1
-          python -m unittest tests.test_elizabeth_episode_pilot -v
+          python -m unittest tests.test_elizabeth_episode_pilot tests.test_russian_qwen_tts -v
       - name: Resolve user-owned private Kaggle session without printing token
         shell: bash
         run: |
