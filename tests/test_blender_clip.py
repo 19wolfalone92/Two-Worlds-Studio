@@ -9,13 +9,65 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from studio.blender_clip import render_clip
+from studio.blender_clip import _load_contacts, render_clip
 from studio.cli import run_engine
 from studio.release_gate import sha256
 from studio.shorts_factory import probe
 
 
 class BlenderClipTests(unittest.TestCase):
+    def test_contact_windows_must_cover_rendered_frames_and_use_meter_tolerances(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "contact.json"
+            row = {"name": "held", "marker": "Finger", "target": "Handle",
+                   "start_frame": 2, "end_frame": 4, "max_gap_m": .004, "max_slip_m": .001}
+            manifest.write_text(json.dumps({"schema": 1, "contacts": [row]}))
+            self.assertEqual(_load_contacts(manifest, 2, 4)[0], [row])
+            for field, value in (("end_frame", 5), ("max_gap_m", float("nan")), ("marker", "Handle")):
+                manifest.write_text(json.dumps({"schema": 1, "contacts": [{**row, field: value}]}))
+                with self.assertRaisesRegex(ValueError, "Contact windows"):
+                    _load_contacts(manifest, 2, 4)
+
+    @unittest.skipUnless(all(shutil.which(x) for x in ("blender", "ffmpeg", "ffprobe")),
+                         "Blender 4.3+ and FFmpeg required")
+    def test_actual_blender_contact_detects_detachment_and_slip_in_meter_units(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, manifest = root / "scene.blend", root / "contact.json"
+            setup = "\n".join((
+                "import bpy",
+                "scene = bpy.context.scene",
+                "scene.cycles.use_denoising = False",
+                "scene.unit_settings.scale_length = .01",
+                "for name, positions in {'Handle': [(2, 0.), (4, .2)],"
+                " 'Finger': [(2, .2), (4, .4)], 'Loose': [(2, .2), (4, .8)],"
+                " 'Slip': [(2, .2), (4, 0.)]}.items():",
+                "    marker = bpy.data.objects.new(name, None)",
+                "    scene.collection.objects.link(marker)",
+                "    for frame, x in positions:",
+                "        marker.location.x = x",
+                "        marker.keyframe_insert('location', frame=frame)",
+                f"bpy.ops.wm.save_as_mainfile(filepath={str(source)!r})",
+            ))
+            subprocess.run(["blender", "--background", "--factory-startup", "--python-exit-code", "10",
+                            "--python-expr", setup], capture_output=True, check=True, timeout=60)
+            contact = {"name": "grip", "marker": "Finger", "target": "Handle",
+                       "start_frame": 2, "end_frame": 4, "max_gap_m": .003, "max_slip_m": .001}
+            manifest.write_text(json.dumps({"schema": 1, "contacts": [contact]}))
+            result = render_clip(source, root / "held.mp4", first_frame=2, frames=3, width=180,
+                                 samples=4, threads=2, contact_manifest=manifest)
+            report, = result["contact_qc"]["windows"]
+            self.assertEqual(report["frames_checked"], 3)
+            self.assertAlmostEqual(report["peak_gap_m"], .002, places=5)
+            self.assertLess(report["peak_slip_m"], 1e-7)
+            for marker in ("Loose", "Slip"):
+                manifest.write_text(json.dumps({"schema": 1, "contacts": [{**contact, "marker": marker}]}))
+                rejected = root / f"{marker}.mp4"
+                with self.assertRaisesRegex(ValueError, "Contact failed at frame"):
+                    render_clip(source, rejected, first_frame=2, frames=3, width=180,
+                                samples=4, threads=2, contact_manifest=manifest)
+                self.assertFalse(rejected.exists())
+
     def test_offline_plan_and_render_bounds(self):
         plan = run_engine("blender", ["--frames", "66"])
         self.assertEqual(plan["module"], "studio.blender_clip")

@@ -35,6 +35,22 @@ class HybridMasterTests(unittest.TestCase):
         self.assertIn("00:00:01,000", subtitles(p["shots"]))
         self.assertEqual(p["duration"], 1)
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_mobile_profile_encodes_the_selected_native_frame_clock(self):
+        for key in ("width", "height", "fps"):
+            self.data.pop(key)
+        self.data["delivery_profile"] = "mobile"
+        plan = check_manifest(self.data, self.root)
+        self.assertEqual((plan["width"], plan["height"], plan["fps"], plan["frames"]), (576, 1024, 24, 24))
+        self.write()
+        result = produce(self.path, self.root / "mobile.mp4")
+        self.assertEqual(result["delivery_profile"], "mobile")
+        self.assertEqual(result["resolution"], [576, 1024])
+        self.assertEqual(result["fps"], 24)
+        self.data["width"] = 1080
+        with self.assertRaisesRegex(ValueError, "Mobile delivery"):
+            check_manifest(self.data, self.root)
+
     def test_real_phrase_timestamps_win_over_full_shot_caption(self):
         self.data["shots"][0]["caption"] = "Весь кадр"
         self.data["shots"][0]["subtitle_cues"] = [

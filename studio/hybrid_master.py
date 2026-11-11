@@ -30,6 +30,7 @@ SHOT_TYPES = frozenset({"establishing", "wide", "medium", "close", "extreme_clos
                         "over_shoulder", "reaction", "insert"})
 VISUAL_PROFILES = {"photoreal_cinematic", "stylized_cinematic", "3d_character"}
 CLIP_ENGINES = {"blender_3d", "neural_character"}
+MOBILE_DELIVERY = (576, 1024, 24)
 
 
 def source(base: Path, rel: str, suffixes: set[str]) -> Path:
@@ -126,9 +127,15 @@ def animation_engine(kind: str, cinematic: dict | None, take: dict | None) -> st
 def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
     if not isinstance(data, dict) or data.get("schema") != 1:
         raise ValueError("Expected hybrid shot manifest with schema=1")
-    width, height, fps = data.get("width", 1080), data.get("height", 1920), data.get("fps", 24)
+    delivery = data.get("delivery_profile")
+    if delivery not in (None, "mobile"):
+        raise ValueError("Unknown delivery profile")
+    defaults = MOBILE_DELIVERY if delivery == "mobile" else (1080, 1920, 24)
+    width, height, fps = (data.get(key, default) for key, default in zip(("width", "height", "fps"), defaults))
     if not all(type(i) is int for i in (width, height, fps)):
         raise ValueError("Resolution and fps must be integers")
+    if delivery == "mobile" and (width, height, fps) != MOBILE_DELIVERY:
+        raise ValueError("Mobile delivery is 576×1024 at 24 fps")
     if not (width >= 288 and height >= 512 and width <= 2160 and height <= 3840
             and width % 2 == 0 and height % 2 == 0 and abs(width / height - 9 / 16) < .001
             and 12 <= fps <= 30):
@@ -350,7 +357,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         shot["kind"] in {"layered", "i2v"} or shot["voice_offset"]
         or shot["voice_cleanup"] or shot["voice_bus"] != "dialogue" or profile is not None
         or shot["caption_position"] != "bottom" for shot in normalized))
-    return dict(width=width, height=height, fps=fps, shots=normalized,
+    return dict(width=width, height=height, fps=fps, delivery_profile=delivery, shots=normalized,
                 frames=start, duration=start / fps, music=music, music_volume=volume,
                 approved=master, burn_subtitles=burn_subtitles, sound_stems=stems,
                 upgraded=upgraded, required_clues=required_clues, language=language, visual_profile=profile)
@@ -794,6 +801,7 @@ def produce(manifest: Path, output: Path, *, master: bool = False, cache: Path |
             "audio_tracks": sum(bool(s["voice"]) for s in plan["shots"]) + bool(plan["music"])
                             + len(plan["sound_stems"]),
             "captions_burned_in": plan["burn_subtitles"], "visual_profile": plan["visual_profile"],
+            "delivery_profile": plan["delivery_profile"],
             "automatic_music_ducking": mix_report.get("automatic_ducking", bool(
                 plan["music"] and any(shot["voice"] for shot in plan["shots"]))),
             "review_status": "asset_approved_not_published" if master else "preview_unreviewed",

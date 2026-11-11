@@ -33,6 +33,49 @@ Example manifest (the files need to exist):
 
 Default mode exports a visibly identified **unreviewed preview**. For `--master`, `editorial_approved` and `rights_approved` must be true at the top level, each shot must have `approved:true`, speech assets need `voice_approved:true` and any music needs `music_approved:true`. Approval metadata must correspond to a real editorial/rights review; the tool never invents it. `--master` does *not* publish or certify professional quality.
 
+### Phone delivery
+
+Set `"delivery_profile": "mobile"` at the top of a hybrid manifest to select
+576×1024 at 24 frames per second. The profile supplies the dimensions and frame
+rate when those fields are omitted. Explicit settings must match the profile.
+Other delivery sizes can still be specified directly.
+
+Author frame-bound performances at the selected frame rate. The clip importer
+normalizes full-length video takes to the delivery clock. The export receipt
+records the profile, actual dimensions, frame rate and source hashes.
+
+### Hand and object contact
+
+The Blender renderer accepts `--contact-manifest /private/shot/contacts.json`.
+Place an Empty on each contact surface in the trusted scene. Parent the actor's
+marker to the corresponding hand or finger bone and the target marker to the
+prop. Use a separate table marker for the resting phase.
+
+```json
+{
+  "schema": 1,
+  "contacts": [
+    {
+      "name": "held-object",
+      "marker": "Finger pad",
+      "target": "Prop handle",
+      "start_frame": 25,
+      "end_frame": 90,
+      "max_gap_m": 0.004,
+      "max_slip_m": 0.001
+    }
+  ]
+}
+```
+
+Windows include both endpoints and must fit inside the requested render.
+The check evaluates the animated markers on every frame, converts scene units
+to metres, measures separation, and measures changes in the target's rotated
+coordinate frame. A detached or sliding contact blocks export with its frame
+number. The receipt records the measured peaks and the manifest hash. Marker
+placement and tolerances remain part of scene authoring. Combine these checks
+with the existing mesh collision checks to inspect surface intersections.
+
 ### Production guidance
 
 - Start with a 9:16 still per shot. Use `push_in`, `pull_out`, `pan_left`, `pan_right` or `static` for CPU-based camera motion.
