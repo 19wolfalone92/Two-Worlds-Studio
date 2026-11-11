@@ -249,6 +249,16 @@ def template_workflow(path: Path, bindings: Path, *, image_name: str, prompt: st
         if isinstance(old, list) or (name in {"seed", "width", "height", "frames"} and type(old) is not int):
             raise ValueError(f"Bound field {name} is not a scalar widget value")
         graph[locator[0]]["inputs"][locator[1]] = value
+    # A generic graph with a SaveVideo node is NOT evidence of an LTX-2.5 DFR
+    # model. Refuse to label a Wan/SDXL or plain distilled pass as flagship DFR.
+    seen = json.dumps(graph, ensure_ascii=False)
+    required = (
+        "ltx-2.5-22b-distilled-transformer-bf16.safetensors",
+        "ltx-2.5-22b-ic-lora-pixel-spatial-upscaler-x2-1.0.safetensors",
+        "ltx-2.5-video-vae-bf16.safetensors",
+    )
+    if any(component not in seen for component in required):
+        raise ValueError("LTX-2.5 DFR workflow must reference the official distilled transformer, detailing LoRA and video VAE")
     return graph
 
 
