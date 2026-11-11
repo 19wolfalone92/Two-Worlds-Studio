@@ -71,7 +71,7 @@ class EB01VisualGateTests(unittest.TestCase):
             audit(self.root, self.review)
 
     def test_no_real_motion_pilot_means_no_full_video(self):
-        with self.assertRaisesRegex(ReviewBlocked, "motion"):
+        with self.assertRaisesRegex(ReviewBlocked, "animation test"):
             audit(self.root, self.review, require_motion=True)
 
     def test_false_camera_zoom_is_not_character_animation(self):
