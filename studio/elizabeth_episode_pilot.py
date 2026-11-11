@@ -65,32 +65,37 @@ NEGATIVE = (
     "exaggerated cartoon proportions, corpse, blood, nudity"
 )
 SHOT_PROMPTS = (
-    SETTING + LIZ + KOSTYA +
-    "Wide vertical shot: Elizabeth seated LEFT behind desk, Kostya standing RIGHT "
-    "by a leather chair, full room geography, wide dramatic cinematic establishing frame.",
-    SETTING + LIZ +
-    "Medium close over-the-shoulder interview shot looking at Elizabeth; she sits "
-    "upright behind closed folder, one hand holding a pen, deadpan curious expression, "
-    "foreground blurred brim of a black fedora, interview axis LEFT to RIGHT.",
-    SETTING + KOSTYA +
-    "Medium chest-up opposite interview shot of Kostya standing by chair on RIGHT, "
-    "complete immaculate black vest and jacket, holds paper resume, slight confident "
-    "posture, stays entirely human anatomically correct skeletal form.",
-    SETTING + LIZ +
-    "Strong cinematic close-up side angle of Elizabeth's hand holding pen frozen "
-    "above cream paper, her thoughtful profile in background, elegant lace visible.",
-    SETTING + KOSTYA +
-    "Side medium shot Kostya already seated confidently, RIGHT of table, "
-    "both shoulders naturally placed under tailored coat, one open bony palm, "
-    "dryly amused body language, clean anatomical hand.",
-    SETTING + LIZ +
-    "Fresh independent three-quarter close portrait of Elizabeth, left cheek "
-    "resting lightly on one hand, raised eyebrow, dry amused expression, "
-    "matte black blouse lace visible, natural lips closed.",
-    SETTING + KOSTYA +
-    "Distinct over-table medium profile shot of Kostya, he adjusts the brim "
-    "of black fedora with one bony hand, complete suit, dry confident pose "
-    "near brass lamp, visible burgundy tie, coherent jaw."
+    # SDXL CLIP encoders have a finite token window; place unique composition
+    # and the recognizable character FIRST. Previous style-first prompts
+    # truncated the shot direction and produced near-duplicate story angles.
+    "Wide vertical establishing shot: elegant brunette Elizabeth in black lace "
+    "blouse seated on LEFT behind walnut desk, anatomically correct skeleton "
+    "Kostya in black three-piece suit, burgundy tie and black fedora on RIGHT. "
+    "One red rose, brass lamp and burgundy curtains. " + SETTING,
+    "Over-the-shoulder medium portrait of Elizabeth, adult brunette with long "
+    "dark hair and natural skin wearing BLACK LACE sleeves, seated facing RIGHT "
+    "across desk, raising her eyebrow above closed cream folder, pen in hand. "
+    "Warm brass lamp and burgundy gothic office. " + SETTING,
+    "Opposite medium portrait of Kostya: realistic anatomically correct MATTE "
+    "BONE SKELETON in full black tailored three-piece suit, clean white shirt, "
+    "burgundy tie, black fedora, holding paper resume, looking LEFT to Elizabeth. "
+    "Natural confident posture. " + SETTING,
+    "Side closeup of Elizabeth's right hand in BLACK LACE cuff holding pen just "
+    "above cream resume, soft partial profile of adult dark-haired woman in "
+    "background, brass desk lamp, immaculate natural anatomy, gothic interview. "
+    + SETTING,
+    "Three-quarter side interview view: Kostya an anatomically correct MATTE "
+    "IVORY SKELETON seated at RIGHT, perfectly tailored black three-piece suit, "
+    "white shirt and burgundy tie, black fedora, one OPEN SKELETAL PALM visible "
+    "above walnut desktop, warm burgundy room. " + SETTING,
+    "Close three-quarter portrait Elizabeth, natural-skinned adult brunette with "
+    "long dark wavy hair, elegant black lace blouse, her cheek supported by one "
+    "hand, subtle raised brow, dry amused expression, lips naturally closed, "
+    "rich warm brass lighting, moody funeral office. " + SETTING,
+    "Kostya in fresh side profile over walnut desk: anatomically correct MATTE "
+    "BONE SKELETON in immaculate black three-piece suit, burgundy tie and "
+    "black fedora, gently holds hat brim with one bony hand, seated RIGHT of "
+    "desk, brass lamp and single red rose. " + SETTING
 )
 
 
