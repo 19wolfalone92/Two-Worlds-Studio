@@ -118,6 +118,13 @@ def verify(path: Path, nonce: str) -> dict:
     archive = archives[0]
     if not 8000 < archive.stat().st_size < 160_000_000:
         raise ValueError("Unrealistic Kaggle video archive size")
+    # A matching MP4 hash alone does not bind the ZIP metadata and QC notes.
+    # The worker produces an overall archive SHA. Verify it before unpacking.
+    expected_archive_sha = receipt.get("archive_sha256")
+    if not isinstance(expected_archive_sha, str) or not re.fullmatch(r"[a-f0-9]{64}", expected_archive_sha):
+        raise ValueError("Missing valid pinned archive fingerprint")
+    if sha256(archive) != expected_archive_sha:
+        raise ValueError("Private Kaggle archive SHA-256 mismatch")
     with zipfile.ZipFile(archive) as z:
         records = z.infolist()
         if (len(records) != 3 or set(z.namelist()) !=
