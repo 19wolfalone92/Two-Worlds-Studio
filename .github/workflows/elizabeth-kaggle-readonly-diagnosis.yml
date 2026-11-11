@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Kaggle CLI (no GPU job submitted)
-        run: python -m pip install -q 'kaggle>=2.2.4'
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
       - name: Read original failed worker, private Kaggle output and non-sensitive traceback
         shell: bash
         run: |
