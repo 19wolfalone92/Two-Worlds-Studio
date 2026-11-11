@@ -110,7 +110,7 @@ def build_manifest(work_dir: Path, voice_durations: dict[str, float]) -> dict:
         shot = {
             "image": "art/" + scene_id + ".png", "shot_type": shot_type,
             "camera": camera, "camera_strength": .34,
-            "caption_position": "bottom" if speaker else "top",
+            "caption_position": "bottom",
         }
         if speaker:
             voice_file = work_dir / "voices" / (scene_id + ".wav")
@@ -137,7 +137,6 @@ def build_manifest(work_dir: Path, voice_durations: dict[str, float]) -> dict:
         "language": "ru", "burn_subtitles": True,
         "music": "score.wav", "music_volume": .10, "shots": shots,
         "editorial_approved": False, "rights_approved": False,
-        "review_policy": None,  # dropped before calling hybrid_master
     }
 
 
@@ -145,7 +144,6 @@ def native_render(work_dir: Path, voice_durations: dict[str, float]) -> dict:
     """No external editor; actual render is studio.hybrid_master.produce."""
     from studio.hybrid_master import produce
     manifest = build_manifest(work_dir, voice_durations)
-    manifest.pop("review_policy")
     file = work_dir / "studio_shot_manifest.json"
     file.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     output = work_dir / "ELIZABETH_BONES_SOBESEDOVANIE_STUDIO_PREVIEW.mp4"
