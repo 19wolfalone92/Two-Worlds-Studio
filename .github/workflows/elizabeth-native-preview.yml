@@ -33,6 +33,12 @@ jobs:
         run: |
           python -m pip install -q -r requirements.txt
 
+      - name: Install FFmpeg, ffprobe and Cyrillic fonts (runner does not preinstall video tools)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          ffmpeg -version | head -n 1
+
       - name: Check seven locked shots, six dialogue gates, missing asset refusal
         run: |
           python -m unittest tests.test_elizabeth_native_promo tests.test_hybrid_master -v
@@ -41,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/eb_private" "$RUNNER_TEMP/eb_output"
-          python tools/elizabeth_native_promo.py \
+          python -m tools.elizabeth_native_promo \
             --media "$RUNNER_TEMP/eb_private" \
             --output "$RUNNER_TEMP/eb_output/EB01_TWO_WORLDS_NATIVE_TECHNICAL_REVIEW.mp4" \
             --fixture > "$RUNNER_TEMP/eb_output/studio_render_report.json"
