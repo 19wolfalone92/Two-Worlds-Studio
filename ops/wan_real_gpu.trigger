@@ -1,0 +1,9 @@
+intent=one-user-authorized-private-Wan2.2-TI2V5B-GPU-test
+nonce=2026-11-11-technical-proof
+frames=17
+resolution=448x800
+steps=20
+quota_bound=single-kaggle-T4-kernel
+auto_retry=false
+no_public_artifacts=true
+no_tiktok_post=true
