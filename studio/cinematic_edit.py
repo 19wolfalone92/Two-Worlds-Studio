@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 
-def shot_plan(seconds: float,clip_seconds: list[float],fps: int) -> list[dict]:
+def shot_plan(seconds: float,clip_seconds: list[float],fps: int, *, allow_reuse: bool = True) -> list[dict]:
     if not math.isfinite(seconds) or seconds<=0 or fps<1 or not clip_seconds:
         raise ValueError('An actual narration clock and neural takes are required')
     if any(not math.isfinite(x) or x<=0 for x in clip_seconds):raise ValueError('Invalid real take duration')
@@ -18,11 +18,13 @@ def shot_plan(seconds: float,clip_seconds: list[float],fps: int) -> list[dict]:
     total=frame_count(seconds,fps)
     # Use only complete source frames. Rounding a 1.49-frame input up to two
     # creates an unrequested held frame at the end of a take.
-    lengths=[max(1,int(math.floor(x*fps+.0001))) for x in clip_seconds]
+    lengths=[int(math.floor(x*fps+.0001)) for x in clip_seconds]
+    if any(length < 1 for length in lengths):
+        raise ValueError("Every motion take must span at least one complete output frame")
     # Keep every take intact when possible. Reuse is explicit, never hidden as
     # newly generated footage. A photographic pause separates each take group.
     cycle_frames=sum(lengths)
-    cycles=max(1,min(5,math.ceil(total*.64/cycle_frames)))
+    cycles=max(1,min(5,math.ceil(total*.64/cycle_frames))) if allow_reuse else 1
     while cycles>1 and cycles*cycle_frames>total-fps:cycles-=1
     if cycle_frames>=total:
         # Honor all supplied takes in order. Previously this assigned the full
@@ -58,9 +60,9 @@ def crop_filter(shot: dict,w: int,h: int) -> str:
 
 
 def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | None) -> dict:
-    from .shorts_factory import video_duration,sha,frame_count
+    from .shorts_factory import video_duration,sha,frame_count,probe
     paths=scene['motion_clips'];lengths=[video_duration(p) for p in paths]
-    shots=shot_plan(scene['seconds'],lengths,fps)
+    shots=shot_plan(scene['seconds'],lengths,fps,allow_reuse=scene.get('allow_take_reuse', True))
     args=['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-y',
           '-filter_complex_threads','1']
     filters=[]
@@ -68,7 +70,6 @@ def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | Non
         if shot['kind']=='motion':args+=['-threads','1','-i',str(paths[shot['clip']])]
         else:args+=['-loop','1','-framerate',str(fps),'-i',str(scene['image'])]
         filters.append(f'[{index}:v]fps={fps},{crop_filter(shot,w,h)},'
-            f'tpad=stop_mode=clone:stop_duration={shot["frames"]/fps:.9f},'
             f'trim=end_frame={shot["frames"]},setpts=N/{fps}/TB,format=yuv420p[s{index}]')
     next_input=len(shots)
     focus=scene.get('foreground_soft_focus')
@@ -112,7 +113,10 @@ def render(scene: dict,output: Path,w: int,h: int,fps: int,subtitles: Path | Non
         '-b:a','192k','-ar','48000','-ac','2','-movflags','+faststart',str(output)]
     result=subprocess.run(args,capture_output=True,text=True,timeout=1800)
     if result.returncode:raise RuntimeError('Real scene edit failed: '+result.stderr[-2400:])
-    if abs(video_duration(output)-frames/fps)>.08:raise RuntimeError('Rendered scene lost narration frames')
+    streams = probe(output)["streams"]
+    picture = next((stream for stream in streams if stream["codec_type"] == "video"), {})
+    if picture.get("nb_frames") != str(frames):
+        raise RuntimeError("Motion take ended before the planned edit")
     unique={sha(p):length for p,length in zip(paths,lengths)}
     used=[sha(paths[s['clip']]) for s in shots if s['kind']=='motion']
     return {'unique_neural_input_seconds':sum(unique.values()),

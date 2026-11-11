@@ -112,12 +112,13 @@ def synthesize(
     except ImportError as exc:
         raise RuntimeError("Russian TTS requires numpy and soundfile") from exc
     model = _get_model(model_id)
+    instruction = STYLE_PROMPTS[style] if model_id == MODEL_LARGE else ""
     blocks = []
     sr = None
     for part in split_text(text):
         wavs, rate = model.generate_custom_voice(
             text=part, language="Russian", speaker=voice,
-            instruct=STYLE_PROMPTS[style],
+            instruct=instruction,
         )
         if not isinstance(rate, int) or not 8000 <= rate <= 96000 or not wavs:
             raise RuntimeError("Qwen3-TTS returned invalid audio sample rate/data")
@@ -158,6 +159,7 @@ def synthesize(
         "language": "ru",
         "voice": voice,
         "style": style,
+        "style_instruction_sent": bool(instruction),
         "review_status": "unreviewed",
     }
 
@@ -181,6 +183,7 @@ def main(argv=None):
         print(json.dumps({
             "dry_run": True, "language": "ru", "voice": args.voice,
             "style": args.style, "model": args.model,
+            "style_instruction_available": args.model == MODEL_LARGE,
             "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
             "planned_chunks": len(split_text(text)), "actual_audio_clips": 0,
         }, ensure_ascii=False, indent=2))

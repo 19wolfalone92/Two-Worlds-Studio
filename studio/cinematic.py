@@ -6,6 +6,7 @@ No GPU or external APIs required. The existing renderer adds effects/titles
 and encodes H.264/AAC MP4.
 """
 from __future__ import annotations
+import hashlib
 import math
 from dataclasses import asdict
 from pathlib import Path
@@ -18,16 +19,13 @@ try:
     from studio.actor_motion import animate_actor, validate_motion
     from studio.audio_master import audio_asset
     from studio.lipsync import voice_envelope, mouth_open
+    from studio.smooth_camera import ease_camera as ease
 except ModuleNotFoundError:
     from premium_assets import resolve_asset, validate_premium_scene
     from actor_motion import animate_actor, validate_motion
     from audio_master import audio_asset
     from lipsync import voice_envelope, mouth_open
-
-
-def ease(x:float)->float:
-    x=max(0.0,min(1.0,float(x)))
-    return x*x*(3-2*x)
+    from smooth_camera import ease_camera as ease
 
 
 def camera_state(scene:dict,progress:float)->tuple[float,float,float]:
@@ -47,7 +45,8 @@ def layer_transform(size, source_size, camera, depth, role):
     zoom *= 1.06 if role == "background" else 1.0
     fit = max(w / sw, h / sh)
     step = 1 / (fit * zoom)
-    travel = 0.18 + 0.42 * (depth + 1) / 2
+    # Normalized camera travel stays within half the available overscan.
+    travel = 0.18 + 0.32 * (depth + 1) / 2
     # Use continuous overscan for the entire path, including changes in scale.
     x = (sw - w * step) / 2 + cx * travel * (w / fit - w * step)
     y = (sh - h * step) / 2 + cy * travel * (h / fit - h * step)
@@ -84,11 +83,13 @@ def _blend(dst:Image.Image, layer:Image.Image, mode:str, opacity:float)->Image.I
 
 class CinematicPanel:
     """Cache source layers once per scene; composite a requested frame."""
-    def __init__(self, scene:dict, assets_root:Path, width:int,height:int, *, master=False):
+    def __init__(self, scene:dict, assets_root:Path, width:int,height:int, *, master=False, fps=None):
         from studio.character_engine import CharacterRig
         from studio.cinematic_lighting import LightStage, validate_lens
         from studio.facial_actor import PerformanceRig
         from studio.lipsync import load_phoneme_motion, load_viseme_track, speech_activity
+        from studio.performance_take import PerformanceTake
+        from studio.release_gate import sha256
 
         validate_premium_scene(scene, assets_root, publish=master, min_width=width, min_height=height)
         self.scene=scene
@@ -108,7 +109,7 @@ class CinematicPanel:
         clip = None
         if voice and any(x.get("motion", {}).get("mouth") or
                          x.get("facial", {}).get("mouth") or
-                         x.get("facial", {}).get("mouth_mesh") for x in layers):
+                         x.get("facial", {}).get("phoneme_track") for x in layers):
             clip = audio_asset(assets_root, voice.get("path"))
             self.voice_delay_ms = int(voice.get("offset_ms", 100))
         if clip is not None and any(x.get("motion", {}).get("mouth") for x in layers):
@@ -142,11 +143,13 @@ class CinematicPanel:
                     face = layer["facial"]
                     activity = None
                     phonemes = None
+                    take = None
                     if "mouth_mesh" in face or "phoneme_track" in face:
                         if (clip is None or not isinstance(voice.get("text"), str)
                                 or not voice["text"].strip() or not face.get("phoneme_track")
-                                or "mouth_mesh" not in face or "viseme_track" in face):
-                            raise ValueError("Mouth mesh requires a phoneme track, WAV and locked dialogue")
+                                or ("mouth_mesh" in face) == ("performance_take" in face)
+                                or "viseme_track" in face or face.get("visemes")):
+                            raise ValueError("Phoneme performance requires one facial engine, a WAV and locked dialogue")
                         phonemes = load_phoneme_motion(
                             assets_root, face["phoneme_track"], clip, voice["text"],
                         )
@@ -158,9 +161,26 @@ class CinematicPanel:
                         activity = speech_activity(clip)
                         if not any(activity["active"]):
                             raise ValueError("The lip-sync voice contains no detectable speech activity")
+                    levels = (voice_envelope(clip, step_ms=self.voice_step_ms)
+                              if clip is not None and face.get("mouth") and not face.get("visemes") else None)
+                    if "performance_take" in face:
+                        if type(fps) is not int or fps < 1 or "head" not in actor.parts:
+                            raise ValueError("Facial take requires an exact shot FPS and a head part")
+                        part, (head, bounds) = actor.parts["head"]
+                        take = PerformanceTake(
+                            assets_root, face["performance_take"], canvas=actor.size,
+                            head=head, head_box=bounds, fps=fps, frames=round(scene["duration"] * fps),
+                            portrait_sha=sha256(path), head_sha=sha256(resolve_asset(assets_root, part["path"])),
+                            speech={"wav_sha256": sha256(clip), "offset_ms": self.voice_delay_ms,
+                                    "text_sha256": hashlib.sha256(voice["text"].encode()).hexdigest()}
+                            if phonemes is not None else None,
+                            master=master,
+                        )
+                        self.active_actors += int(not actor.stats["is_acting"])
                     actor = PerformanceRig(actor, face, assets_root,
                         duration=float(scene["duration"]), voice_delay_ms=self.voice_delay_ms,
-                        activity=activity, phonemes=phonemes, master=master)
+                        voice_levels=levels, voice_step_ms=self.voice_step_ms, activity=activity,
+                        phonemes=phonemes, take=take, master=master)
                     self.performance_modes.append(actor.mode)
             elif layer.get("deform") is not None:
                 from studio.deformable_actor import DeformableActor
@@ -173,6 +193,8 @@ class CinematicPanel:
         self.lens = validate_lens(config["optics"], layers) if "optics" in config else None
         self.defocus = [self.lens.blur_radius(layer["distance_m"], width) if self.lens else 0.
                         for layer in layers]
+        self.fixed_camera = camera_state(scene, 0.) == camera_state(scene, 1.)
+        self.projected_layers = {}
         for region in self.regions:
             index = region["layer"]
             if index >= len(self.layers):
@@ -247,7 +269,8 @@ class CinematicPanel:
             elif meta.get("motion"):
                 mouth_enabled=False
                 if mouth_overlay is not None and self.voice_levels is not None:
-                    mouth_enabled=mouth_open(self.voice_levels,t*float(self.scene["duration"]),
+                    voice_seconds = t * float(self.scene["duration"]) if seconds is None else seconds
+                    mouth_enabled=mouth_open(self.voice_levels,voice_seconds,
                        step_ms=self.voice_step_ms,
                        delay_ms=self.voice_delay_ms,
                        threshold=float(meta["motion"]["mouth"].get("threshold",.22)))
@@ -255,11 +278,15 @@ class CinematicPanel:
                                       mouth_overlay=mouth_overlay,mouth_is_open=mouth_enabled)
             else:
                 moving=im
-            current = _place(canvas, moving, zoom=zoom, cx=cx, cy=cy, depth=depth, role=meta["role"])
-            if self.defocus[index] > .15:
-                # Premultiplied alpha prevents dark or bright halos around cutouts.
-                current = current.convert("RGBa").filter(
-                    ImageFilter.GaussianBlur(self.defocus[index])).convert("RGBA")
+            current = self.projected_layers.get(index)
+            if current is None:
+                current = _place(canvas, moving, zoom=zoom, cx=cx, cy=cy, depth=depth, role=meta["role"])
+                if self.defocus[index] > .15:
+                    # Premultiplied alpha prevents halos around cutouts.
+                    current = current.convert("RGBa").filter(
+                        ImageFilter.GaussianBlur(self.defocus[index])).convert("RGBA")
+                if self.fixed_camera and actor is None and not meta.get("motion"):
+                    self.projected_layers[index] = current
             opacity = float(meta.get("opacity", 1))
             if covered_regions and opacity > .25 and meta.get("blend", "over") == "over":
                 alpha = current.getchannel("A")

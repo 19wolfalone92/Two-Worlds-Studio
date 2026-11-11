@@ -60,6 +60,8 @@ def jobs_from_episode(episode:dict,cast:dict)->list[dict]:
     return jobs
 
 def synthesize(text:str,voice:str,language:str,output:Path)->dict:
+    if language not in ("a", "b") or re.search(r"[\u0400-\u052f]", text):
+        raise ValueError("This Kokoro cast is English-only; use the Russian Qwen adapter or a recorded WAV")
     try:
         import numpy as np
         import soundfile as sf
@@ -96,6 +98,8 @@ def render_jobs(jobs:list[dict],output_dir:Path,*,dry_run:bool=False)->dict:
     plan=[]
     results=[]
     for item in jobs:
+        if re.search(r"[\u0400-\u052f]", item["text"]):
+            raise ValueError("This Kokoro cast is English-only; use the Russian Qwen adapter or a recorded WAV")
         name=item.get("scene") or "SAMPLE"
         filename=f"{name}_{item['speaker']}_{item['voice']}.wav"
         output=output_dir/filename

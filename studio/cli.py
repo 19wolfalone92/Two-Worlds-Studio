@@ -24,8 +24,12 @@ ENGINES = {
     "master": "studio.hybrid_master",
     "lipsync": "studio.lipsync",
     "blender": "studio.blender_clip",
+    "character": "studio.neural_character",
+    "neural": "studio.comfy_neural",
+    "wan-animate2": "studio.wan_animate2_run",
+    "model-install": "studio.model_install",
 }
-PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen"}
+PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen", "neural", "wan-animate2", "model-install"}
 
 
 def doctor() -> dict:

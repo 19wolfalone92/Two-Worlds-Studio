@@ -35,6 +35,58 @@ class HybridMasterTests(unittest.TestCase):
         self.assertIn("00:00:01,000", subtitles(p["shots"]))
         self.assertEqual(p["duration"], 1)
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_mobile_profile_encodes_the_selected_native_frame_clock(self):
+        for key in ("width", "height", "fps"):
+            self.data.pop(key)
+        self.data["delivery_profile"] = "mobile"
+        plan = check_manifest(self.data, self.root)
+        self.assertEqual((plan["width"], plan["height"], plan["fps"], plan["frames"]), (576, 1024, 24, 24))
+        self.write()
+        result = produce(self.path, self.root / "mobile.mp4")
+        self.assertEqual(result["delivery_profile"], "mobile")
+        self.assertEqual(result["resolution"], [576, 1024])
+        self.assertEqual(result["fps"], 24)
+        self.data["width"] = 1080
+        with self.assertRaisesRegex(ValueError, "Mobile delivery"):
+            check_manifest(self.data, self.root)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required")
+    def test_blender_contact_evidence_is_checked_by_the_compositor(self):
+        from studio.release_gate import sha256
+
+        clip, receipt = self.root / "take.mp4", self.root / "take.json"
+        subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-f", "lavfi", "-i",
+                        "testsrc2=s=288x512:r=24:d=0.5", "-c:v", "libx264", str(clip)], check=True)
+        contact = {"start_frame": 1, "end_frame": 12, "frames_checked": 12,
+                   "peak_gap_m": .002, "peak_slip_m": .0001, "max_gap_m": .004, "max_slip_m": .001}
+        evidence = {"status": "rendered", "backend": "blender_cycles_cpu", "clip_sha256": sha256(clip),
+                    "scene_sha256": "a" * 64, "first_frame": 1, "frames": 12, "fps": 24,
+                    "width": 288, "height": 512,
+                    "geometry_qc": {"frames_checked": 12, "mesh_pairs": 1, "self_collision_meshes": 0},
+                    "contact_qc": {"manifest_sha256": "b" * 64, "windows": [contact]}}
+        receipt.write_text(json.dumps(evidence))
+        doc = {"schema": 1, "delivery_profile": "mobile", "visual_profile": "photoreal_cinematic",
+               "shots": [{"clip": clip.name, "duration": .5, "clip_take": {
+                   "engine": "blender_3d", "visual_profile": "photoreal_cinematic",
+                   "sha256": sha256(clip), "receipt": receipt.name}}]}
+        shot = check_manifest(doc, self.root)["shots"][0]
+        self.assertEqual(shot["motion_receipt"]["contact_qc"]["windows"], [contact])
+        self.assertIn(receipt.resolve(), shot["motion_inputs"])
+        for key, value in (("peak_slip_m", .01), ("frames_checked", 11),
+                           ("max_slip_m", 0), ("peak_gap_m", float("nan"))):
+            with self.subTest(key=key):
+                previous = contact[key]
+                contact[key] = value
+                receipt.write_text(json.dumps(evidence))
+                with self.assertRaisesRegex(ValueError, "contact evidence"):
+                    check_manifest(doc, self.root)
+                contact[key] = previous
+        evidence["fps"] = 23
+        receipt.write_text(json.dumps(evidence))
+        with self.assertRaisesRegex(ValueError, "worker frame clock"):
+            check_manifest(doc, self.root)
+
     def test_real_phrase_timestamps_win_over_full_shot_caption(self):
         self.data["shots"][0]["caption"] = "Весь кадр"
         self.data["shots"][0]["subtitle_cues"] = [

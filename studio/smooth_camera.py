@@ -34,6 +34,12 @@ def validate_framing(framing: dict | None) -> dict | None:
     return result
 
 
+def ease_camera(progress: float) -> float:
+    """Start and stop with zero velocity and acceleration."""
+    t = min(1., max(0., progress))
+    return t * t * t * (t * (6 * t - 15) + 10)
+
+
 def focal_transform(frame: int, frames: int, camera: str, strength: float,
                     source_size: tuple[int, int], canvas: tuple[int, int],
                     framing: dict) -> tuple[float, float, float, float, float, float]:
@@ -62,8 +68,7 @@ def focal_transform(frame: int, frames: int, camera: str, strength: float,
 
     first = endpoint(0)
     last = endpoint(max(0, frames - 1))
-    t = min(1., max(0., frame / max(1, frames - 1)))
-    eased = (1 - math.cos(math.pi * t)) / 2
+    eased = ease_camera(frame / max(1, frames - 1))
     scale, ox, oy = (a + (b - a) * eased for a, b in zip(first, last))
     return scale, 0., ox, 0., scale, oy
 
@@ -74,8 +79,7 @@ def camera_pose(frame: int, frames: int, camera: str, strength: float = 0.45) ->
         raise ValueError(f"Unsupported camera movement: {camera}")
     if not math.isfinite(strength) or not 0 <= strength <= 1:
         raise ValueError("Camera strength must be within 0..1")
-    t = max(0.0, min(1.0, frame / max(1, frames - 1)))
-    eased = (1.0 - math.cos(math.pi * t)) / 2.0
+    eased = ease_camera(frame / max(1, frames - 1))
     amplitude = min(0.024 * strength / 0.45, 0.05) if strength else 0.0
     pan = min(0.12 * strength / 0.45, 0.24) if strength else 0.0
     if camera == "push_in":

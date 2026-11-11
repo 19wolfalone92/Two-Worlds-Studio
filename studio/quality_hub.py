@@ -35,12 +35,20 @@ def assess_cinematic(video: Path, srt: Path, plan: dict) -> dict:
         for row in timing:
             if row["status"] == "BLOCKED":
                 raise ValueError(f"Shot {row['shot']}: encoded dialogue is {row['offset_ms']:+.1f} ms off")
+        if plan.get("visual_profile"):
+            from studio.video_qc import inspect_cinematic_picture
+
+            report["picture_diagnostics"] = inspect_cinematic_picture(video, shots, plan["fps"])
     except (RuntimeError, ValueError, OSError) as exc:
         return {"technical_status": "BLOCKED", "status": "BLOCKED", "reason": str(exc),
                 "published": False}
     review = ["acting", "identity", "speech", "lip_sync", "story_clues"]
     if any(row["status"] == "REVIEW REQUIRED" for row in timing):
         review.append("dialogue_waveform")
+    if report.get("picture_diagnostics", {}).get("status") == "REVIEW REQUIRED":
+        review.append("picture_levels")
+    if report.get("unexplained_holds_require_review"):
+        review.append("unexplained_holds")
     return {"technical_status": "PASS", "status": "REVIEW REQUIRED", "delivery": report,
             "review_required": review,
             "published": False}
