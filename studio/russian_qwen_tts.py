@@ -84,10 +84,17 @@ def _get_model(model_id: str):
             "Install them in a separate GPU environment; dry-run needs none."
         ) from exc
     cuda = torch.cuda.is_available()
+    # Qwen3-TTS predictor is sensitive to float16 overflow. T4 (Turing)
+    # does not support BF16, so float16 caused a CUDA device-side assert
+    # during actual Russian speech synthesis. Qwen maintainers explicitly
+    # recommend FP32 on GPUs without native BF16 (Qwen3-TTS issue #43).
+    bf16 = cuda and bool(torch.cuda.is_bf16_supported())
+    dtype = torch.bfloat16 if bf16 else torch.float32
     return Qwen3TTSModel.from_pretrained(
         model_id,
         device_map="cuda:0" if cuda else "cpu",
-        dtype=torch.float16 if cuda else torch.float32,
+        dtype=dtype,
+        attn_implementation="sdpa",
     )
 
 

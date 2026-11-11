@@ -1,0 +1,112 @@
+name: TWO WORLDS - Elizabeth Bones real native Studio production (private Kaggle)
+
+# Legacy full-budget producer is quarantined after visual QA failed.
+# A manual dispatch is not sufficient to launch a GPU run; new workflow requires
+# an independently reviewed seven-scene storyboard + an approved I2V pilot.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+
+jobs:
+  elizabeth-native-7-shot-pilot:
+    # Prevent wasting Kaggle GPU quota on independent SDXL shots that change
+    # Kostya into a human / drift Elizabeth's face. Legacy pipeline disabled.
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 105
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      RUN_NONCE: eliznative-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate native Studio source manifest and real packaging offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q -r requirements.txt -r requirements-private-output.txt
+          python -m pip install -q static-ffmpeg
+          python - <<'PY'
+          from static_ffmpeg import run
+          import os
+          from pathlib import Path
+          ffmpeg, ffprobe=run.get_or_fetch_platform_executables_else_raise()
+          target=Path(os.environ["RUNNER_TEMP"])/"tw_portable_video_bin"
+          target.mkdir(parents=True,exist_ok=True)
+          (target/"ffmpeg").symlink_to(Path(ffmpeg).resolve())
+          (target/"ffprobe").symlink_to(Path(ffprobe).resolve())
+          with open(os.environ["GITHUB_PATH"],"a") as f:
+              f.write(str(target)+"\n")
+          print("Verified portable FFmpeg and ffprobe",Path(ffmpeg).stat().st_size,Path(ffprobe).stat().st_size)
+          PY
+          export PATH="$RUNNER_TEMP/tw_portable_video_bin:$PATH"
+          ffmpeg -version | head -n 1
+          python -m unittest tests.test_elizabeth_episode_pilot tests.test_russian_qwen_tts -v
+      - name: Resolve user-owned private Kaggle session without printing token
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN" || { echo "::error::Missing Kaggle API secret"; exit 2; }
+          python -m pip install -q "kaggle>=2.2.4" "six>=1.16,<2"
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+      - name: Package THIS native Studio source and lock it to one private Kaggle notebook
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.elizabeth_episode_pilot prepare \
+            --username "$KAGGLE_USERNAME" \
+            --nonce "$RUN_NONCE" \
+            --destination "$RUNNER_TEMP/tw-elizabeth-job" \
+            > "$RUNNER_TEMP/tw-elizabeth-prepared.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          info=json.loads((Path(os.environ["RUNNER_TEMP"])/"tw-elizabeth-prepared.json").read_text())
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("TW_ELIZABETH_KERNEL="+info["kernel"]+"\n")
+          print("TW_PRIVATE_NATIVE_STUDIO_PREPARED", info["shots"], info["source_sha256"])
+          PY
+      - name: Perform ONE real T4 generation — SDXL + Russian Qwen3 voice + native Studio assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/tw-elizabeth-job" \
+            --timeout 3600 --accelerator NvidiaTeslaT4
+      - name: Poll exactly the submitted private GPU notebook without resubmission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.kaggle_api poll \
+            --kernel "$TW_ELIZABETH_KERNEL" --timeout 3500 --interval 90
+      - name: Retrieve private Studio outputs once for provenance and frame QA only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tw-elizabeth-output"
+          python -m studio.kaggle_api_limits output \
+            --kernel "$TW_ELIZABETH_KERNEL" \
+            --output-dir "$RUNNER_TEMP/tw-elizabeth-output"
+      - name: Verify self-rendered 7-shot MP4, Russian audio, captions, model and pipeline provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.elizabeth_episode_pilot verify \
+            --path "$RUNNER_TEMP/tw-elizabeth-output" \
+            --nonce "$RUN_NONCE"
+          echo "::notice::Review-only MP4 is in the user's PRIVATE Kaggle output. No TikTok/Instagram."
+          echo "::notice::All final frames, captions, and audio authored by studio.hybrid_master.produce."
+      - name: Clear all private temporary media and worker packages
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/tw-elizabeth-output" "$RUNNER_TEMP/tw-elizabeth-job" \
+                 "$RUNNER_TEMP/tw-elizabeth-prepared.json"

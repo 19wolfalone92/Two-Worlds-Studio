@@ -1,0 +1,60 @@
+name: TWO WORLDS - Inspect failed private Elizabeth Kaggle worker (read-only)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-native-studio-pilot-20261111"]
+    paths: ["ops/elizabeth_native_diagnose.trigger"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-existing-kaggle-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      JOB_HANDLE: wolf19loner92/tw-elizabeth-native-02233574da68
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Kaggle CLI (no GPU job submitted)
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Read original failed worker, private Kaggle output and non-sensitive traceback
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/private_kaggle_diagnostics"
+          echo "INSPECT_ONLY_HANDLE=$JOB_HANDLE"
+          kaggle kernels status "$JOB_HANDLE" || true
+          kaggle kernels output "$JOB_HANDLE" -p "$RUNNER_TEMP/private_kaggle_diagnostics" --force
+          ls -lah "$RUNNER_TEMP/private_kaggle_diagnostics" | head -n 30
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"private_kaggle_diagnostics"
+          matches=list(root.rglob("ELIZABETH_BONES_STUDIO_JOB.json"))
+          print("ERROR_RECEIPTS_FOUND",len(matches))
+          for path in matches[:3]:
+              report=json.loads(path.read_text(encoding="utf-8"))
+              print("WORKER_STATUS",json.dumps({k:report.get(k) for k in ("success","error_type","error_summary","provider","pipeline","shots","voices")},ensure_ascii=False))
+          for file in root.rglob("*.log"):
+              lines=file.read_text(errors="replace").splitlines()
+              decoded=[]
+              for entry in lines:
+                  try: msg=json.loads(entry).get("data","")
+                  except ValueError: msg=entry
+                  if isinstance(msg,str) and msg.strip():
+                      decoded.extend(msg.splitlines())
+              anchors=[i for i,x in enumerate(decoded) if any(k in x for k in
+                  ("Traceback (most recent call last)","TW_ELIZABETH_STUDIO_EXECUTION_FAILED","torch.AcceleratorError"))]
+              for i in anchors[-4:]:
+                  print("STACK_TRACE_AT",i,"\n".join(decoded[max(0,i-3):i+32])[:5000])
+              print("LAST_GPU_WORKER_LINES","\n".join(decoded[-65:])[:9000])
+          PY
+      - name: Erase downloaded private Kaggle data
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/private_kaggle_diagnostics"
