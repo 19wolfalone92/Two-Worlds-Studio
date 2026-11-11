@@ -1,5 +1,16 @@
 # TWO WORLDS — Visual Production Studio
 
+## AI neural video models: Wan2.2, LTX-2.5, Wan Animate-2 (review branch)
+
+The studio supports **private model inference**, not merely camera moves on stills:
+- `python -m studio.comfy_neural`: native **Wan2.2 TI2V-5B I2V** over local ComfyUI and **LTX-2.5 DFR** with the installed official API template and binding map.
+- `python -m studio.wan_animate2_run`: **Wan-Animate-2 distilled** on an appropriately configured multi-GPU upstream worker, with a real driving video.
+- `python -m studio.cli produce`: verifies input reference, full generated MP4 frame clock, driver (if any), source hashes, and review gates before assembly.
+
+Weights, GPU inference, personal art and TikTok publishing are **not** activated by installing this repository. Native model downloads require the owner's licence review. Passing offline CI is not evidence of a good human animation.
+
+Russian setup: [docs/NEURAL_MODEL_RUNTIME_INTEGRATION_20261111_RU.md](docs/NEURAL_MODEL_RUNTIME_INTEGRATION_20261111_RU.md).
+
 ## Developer quickstart — unified studio interface
 
 Run `python -m pip install -e '.[validation]'`, then `python -m studio.cli doctor`.
