@@ -1,0 +1,91 @@
+name: TWO WORLDS - Recover REAL Elizabeth E01 from genuine Kaggle art and voices (CPU Studio only)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-native-studio-pilot-20261111"]
+    paths: ["ops/elizabeth_native_cpu_recover.trigger"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-elizabeth-native-recovery-cpu
+  cancel-in-progress: false
+
+jobs:
+  recovery-native-studio:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      SOURCE_KERNEL: wolf19loner92/tw-elizabeth-native-02233574da68
+    steps:
+      - name: Checkout the actual TWO WORLDS STUDIO source
+        uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install small CPU dependencies, official Kaggle read client and portable FFmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q -r requirements.txt 'soundfile>=0.12,<1' 'kaggle>=2.2.4' 'six>=1.16,<2' static-ffmpeg
+          python - <<'PY'
+          from static_ffmpeg import run
+          import os
+          from pathlib import Path
+          ffmpeg, ffprobe = run.get_or_fetch_platform_executables_else_raise()
+          dest=Path(os.environ["RUNNER_TEMP"])/"tw_video_bin"
+          dest.mkdir(parents=True,exist_ok=True)
+          (dest/"ffmpeg").symlink_to(Path(ffmpeg).resolve())
+          (dest/"ffprobe").symlink_to(Path(ffprobe).resolve())
+          with open(os.environ["GITHUB_PATH"],"a") as f: f.write(str(dest)+"\n")
+          print("GENUINE_NATIVE_CPU_FFMPEG_READY",Path(ffmpeg).stat().st_size)
+          PY
+      - name: Retrieve original SDXL photos and original Qwen3 WAVs from PRIVATE Kaggle run
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(kaggle kernels status "$SOURCE_KERNEL")"
+          echo "$STATUS"
+          # Original GPU failed only AFTER producing the real PNG and WAV assets.
+          echo "$STATUS" | grep -q "KernelWorkerStatus.ERROR"
+          mkdir -p "$RUNNER_TEMP/eb01_private_gpu_sources"
+          kaggle kernels output "$SOURCE_KERNEL" -p "$RUNNER_TEMP/eb01_private_gpu_sources" --force
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01_private_gpu_sources"
+          p=root/"ELIZABETH_BONES_STUDIO_JOB.json"
+          report=json.loads(p.read_text(encoding="utf-8"))
+          assert report.get("success") is False
+          assert report.get("error_type")=="RuntimeError"
+          assert "Cyrillic font" in report.get("error_summary","")
+          art=root/"elizabeth_studio_private"/"art"
+          voice=root/"elizabeth_studio_private"/"voices"
+          assert len(list(art.glob("S0[0-6].png")))==7
+          assert len(list(voice.glob("S0[1-6].wav")))==6
+          print("VERIFIED_ORIGINAL_KAGGLE_GPU_SOURCES=7_STILLS_6_VOICES")
+          PY
+      - name: Render exact six Russian lines with real TWO WORLDS STUDIO (no InVideo, no GPU, no fixture)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/tw_video_bin:$PATH"
+          ffmpeg -version | head -n 1
+          python -m tools.elizabeth_native_recover_cpu \
+            --private-root "$RUNNER_TEMP/eb01_private_gpu_sources" \
+            --delivered "$RUNNER_TEMP/eb01_final_review" \
+            --source-kernel "$SOURCE_KERNEL"
+      - name: Upload ACTUAL independently verified MP4 for owner review - never source PNG/WAV
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_BONES_E01_REAL_NATIVE_TWO_WORLDS_STUDIO_MP4
+          path: ${{ runner.temp }}/eb01_final_review/*
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
+      - name: Scrub temporary PRIVATE media and credential-free download files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01_private_gpu_sources" "$RUNNER_TEMP/eb01_final_review" "$RUNNER_TEMP/tw_video_bin"
