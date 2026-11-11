@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: elizabeth-native-studio-review
+  group: elizabeth-native-studio-review-portable
   cancel-in-progress: false
 
 jobs:
@@ -33,11 +33,22 @@ jobs:
         run: |
           python -m pip install -q -r requirements.txt
 
-      - name: Install FFmpeg, ffprobe and Cyrillic fonts (runner does not preinstall video tools)
+      - name: Provision self-contained FFmpeg and ffprobe without apt or elevated privileges
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
-          ffmpeg -version | head -n 1
+          set -euo pipefail
+          python -m pip install -q static-ffmpeg
+          python - <<'PY'
+          from static_ffmpeg import run
+          import os
+          from pathlib import Path
+          ffmpeg, ffprobe = run.get_or_fetch_platform_executables_else_raise()
+          target = Path(os.environ["RUNNER_TEMP"])/"tw_portable_video_bin"
+          target.mkdir(parents=True, exist_ok=True)
+          (target/"ffmpeg").symlink_to(Path(ffmpeg).resolve())
+          (target/"ffprobe").symlink_to(Path(ffprobe).resolve())
+          with open(os.environ["GITHUB_PATH"],"a") as f: f.write(str(target)+"\n")
+          print("Portable FFmpeg and ffprobe verified",Path(ffmpeg).stat().st_size,Path(ffprobe).stat().st_size)
+          PY
 
       - name: Check seven locked shots, six dialogue gates, missing asset refusal
         run: |
