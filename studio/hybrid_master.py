@@ -29,7 +29,7 @@ AUDIO = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
 SHOT_TYPES = frozenset({"establishing", "wide", "medium", "close", "extreme_close",
                         "over_shoulder", "reaction", "insert"})
 VISUAL_PROFILES = {"photoreal_cinematic", "stylized_cinematic", "3d_character"}
-CLIP_ENGINES = {"blender_3d", "neural_character", "neural_comfy"}
+CLIP_ENGINES = {"blender_3d", "neural_character", "neural_comfy", "neural_animate2"}
 MOBILE_DELIVERY = (576, 1024, 24)
 
 
@@ -178,7 +178,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         if take is not None and (kind != "clip" or not isinstance(take, dict)
                 or not isinstance(take.get("engine"), str) or take["engine"] not in CLIP_ENGINES
                 or set(take) != ({"engine", "visual_profile", "sha256", "receipt", "reference", "driver"}
-                                 if take["engine"] == "neural_character" else
+                                 if take["engine"] in {"neural_character", "neural_animate2"} else
                                  {"engine", "visual_profile", "sha256", "receipt", "reference"}
                                  if take["engine"] == "neural_comfy" else
                                  {"engine", "visual_profile", "sha256"} | ({"receipt"} if "receipt" in take else set()))
@@ -306,6 +306,21 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                                   r.get("kind") in {"face", "wardrobe", "mouth", "jaw", "cheek"}
                                   for r in qc_regions):
                 raise ValueError("Neural master requires independent character-motion QC windows")
+
+        elif take is not None and take["engine"] == "neural_animate2":
+            from studio.wan_animate2_run import import_take as import_animate2_take
+
+            reference = source(base, take["reference"], IMAGES)
+            driver = source(base, take["driver"], {".mp4", ".mov"})
+            proof = source(base, take["receipt"], {".json"})
+            motion_receipt = import_animate2_take(
+                media, proof, reference, driver, duration=frames / fps,
+            )
+            motion_inputs = [driver, proof]
+            if master and not any(r.get("motion_windows") and
+                                  r.get("kind") in {"face", "wardrobe", "mouth", "jaw", "cheek"}
+                                  for r in qc_regions):
+                raise ValueError("Wan-Animate-2 master needs independent character-motion QC windows")
 
         elif take is not None and "receipt" in take:
             from studio.blender_clip import import_take as import_blender_take
