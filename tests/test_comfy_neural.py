@@ -39,7 +39,7 @@ class GraphAndNetworkTests(unittest.TestCase):
 
     def test_missing_arguments_and_slideshow_workaround_blocked(self):
         prompt = "A figure moves smoothly, looks over their shoulder in a cinematic scene."
-        for bad in [(560, 1024, 121), (576, 1024, 122), (576, 1024, 1)]:
+        for bad in [(544, 1024, 121), (576, 1024, 122), (576, 1024, 1)]:
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 wan22_workflow("ref.png", prompt, 42, width=bad[0], height=bad[1], frames=bad[2])
 
