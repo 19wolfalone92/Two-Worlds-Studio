@@ -21,6 +21,23 @@
 
 Инструкция и веса: https://docs.comfy.org/tutorials/video/wan/wan2_2
 
+**Скопировать официальные веса в приватный ComfyUI можно теперь штатным установщиком студии.** По умолчанию он показывает только список необходимых файлов; сетевое скачивание запускается строго отдельным флагом:
+
+```bash
+# Без сети, GPU и изменений файлов:
+python -m studio.model_install --model wan22-5b --comfy-root /private/ComfyUI
+
+# Скачать и установить официальные checkpoint файлы (≈18 ГБ исходных весов):
+python -m studio.model_install --model wan22-5b \
+  --comfy-root /private/ComfyUI --accept-model-license --execute-download
+
+# Для LTX-2.5 DFR — отдельное законное лицензирование и большой объём диска:
+python -m studio.model_install --model ltx25-dfr \
+  --comfy-root /private/ComfyUI --accept-model-license --execute-download
+```
+
+Установщик обращается только к фиксированным официальным Hugging Face репозиториям, фиксирует их commit SHA, проверяет метаданные размеров и LFS SHA (если доступен), сохраняет файлы **только** в приватном `ComfyUI/models`. Для операции скачивания нужен `pip install huggingface_hub` и, в случае gated-моделей LTX, законно полученный **read**-доступ Hugging Face. **В публичный GitHub веса не загружаются**.
+
 Официальный шаблон, на основании которого построен API-граф:
 https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_5B_ti2v.json
 
