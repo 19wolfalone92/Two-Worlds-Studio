@@ -50,8 +50,21 @@ def _track(cv, before, after, boxes):
         return [(empty, empty) for _ in boxes]
     source = np.asarray(points, dtype=np.float32).reshape(-1, 1, 2)
     options = {"winSize": (15, 15), "maxLevel": 2}
+    def lost():
+        empty = np.empty((0, 2), np.float32)
+        return [(empty, empty) for _ in boxes]
+
+    # Optical flow is allowed to lose *all* points (blur, occlusion, fades).
+    # OpenCV then returns None; forwarding that into the reverse pass crashes
+    # the QC worker instead of reporting missing motion evidence for review.
     target, forward, _ = cv.calcOpticalFlowPyrLK(before, after, source, None, **options)
+    if (target is None or forward is None or target.shape != source.shape
+            or forward.size != len(source) or not np.isfinite(target).all()):
+        return lost()
     returned, reverse, _ = cv.calcOpticalFlowPyrLK(after, before, target, None, **options)
+    if (returned is None or reverse is None or returned.shape != source.shape
+            or reverse.size != len(source) or not np.isfinite(returned).all()):
+        return lost()
     valid = (forward.ravel() == 1) & (reverse.ravel() == 1)
     valid &= np.linalg.norm(source[:, 0, :] - returned[:, 0, :], axis=1) <= .42
     rows, start = [], 0
@@ -71,7 +84,7 @@ def _fit(cv, pair):
     matrix, inliers = cv.estimateAffinePartial2D(
         before, after, method=cv.RANSAC, ransacReprojThreshold=.65, maxIters=350,
     )
-    if matrix is None or int(inliers.sum()) < max(6, math.ceil(.55 * len(before))):
+    if matrix is None or inliers is None or int(inliers.sum()) < max(6, math.ceil(.55 * len(before))):
         return None
     return matrix
 
