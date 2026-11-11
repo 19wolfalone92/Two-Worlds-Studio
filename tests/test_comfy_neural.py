@@ -54,6 +54,34 @@ class GraphAndNetworkTests(unittest.TestCase):
         self.assertEqual(_server("http://127.0.0.1:8188"), "http://127.0.0.1:8188")
         self.assertEqual(_server("http://localhost:8188/"), "http://localhost:8188")
 
+    def test_hash_named_upload_is_repeatable_without_duplicate_filenames(self):
+        class Response:
+            headers = {"Content-Length": "250"}
+            def __init__(self, body):
+                self.body = body
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return False
+            def read(self, count):
+                return self.body
+        class Opener:
+            def __init__(self):
+                self.names = []
+            def open(self, request, timeout=60):
+                self.names.append(request.data)
+                name = "tw_" + "a" * 32 + ".png"
+                return Response(json.dumps({"name": name, "subfolder": "", "type": "input"}).encode())
+        with tempfile.TemporaryDirectory() as temp:
+            image = Path(temp) / "portrait.png"
+            Image.new("RGB", (576, 1024)).save(image)
+            opener = Opener()
+            client = ComfyLocal("http://127.0.0.1:8188", opener=opener)
+            self.assertEqual(client.upload_image(image), client.upload_image(image))
+            self.assertEqual(len(opener.names), 2)
+            self.assertTrue(all(b'name=\\\"overwrite\\\"\\r\\n\\r\\ntrue' in body
+                                for body in opener.names))
+
     def test_ltx_dfr_api_binding_requires_real_model_components(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
