@@ -3,3 +3,5 @@ check: status_and_source_receipts
 read_only: true
 additional_gpu_runs: 0
 never_publish_source_media: true
+
+status_recheck: after_continuous_15min_watcher_implementation
