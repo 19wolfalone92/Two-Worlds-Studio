@@ -3,7 +3,7 @@ name: EB01 V7 - inventory existing private art and six WAVs (ZERO GPU)
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_source_inventory.trigger"]
+    paths: ["ops/eb01_v7_source_inventory_v2.trigger"]
 
 permissions:
   contents: read
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.11"}
       - name: CPU-only tooling
-        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'soundfile>=0.12'
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'soundfile>=0.12' 'Pillow>=10,<12'
       - name: Fetch three EXISTING private outputs - no generation
         shell: bash
         run: |
