@@ -1,0 +1,108 @@
+{
+  "schema": 6,
+  "episode": "ELIZABETH_BONES_E01",
+  "model": "wan22-5b",
+  "fps": 24,
+  "references": {
+    "elizabeth": {
+      "image": "canon/elizabeth.png",
+      "sha256": "PASTE_APPROVED_SHA256_OF_ELIZABETH"
+    },
+    "kostya": {
+      "image": "canon/kostya.png",
+      "sha256": "PASTE_APPROVED_SHA256_OF_KOSTYA"
+    }
+  },
+  "shots": [
+    {
+      "id": "S00",
+      "characters": [
+        "elizabeth",
+        "kostya"
+      ],
+      "image": "frames/S00.png",
+      "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
+      "duration": 2,
+      "caption": "",
+      "motion_prompt": "Cinematic over-the-shoulder entrance. Both characters breathe naturally; Elizabeth turns toward the guest and Kostya the anatomical skeleton sits opposite her, keeping his bones and black suit unchanged."
+    },
+    {
+      "id": "S01",
+      "characters": [
+        "elizabeth"
+      ],
+      "image": "frames/S01.png",
+      "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
+      "duration": 2.1,
+      "caption": "Следующий. Имя?",
+      "voice": "voice/S01.wav",
+      "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
+      "motion_prompt": "The brunette Elizabeth raises one eyebrow, glances down at the resume, then moves her head and shoulders with realistic tiny movements while speaking, no facial deformation or wardrobe changes."
+    },
+    {
+      "id": "S02",
+      "characters": [
+        "kostya"
+      ],
+      "image": "frames/S02.png",
+      "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
+      "duration": 4.5,
+      "caption": "Константин Мортисович Костин. Для друзей — Костя.",
+      "voice": "voice/S02.wav",
+      "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
+      "motion_prompt": "An anatomically correct IVORY SKELETON Kostya wearing an unchanged black three-piece suit, burgundy tie and black fedora. He speaks with measured coherent jaw motion and natural slight neck and shoulder movement. NEVER human skin or flesh."
+    },
+    {
+      "id": "S03",
+      "characters": [
+        "elizabeth"
+      ],
+      "image": "frames/S03.png",
+      "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
+      "duration": 1.8,
+      "caption": "Возраст?",
+      "voice": "voice/S03.wav",
+      "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
+      "motion_prompt": "Elizabeth gives a subtle skeptical look and opens her hand while holding a pen. Coherent cheeks, jaw, eyes, head and shoulders. The same long dark wavy hair and fitted black lace blouse."
+    },
+    {
+      "id": "S04",
+      "characters": [
+        "kostya"
+      ],
+      "image": "frames/S04.png",
+      "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
+      "duration": 3.6,
+      "caption": "Двести три. Но душой я мальчишка!",
+      "voice": "voice/S04.wav",
+      "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
+      "motion_prompt": "Kostya the fully visible ivory skeleton makes a modest bony-hand gesture and slightly leans at the hips; his neck and shoulders follow. Black tailored suit and skull anatomy stay fixed without becoming a living human."
+    },
+    {
+      "id": "S05",
+      "characters": [
+        "elizabeth"
+      ],
+      "image": "frames/S05.png",
+      "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
+      "duration": 2.8,
+      "caption": "Вижу. А где душа?",
+      "voice": "voice/S05.wav",
+      "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
+      "motion_prompt": "Elizabeth keeps the very same face and hairstyle, tilts her head and smiles faintly, natural eye movement and subtle whole-face dynamics as she asks a dry question. Same cinematic warm brass lighting."
+    },
+    {
+      "id": "S06",
+      "characters": [
+        "kostya"
+      ],
+      "image": "frames/S06.png",
+      "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
+      "duration": 3.3,
+      "caption": "На испытательном. Уже три века.",
+      "voice": "voice/S06.wav",
+      "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
+      "motion_prompt": "Kostya is an exposed ivory-bone human skeleton only, not a living man. His lower jaw opens for speech, head turns very slightly, shoulders shift and his bony hand adjusts his fedora. Do not alter black suit or his skull."
+    }
+  ]
+}

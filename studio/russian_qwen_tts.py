@@ -84,10 +84,16 @@ def _get_model(model_id: str):
             "Install them in a separate GPU environment; dry-run needs none."
         ) from exc
     cuda = torch.cuda.is_available()
+    # Real EB01 GPU postmortem: FP16 on a Turing T4 triggered a device-side
+    # assertion during Qwen3-TTS inference. Prefer native BF16 on supported
+    # newer cards and FP32 on T4/CPU, never unsafe automatic CUDA FP16.
+    bf16 = cuda and bool(torch.cuda.is_bf16_supported())
+    precision = torch.bfloat16 if bf16 else torch.float32
     return Qwen3TTSModel.from_pretrained(
         model_id,
         device_map="cuda:0" if cuda else "cpu",
-        dtype=torch.float16 if cuda else torch.float32,
+        dtype=precision,
+        attn_implementation="sdpa",
     )
 
 

@@ -28,8 +28,9 @@ ENGINES = {
     "neural": "studio.comfy_neural",
     "wan-animate2": "studio.wan_animate2_run",
     "model-install": "studio.model_install",
+    "v6": "studio.v6_production",
 }
-PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen", "neural", "wan-animate2", "model-install"}
+PROVIDER_ENGINES = {"comfy", "kaggle", "art", "kokoro", "qwen", "neural", "wan-animate2", "model-install", "v6"}
 
 
 def doctor() -> dict:
