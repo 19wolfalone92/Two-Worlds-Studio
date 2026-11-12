@@ -79,7 +79,7 @@ def classify(values: list[float]) -> dict:
 
 
 def inspect_clip(path: Path) -> dict:
-    if not path.is_file() or path.stat().st_size < 10000:
+    if not path.is_file() or path.stat().st_size < 512:
         raise ArtifactRejected("Source MP4 missing or invalid")
     meta = probe(path)
     w, h = int(meta["width"]), int(meta["height"])
