@@ -3,7 +3,7 @@ name: EB01 V7 - PRE-GPU immutable character SHA and native Wan/Qwen contract (CP
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_corrected_preflight.trigger"]
+    paths: ["ops/eb01_v7_full_compositor_preflight.trigger"]
 
 permissions:
   contents: read
@@ -18,13 +18,14 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install CPU dependencies, without model weights or proprietary assets
-        run: python -m pip install -q 'Pillow>=10,<12' 'numpy>=1.26,<3'
+        run: python -m pip install -q 'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12'
       - name: Exact 7 independent image SHA receipts, six voice files, all native 7 shots
         shell: bash
         run: |
           set -euo pipefail
           python -m unittest tests.test_eb01_v7_real_sha_contract -v
           python -m unittest tests.test_eb01_v7_storyboard tests.test_eb01_v7_motion_buffer tests.test_eb01_motion_artifact_gate -v
+          python -m unittest tests.test_eb01_v7_native_compositor_smoke -v
           python -m py_compile tools/kaggle_eb01_v7_full_entry.py studio/eb01_v7_motion_buffer.py studio/eb01_v7_storyboard.py
           python - <<'PY'
           import importlib.util
