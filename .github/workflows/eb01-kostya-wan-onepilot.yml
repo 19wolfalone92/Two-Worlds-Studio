@@ -43,9 +43,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/eb01-parent-private"
-          python -m studio.kaggle_api_limits output \
-            --kernel "$SOURCE_CANON_KERNEL" \
-            --output-dir "$RUNNER_TEMP/eb01-parent-private"
+          # Custom original EB01_CANON_* file names; generic output filter
+          # assumes TWO_WORLDS_* and rejects the correct private images.
+          kaggle kernels output "$SOURCE_CANON_KERNEL" \
+            -p "$RUNNER_TEMP/eb01-parent-private" --force
       - name: Verify original canonical source and prepare ONE private Wan I2V
         shell: bash
         run: |
