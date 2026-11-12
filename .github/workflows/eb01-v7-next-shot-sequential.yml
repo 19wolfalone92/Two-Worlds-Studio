@@ -1,0 +1,152 @@
+name: EB01 V7 - RESUME NEXT missing Wan scene after verified previous (ONE GPU)
+
+on:
+  push:
+    branches: ["fix/eb01-v7-resume-existing-clips-20261112"]
+    paths: ["ops/eb01_v7_next_shot.trigger"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+
+jobs:
+  one_next_scene_after_verified_previous:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      RUN_NONCE: eb01-v7-next-${{ github.run_id }}-${{ github.run_attempt }}
+      PRIVATE_INPUT_DATASET: wolf19loner92/eb01-v7-private-production-sources
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Before GPU install verification dependencies and strict CPU unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -qq -y ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3'
+          python -m unittest tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_real_sha_contract -v
+          python -m py_compile tools/kaggle_eb01_v7_single_shot.py
+      - name: Parse owner-only checkpoint for next SINGLE shot and exact private previous
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re,os
+          p=Path("ops/eb01_v7_next_shot.trigger")
+          raw=p.read_text(encoding="utf-8")
+          fields=dict(row.split(": ",1) for row in raw.splitlines() if ": " in row)
+          shot=fields.get("shot","")
+          prev=fields.get("previous_shot","")
+          kernel=fields.get("previous_kernel","")
+          sha=fields.get("previous_sha256","")
+          if shot not in ("S03","S04","S05","S06") or prev!="S"+str(int(shot[1:])-1).zfill(2):
+              raise RuntimeError("Only monotonic continuation of existing scenes S02..S06")
+          if not re.fullmatch(r"wolf19loner92/eb01-v7-s0[2-5]-only-[a-f0-9]{12}",kernel):
+              raise RuntimeError("Previous source must be exact private one-shot Wan notebook")
+          if not re.fullmatch(r"[0-9a-f]{64}",sha):
+              raise RuntimeError("Previous original MP4 SHA must be explicitly checkpointed")
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("EB01_NEXT_SCENE="+shot+"\n")
+              f.write("EB01_PREVIOUS_SCENE="+prev+"\n")
+              f.write("EB01_PREVIOUS_KERNEL="+kernel+"\n")
+              f.write("EB01_PREVIOUS_SHA="+sha+"\n")
+          print("SINGLE_KAGGLE_GPU_CONTINUATION_REQUESTED",shot,"previous_sha",sha)
+          PY
+      - name: Validate previous real video original COMPLETE and SHA, no GPU used yet
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          kaggle kernels status "$EB01_PREVIOUS_KERNEL" | tee "$RUNNER_TEMP/previous_status.txt"
+          grep -q "KernelWorkerStatus.COMPLETE" "$RUNNER_TEMP/previous_status.txt"
+          mkdir -p "$RUNNER_TEMP/eb01-previous-scene-private"
+          kaggle kernels output "$EB01_PREVIOUS_KERNEL" \
+            -p "$RUNNER_TEMP/eb01-previous-scene-private" --force
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          folder=Path(os.environ["RUNNER_TEMP"])/"eb01-previous-scene-private"
+          sid=os.environ["EB01_PREVIOUS_SCENE"]
+          movies=list(folder.rglob(sid+".mp4"))
+          receipts=list(folder.rglob("EB01_V7_SINGLE_SHOT_JOB.json"))
+          if len(movies)!=1 or len(receipts)!=1:
+              raise RuntimeError("Previous genuine shot or private receipt missing")
+          p=movies[0]
+          sha=hashlib.sha256(p.read_bytes()).hexdigest()
+          row=json.loads(receipts[0].read_text())
+          if (sha!=os.environ["EB01_PREVIOUS_SHA"]
+              or row.get("status")!="ONE_REAL_WAN_SHOT_TECHNICALLY_VERIFIED"
+              or row.get("success") is not True or row.get("shot")!=sid
+              or row.get("clip_sha256")!=sha
+              or row.get("model")!="wan22-5b"
+              or row.get("neural_inference_performed") is not True
+              or row.get("temporal_rgb_artifact_gate")!="NO_NEON_ARTIFACT_FOUND"
+              or row.get("fps")!=24
+              or row.get("width")!=320 or row.get("height")!=576):
+              raise RuntimeError("Existing real source is not validated: NO new GPU job")
+          p=subprocess.run(["ffmpeg","-nostdin","-v","error","-xerror",
+                            "-i",str(p),"-f","null","-"],capture_output=True,text=True,timeout=180)
+          if p.returncode:
+              raise RuntimeError("Existing source H264 cannot fully decode")
+          print("PREVIOUS_REAL_NEURAL_SHOT_PRESERVED_AND_VERIFIED",sid,sha)
+          PY
+      - name: Prepare next isolated PRIVATE T4 kernel for exactly ONE remaining shot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,json,os
+          from pathlib import Path
+          from tools.kaggle_eb01_v7_single_shot import check_configuration
+          sid=os.environ["EB01_NEXT_SCENE"]
+          data={
+              "schema":7,"nonce":os.environ["RUN_NONCE"],"shot":sid,
+              "model":"wan22-5b","private":True,"new_gpu_jobs":1,
+              "source_dataset":os.environ["PRIVATE_INPUT_DATASET"],
+              "revision":os.environ["GITHUB_SHA"],
+              "branch":"fix/eb01-v7-resume-existing-clips-20261112",
+              "allow_social_publish":False,"allow_regenerate_good_shots":False
+          }
+          assert check_configuration(data)==sid
+          source=Path("tools/kaggle_eb01_v7_single_shot.py").read_text()
+          assert source.count("__EB01_V7_RESUME_SHOT_CONFIG_B64__")==1
+          rendered=source.replace("__EB01_V7_RESUME_SHOT_CONFIG_B64__",
+              base64.b64encode(json.dumps(data,sort_keys=True).encode()).decode())
+          assert len(rendered)<70_000 and "iVBORw0KGgo" not in rendered
+          slug="eb01-v7-"+sid.lower()+"-only-"+hashlib.sha256(data["nonce"].encode()).hexdigest()[:12]
+          metadata={
+              "id":"wolf19loner92/"+slug, "title":slug,
+              "code_file":"kernel_main.py","language":"python","kernel_type":"script",
+              "is_private":"true","enable_gpu":"true","enable_internet":"true",
+              "machine_shape":"NvidiaTeslaT4",
+              "dataset_sources":[data["source_dataset"]],
+              "competition_sources":[],"kernel_sources":[],"model_sources":[]
+          }
+          folder=Path(os.environ["RUNNER_TEMP"])/"eb01-next-worker"
+          folder.mkdir()
+          (folder/"kernel_main.py").write_text(rendered)
+          (folder/"kernel-metadata.json").write_text(json.dumps(metadata,indent=2))
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("EB01_NEXT_PRIVATE_KERNEL="+metadata["id"]+"\n")
+          print("NEXT_GPU_NOTEBOOK_SOURCE_PINNED",sid,metadata["id"],"private")
+          PY
+      - name: Submit ONE sequential private I2V job; never regenerate completed work
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/eb01-next-worker" \
+            --timeout 3600 --accelerator NvidiaTeslaT4
+          kaggle kernels status "$EB01_NEXT_PRIVATE_KERNEL"
+          echo "::notice::One new model job submitted for $EB01_NEXT_SCENE only. No claiming a finished MP4."
+      - name: Delete ephemeral recovered media and original worker source
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-previous-scene-private" "$RUNNER_TEMP/eb01-next-worker" "$RUNNER_TEMP/previous_status.txt"
