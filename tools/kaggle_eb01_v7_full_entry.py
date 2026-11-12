@@ -30,7 +30,7 @@ MODEL = "wan22-5b"
 # Human-readable storyboard was inspected before authorizing any GPU inference.
 REVIEWED_SOURCE_SHA={
  "S00":"7f1fef44ac5de0e51925024500058159bdf042f873ed3156f6a767001a5bd618",
- "S01":"9ce2cb7a35ddf4cf4c662b0b1d4917d989fb2c6f55491f54ff283af20b89a9a",
+ "S01":"9ce2cb7a35ddf4cf4c662b0b1d4917d989fb2c6f55491f54ff283af20b89ea9a",
  "S02":"6f101608d5fd76adc85a976b775a5dc91612aa7a36b456c04660f859d7bc96a9",
  "S03":"16b076ec3fc9e3dbae87368940b06a8e444d0ebbf5e6d28a9ba10f7421547816",
  "S04":"6e366694363b69e88663a2fd3b82c2c93ea87ffeb6ac9d39675c1a776898120e",
