@@ -6,17 +6,23 @@ on:
     paths:
       - "studio/eb01_canon_kaggle.py"
       - "studio/eb01_kostya_wan_preview.py"
+      - "studio/eb01_elizabeth_photoreal_repair.py"
+      - "tools/kaggle_eb01_elizabeth_repair_entry.py"
       - "tools/kaggle_eb01_canon_entry.py"
       - "tests/test_eb01_canon_kaggle.py"
       - "tests/test_eb01_kostya_wan_preview.py"
+      - "tests/test_eb01_elizabeth_photoreal_repair.py"
       - ".github/workflows/eb01-canon-offline.yml"
   pull_request:
     paths:
       - "studio/eb01_canon_kaggle.py"
       - "studio/eb01_kostya_wan_preview.py"
+      - "studio/eb01_elizabeth_photoreal_repair.py"
+      - "tools/kaggle_eb01_elizabeth_repair_entry.py"
       - "tools/kaggle_eb01_canon_entry.py"
       - "tests/test_eb01_canon_kaggle.py"
       - "tests/test_eb01_kostya_wan_preview.py"
+      - "tests/test_eb01_elizabeth_photoreal_repair.py"
       - ".github/workflows/eb01-canon-offline.yml"
 
 permissions:
@@ -32,6 +38,6 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -q 'Pillow>=10,<12'
-      - run: python -m unittest tests.test_eb01_canon_kaggle tests.test_eb01_kostya_wan_preview -v
-      - run: python -m py_compile studio/eb01_canon_kaggle.py studio/eb01_kostya_wan_preview.py tools/kaggle_eb01_canon_entry.py
+      - run: python -m unittest tests.test_eb01_canon_kaggle tests.test_eb01_kostya_wan_preview tests.test_eb01_elizabeth_photoreal_repair -v
+      - run: python -m py_compile studio/eb01_canon_kaggle.py studio/eb01_kostya_wan_preview.py studio/eb01_elizabeth_photoreal_repair.py tools/kaggle_eb01_canon_entry.py tools/kaggle_eb01_elizabeth_repair_entry.py
       - run: echo "Offline only; private image sources never leave Kaggle; zero GPU used."
