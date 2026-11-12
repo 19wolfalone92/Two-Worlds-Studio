@@ -11,7 +11,7 @@ from PIL import Image
 
 from studio.v6_production import (
     CAST, LINE_LOCK, MOTION, SCENE_CAST, SCENES, VISUAL,
-    ProductionBlocked, checked_visuals, digest, pilot, plan, read_storyboard, render
+    ProductionBlocked, check_clip, checked_visuals, digest, pilot, plan, read_storyboard, render
 )
 
 
@@ -71,6 +71,26 @@ class V6IdentityFirstTests(unittest.TestCase):
 
     def write_review(self):
         self.review.write_text(json.dumps(self.review_data, ensure_ascii=False), encoding="utf-8")
+
+    def test_native_editor_rejects_neon_glitch_even_with_valid_provenance(self):
+        # Regression: real Wan2.2 output 49 frames, final 3 showed color bars.
+        (self.root / "clips").mkdir()
+        clip = self.root / "clips" / "S02.mp4"
+        clip.write_bytes(b"test-only-mocked-mp4"*300)
+        frame = self.root / "frames" / "S02.png"
+        proof = {
+            "engine": "neural_comfy", "model": "wan22-5b",
+            "clip_sha256": digest(clip), "reference_sha256": digest(frame),
+            "inference_performed": True, "published": False
+        }
+        receipt = self.root / "clips" / "S02.receipt.json"
+        receipt.write_text(json.dumps(proof))
+        row = {"clip": "clips/S02.mp4", "receipt": "clips/S02.receipt.json",
+               "sha256": digest(clip)}
+        with patch("studio.eb01_motion_artifact_gate.inspect_clip",
+                   return_value={"status":"TRIM_ONLY_TERMINAL_ARTIFACTS"}):
+            with self.assertRaisesRegex(ProductionBlocked, "neon/temporal"):
+                check_clip(self.root, "S02", row, frame, 2.0)
 
     def test_contact_sheet_contains_both_canon_and_all_seven_scenes(self):
         from studio.v6_art import contact_sheet

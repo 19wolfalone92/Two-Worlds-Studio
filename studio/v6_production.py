@@ -163,8 +163,19 @@ def check_clip(root: Path, sid: str, row: dict, frame: Path, length: float) -> t
             or proof.get("inference_performed") is not True
             or proof.get("published") is not False):
         raise ProductionBlocked("No genuine source-locked Comfy Wan I2V proof " + sid)
+    # FFprobe/decoding alone once accepted a broken 49-frame clip whose last
+    # three frames contained neon streaks. Reject temporal color corruption
+    # BEFORE allowing the I2V take into any final native editor.
+    from studio.eb01_motion_artifact_gate import inspect_clip
+    artifact_audit = inspect_clip(clip)
+    if artifact_audit["status"] != "NO_NEON_ARTIFACT_FOUND":
+        raise ProductionBlocked(
+            "Neural actor video rejected for neon/temporal artifacts in "
+            + sid + ": " + artifact_audit["status"]
+        )
     from studio.comfy_neural import import_take
     checked = import_take(clip, receipt, frame, duration=length)
+    checked["temporal_neon_artifact_qc"] = artifact_audit["status"]
     return clip, checked
 
 
