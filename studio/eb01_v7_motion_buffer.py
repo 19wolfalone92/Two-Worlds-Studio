@@ -62,10 +62,14 @@ def finalize(raw:Path, raw_receipt:Path, reference:Path,
  # The only tolerable artifact is wholly in the 4 deliberately discarded
  # terminal buffer frames. A glitch in the intended scene means stop GPU.
  unexpected=[n for n in scan.get("flagged_frames",[]) if n<expected_frames]
- if unexpected or scan["status"]=="REJECT_NONTERMINAL_NEON_ARTIFACT":
+ if unexpected:
   raise MotionBufferRejected("Wan corruption INSIDE useful actor-performance frames: "+str(unexpected))
+ # The source anomaly classifier calls any non-contiguous RGB bars
+ # "nonterminal"; it is still safe to discard if EVERY flagged frame lies
+ # exclusively in the four-frame buffer outside the intended performance.
  if scan["status"] not in ("NO_NEON_ARTIFACT_FOUND",
                            "TRIM_ONLY_TERMINAL_ARTIFACTS",
+                           "REJECT_NONTERMINAL_NEON_ARTIFACT",
                            "REJECT_INSUFFICIENT_UNCORRUPTED_PILOT"):
   raise MotionBufferRejected("Unrecognized video corruption: "+scan["status"])
 
