@@ -22,6 +22,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
+from studio.eb01_canon_kaggle import MIXED_MODEL
 from studio.eb01_canon_kaggle import ARCHIVE as CANON_ARCHIVE
 from studio.eb01_canon_kaggle import RECEIPT as CANON_RECEIPT
 from studio.kaggle_neural_video import _bundle
@@ -62,7 +63,7 @@ def parent_reference(folder: Path, who: str = "KOSTYA") -> tuple[bytes,str]:
             and data.get("private") is True
             and data.get("gpu_inference_performed") is True
             and data.get("published") is False
-            and data.get("model") == "stabilityai/stable-diffusion-xl-base-1.0"):
+            and data.get("model") in {"stabilityai/stable-diffusion-xl-base-1.0", MIXED_MODEL}):
         raise ValueError("Only real PRIVATE original model artwork can seed the motion proof")
     if sha256(archives[0])!=data.get("archive_sha256"):
         raise ValueError("Private source archive corrupt")
