@@ -114,6 +114,7 @@ def generate_clips(cfg,lock,client):
     from studio.comfy_neural import generate
     from studio.eb01_v7_storyboard import SHOTS,WIDTH,HEIGHT,FPS,sha
     from studio.eb01_motion_artifact_gate import inspect_clip
+    from studio.eb01_v7_motion_buffer import finalize
     import torch
     CLIPS_OUT.mkdir(parents=True,exist_ok=False)
     (ROOT/"clips").mkdir(exist_ok=True)
@@ -124,15 +125,22 @@ def generate_clips(cfg,lock,client):
         if sha(src)!=lock["scenes"][sid]["reference_sha256"]:
             raise RuntimeError("Episode frame changed since canonical SHA lock "+sid)
         movie=ROOT/"clips"/(sid+".mp4")
-        print("EB01_REAL_MOTION_START",sid,who,"frames",frames,"seconds",round(frames/FPS,3),flush=True)
+        raw_movie=ROOT/"clips"/(sid+".raw.mp4")
+        print("EB01_REAL_MOTION_START",sid,who,
+              "deliver_real_frames",frames,"raw_with_4_extra_frames",frames+4,
+              "seconds",round(frames/FPS,3),flush=True)
         start=time.monotonic()
-        made=generate(MODEL,reference=src,output=movie,prompt=prompt,
+        made=generate(MODEL,reference=src,output=raw_movie,prompt=prompt,
                       seed=202611120+number*31,host="http://127.0.0.1:8188",
-                      width=WIDTH,height=HEIGHT,frames=frames,steps=20,
+                      width=WIDTH,height=HEIGHT,frames=frames+4,steps=20,
                       timeout=10600,execute=True,accepted_license=True,client=client)
         if made.get("status")!="GENERATED_REVIEW_REQUIRED":
             raise RuntimeError("Wan2.2 did not create a genuine native I2V video for "+sid)
-        # SHA/ffprobe and every decoded RGB frame, not merely a successful model API call.
+        # The model's last 3 frames once developed neon stripes. Four spare
+        # frames are real model output; do not pad/freeze useful performance.
+        # Fail if ANY glitch occurs inside the actual user's performance window.
+        lineage=finalize(raw_movie,raw_movie.with_suffix(".receipt.json"),
+                         src,movie,frames)
         audit=inspect_clip(movie)
         if audit["status"]!="NO_NEON_ARTIFACT_FOUND" or audit["decoded_frames"]!=frames:
             raise RuntimeError("Temporal corrupt/stripe footage forbidden at "+sid+
@@ -160,6 +168,7 @@ def generate_clips(cfg,lock,client):
            "clip_sha256":sha(movie),"reference_sha256":sha(src),
            "motion_first_last_difference":round(change,4),
            "neon_artifact_qc":audit["status"],
+           "four_frame_source_buffer_provenance":lineage,
            "human_visual_reviewed":False}
         results[sid]=r
         (WORK/"EB01_V7_PROGRESS_PRIVATE.json").write_text(
