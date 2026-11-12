@@ -1,9 +1,12 @@
-name: TWO WORLDS V6 - repair ONLY Elizabeth with photographic SDXL finetune (private)
+name: EB01 V6 - private Elizabeth-only photographic repair (small payload)
 
 on:
   push:
-    branches: ["production/eb01-canon-first-v6-20261112"]
-    paths: ["ops/eb01_elizabeth_repair.trigger"]
+    branches:
+      - "fix/eb01-photo-upload-small-payload-20261112"
+      - "production/eb01-canon-first-v6-20261112"
+    paths:
+      - "ops/eb01_elizabeth_repair_v2.trigger"
 
 permissions:
   contents: read
@@ -13,149 +16,152 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  one_private_photoreal_elizabeth_only:
+  one_image_gpu_after_preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 80
+    timeout-minutes: 85
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
       KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
       SOURCE_KERNEL: wolf19loner92/eb01-v6-canon-adad762a9834
       SOURCE_NONCE: eb01canon-43158183875-1
-      RUN_NONCE: eb01photo-${{ github.run_id }}-${{ github.run_attempt }}
+      RUN_NONCE: eb01photo2-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Offline tests and official model repository/license preflight
+          python-version: "3.11"
+      - name: Run CPU tests before spending ANY Kaggle quota
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install -q -r requirements.txt 'kaggle>=2.2.4' 'six>=1.16,<2' 'huggingface_hub>=0.29'
-          python -m unittest tests.test_eb01_canon_kaggle \
-            tests.test_eb01_kostya_wan_preview tests.test_eb01_elizabeth_photoreal_repair -v
+          python -m unittest tests.test_eb01_elizabeth_photoreal_repair tests.test_eb01_canon_kaggle tests.test_eb01_kostya_wan_preview -v
+          python -m py_compile studio/eb01_elizabeth_photoreal_repair.py tools/kaggle_eb01_elizabeth_repair_entry.py
           python - <<'PY'
           from huggingface_hub import HfApi
-          model='RunDiffusion/Juggernaut-XL-v9'
-          info=HfApi().model_info(model,files_metadata=False)
-          files={x.rfilename for x in info.siblings}
-          assert 'model_index.json' in files
-          assert 'unet/diffusion_pytorch_model.fp16.safetensors' in files
-          assert 'text_encoder/model.fp16.safetensors' in files
-          assert info.cardData.get('license') == 'creativeml-openrail-m'
-          print('JUGGERNAUT_PHOTO_MODEL_SOURCE_AND_LICENSE_PREFLIGHT_PASS',info.sha)
+          model = "RunDiffusion/Juggernaut-XL-v9"
+          info = HfApi().model_info(model, files_metadata=False)
+          files = {f.rfilename for f in info.siblings}
+          assert "model_index.json" in files
+          assert "unet/diffusion_pytorch_model.fp16.safetensors" in files
+          assert info.cardData.get("license") == "creativeml-openrail-m"
+          print("OFFICIAL_PHOTOREAL_MODEL_LICENSE_PREFLIGHT_PASS", info.sha)
           PY
-      - name: Verify credentials and existing canonical skeleton (ZERO generation)
+      - name: Verify original Kostya from existing PRIVATE completed kernel
         shell: bash
         run: |
           set -euo pipefail
           test -n "$KAGGLE_API_TOKEN"
           python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
-          STATUS="$(kaggle kernels status "$SOURCE_KERNEL")"
-          echo "$STATUS" | grep -q 'KernelWorkerStatus.COMPLETE'
-          mkdir -p "$RUNNER_TEMP/old-canon-private"
-          kaggle kernels output "$SOURCE_KERNEL" \
-            -p "$RUNNER_TEMP/old-canon-private" --force
+          status="$(kaggle kernels status "$SOURCE_KERNEL")"
+          echo "$status" | grep -q 'KernelWorkerStatus.COMPLETE'
+          mkdir -p "$RUNNER_TEMP/original-private"
+          kaggle kernels output "$SOURCE_KERNEL" -p "$RUNNER_TEMP/original-private" --force
           python - <<'PY'
           import os
           from pathlib import Path
           from studio.eb01_elizabeth_photoreal_repair import original_kostya
-          path=Path(os.environ['RUNNER_TEMP'])/'old-canon-private'
-          source,sha=original_kostya(path,os.environ['SOURCE_NONCE'])
-          with open(os.environ['GITHUB_ENV'],'a') as f:
-              f.write('TW_CANON_ORIGINAL_KOSTYA_SHA='+sha+'\n')
-          print('REUSE_PREVIOUS_GOOD_SKELETON_EXACTLY',sha)
+          original, sha = original_kostya(
+              Path(os.environ["RUNNER_TEMP"])/"original-private",
+              os.environ["SOURCE_NONCE"])
+          assert len(original) > 100000
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write("TW_KOSTYA_SHA=" + sha + "\n")
+          print("SOURCE_KOSTYA_ALREADY_PRODUCED_SHA_PINNED", sha)
           PY
-      - name: Prepare exactly ONE new PRIVATE photoreal Elizabeth job
+      - name: Generate and gate small Kaggle notebook, NEVER embed old source PNG
         shell: bash
         run: |
           set -euo pipefail
           python -m studio.eb01_elizabeth_photoreal_repair prepare \
-            --username "$KAGGLE_USERNAME" \
-            --nonce "$RUN_NONCE" \
-            --source-output "$RUNNER_TEMP/old-canon-private" \
+            --username "$KAGGLE_USERNAME" --nonce "$RUN_NONCE" \
+            --source-output "$RUNNER_TEMP/original-private" \
             --source-nonce "$SOURCE_NONCE" \
-            --destination "$RUNNER_TEMP/photoreal-worker" \
-            > "$RUNNER_TEMP/photoreal-plan.json"
+            --destination "$RUNNER_TEMP/photo-worker" > "$RUNNER_TEMP/plan.json"
           python - <<'PY'
+          import json, os
           from pathlib import Path
-          import os,json
-          report=json.loads((Path(os.environ['RUNNER_TEMP'])/'photoreal-plan.json').read_text())
-          assert report['new_images']==1 and report['reused_good_existing_images']==1
-          assert not report['gpu_executed']
-          with open(os.environ['GITHUB_ENV'],'a') as f:
-              f.write('TW_PHOTO_KERNEL='+report['kernel']+'\n')
-          print('ONE_PHOTO_REPAIR_JOB_PREPARED',report['kernel'])
+          plan = json.loads((Path(os.environ["RUNNER_TEMP"])/"plan.json").read_text())
+          assert plan["new_images"] == 1
+          assert plan["reused_good_existing_images"] == 1
+          assert plan["binary_image_embedded_in_notebook"] is False
+          assert plan["submitted_notebook_bytes"] < 128000
+          assert plan["original_KOSTYA_sha256"] == os.environ["TW_KOSTYA_SHA"]
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write("TW_ELIZABETH_KERNEL=" + plan["kernel"] + "\n")
+          print("SMALL_PRIVATE_NOTEBOOK_ACCEPTED_BYTES", plan["submitted_notebook_bytes"])
           PY
-      - name: Submit one private T4 photo generation without touching Kostya
+      - name: Submit ONE bounded Elizabeth photo only (no retries, no video)
         shell: bash
         run: |
           set -euo pipefail
-          kaggle kernels push -p "$RUNNER_TEMP/photoreal-worker" \
+          kaggle kernels push -p "$RUNNER_TEMP/photo-worker" \
             --timeout 3600 --accelerator NvidiaTeslaT4
-      - name: Poll only this existing model generation, no blind retry
+      - name: Poll EXACTLY the submitted job (no restart)
         shell: bash
         run: |
           set -euo pipefail
           python -m studio.kaggle_api poll \
-            --kernel "$TW_PHOTO_KERNEL" --timeout 3400 --interval 80
-      - name: Download existing private canonical package (custom names)
+            --kernel "$TW_ELIZABETH_KERNEL" --timeout 3350 --interval 80
+      - name: Read original Elizabeth-only photo into ephemeral runner
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/repaired-private"
-          kaggle kernels output "$TW_PHOTO_KERNEL" \
-            -p "$RUNNER_TEMP/repaired-private" --force
-      - name: Verify byte-identical skeleton and repaired photo original
+          mkdir -p "$RUNNER_TEMP/private-elizabeth-output"
+          kaggle kernels output "$TW_ELIZABETH_KERNEL" \
+            -p "$RUNNER_TEMP/private-elizabeth-output" --force
+      - name: Validate original photo AND parent Kostya SHA, publish ONLY thumbnail
         shell: bash
         run: |
           set -euo pipefail
           python -m studio.eb01_elizabeth_photoreal_repair verify \
-            --path "$RUNNER_TEMP/repaired-private" --nonce "$RUN_NONCE" \
-            --parent-kostya-sha256 "$TW_CANON_ORIGINAL_KOSTYA_SHA"
-          mkdir -p "$RUNNER_TEMP/review-small-only"
+            --path "$RUNNER_TEMP/private-elizabeth-output" \
+            --nonce "$RUN_NONCE" \
+            --parent-kostya-sha256 "$TW_KOSTYA_SHA"
+          mkdir -p "$RUNNER_TEMP/small-review"
           python - <<'PY'
-          import os,json,shutil
+          import os, json, shutil
           from pathlib import Path
-          root=Path(os.environ["RUNNER_TEMP"])/"repaired-private"
-          output=Path(os.environ["RUNNER_TEMP"])/"review-small-only"
-          j=list(root.rglob("EB01_CANON_JOB.json"))
-          p=list(root.rglob("EB01_CANON_REVIEW_CONTACT.jpg"))
-          assert len(j)==1 and len(p)==1
-          data=json.loads(j[0].read_text())
-          assert data["success"] and not data["full_video_allowed"]
-          shutil.copy2(p[0],output/"EB01_REAL_PHOTO_ELIZABETH_CANON_REVIEW_ONLY.jpg")
-          result={
-            "status":"ELIZABETH_PHOTO_REVIEW_REQUIRED",
-            "private_kaggle_kernel":os.environ["TW_PHOTO_KERNEL"],
-            "KOSTYA_sha256":data["generated_images"]["KOSTYA"]["sha256"],
-            "ELIZABETH_sha256":data["generated_images"]["ELIZABETH"]["sha256"],
-            "KOSTYA_reused_byte_identical":True,
-            "ELIZABETH_model":data["generated_images"]["ELIZABETH"]["model"],
-            "original_PNGs_in_public_GitHub":False,
-            "human_visual_reviewed":False,
-            "full_video_ready":False,"published":False}
-          (output/"EB01_PHOTOREAL_REPAIR_REVIEW.json").write_text(json.dumps(result,indent=2))
-          print("REAL_PHOTO_CANDIDATE_GATED_FOR_REVIEW",result["ELIZABETH_sha256"])
+          root = Path(os.environ["RUNNER_TEMP"])/"private-elizabeth-output"
+          destination = Path(os.environ["RUNNER_TEMP"])/"small-review"
+          photos = list(root.rglob("EB01_ELIZABETH_REVIEW_LOW_RES.jpg"))
+          receipts = list(root.rglob("EB01_ELIZABETH_REPAIR_JOB.json"))
+          assert len(photos) == 1 and len(receipts) == 1
+          receipt = json.loads(receipts[0].read_text())
+          assert receipt["success"] and receipt["human_visual_review"] is False
+          shutil.copy2(photos[0], destination/"EB01_ELIZABETH_PHOTO_CANDIDATE_REVIEW.jpg")
+          info = {
+              "status": "PHOTO_REAL_CANDIDATE_NEEDS_PERSONAL_VISUAL_REVIEW",
+              "source": os.environ["TW_ELIZABETH_KERNEL"],
+              "model": receipt["model"],
+              "original_KOSTYA_SHA256": receipt["parent_KOSTYA_sha256"],
+              "ELIZABETH_SHA256": receipt["generated_images"]["ELIZABETH"]["sha256"],
+              "only_one_new_image": True,
+              "full_episode_allowed": False, "published": False
+          }
+          (destination/"EB01_ELIZABETH_PHOTO_PROVENANCE.json").write_text(
+              json.dumps(info, indent=2))
+          print("REAL_PRIVATE_SINGLE_IMAGE_QA_PASS", info["ELIZABETH_SHA256"])
           PY
-      - name: Share ONLY small review contact, not full source images
+      - name: Deliver only small review photo; never publish original PNG
         uses: actions/upload-artifact@v4
         with:
-          name: EB01_V6_ELIZABETH_PHOTOREAL_REPAIR_REVIEW_ONLY
-          path: ${{ runner.temp }}/review-small-only/*
+          name: EB01_ELIZABETH_PHOTOREAL_V2_LOW_RES_UNAPPROVED
+          path: ${{ runner.temp }}/small-review/*
           if-no-files-found: error
           retention-days: 7
-      - name: On failure inspect same private job status but never GPU retry
+      - name: Diagnose status without any GPU retry
         if: failure()
         shell: bash
         run: |
-          if [[ -n "${TW_PHOTO_KERNEL:-}" ]]; then
-            kaggle kernels status "$TW_PHOTO_KERNEL" || true
+          if [[ -n "${TW_ELIZABETH_KERNEL:-}" ]]; then
+            kaggle kernels status "$TW_ELIZABETH_KERNEL" || true
           fi
-          echo "::notice::No automatic re-generation, no photo committed to public Git."
-      - name: Wipe original private media from temporary GitHub runner
+          echo "::notice::No GPU retry. Investigate original failure log before more work."
+      - name: Clean all original image bytes from runner
         if: always()
+        shell: bash
         run: |
-          rm -rf "$RUNNER_TEMP/old-canon-private" "$RUNNER_TEMP/photoreal-worker" \
-            "$RUNNER_TEMP/repaired-private" "$RUNNER_TEMP/review-small-only" \
-            "$RUNNER_TEMP/photoreal-plan.json"
+          rm -rf "$RUNNER_TEMP/original-private" "$RUNNER_TEMP/photo-worker" \
+            "$RUNNER_TEMP/private-elizabeth-output" "$RUNNER_TEMP/small-review" \
+            "$RUNNER_TEMP/plan.json"
