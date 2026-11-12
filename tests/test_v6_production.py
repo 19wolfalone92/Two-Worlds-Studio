@@ -72,6 +72,17 @@ class V6IdentityFirstTests(unittest.TestCase):
     def write_review(self):
         self.review.write_text(json.dumps(self.review_data, ensure_ascii=False), encoding="utf-8")
 
+    def test_contact_sheet_contains_both_canon_and_all_seven_scenes(self):
+        from studio.v6_art import contact_sheet
+        result = contact_sheet(self.project, self.root, "private-review.jpg")
+        self.assertEqual(result["characters"], 2)
+        self.assertEqual(result["scenes"], 7)
+        self.assertFalse(result["visual_approval"])
+        self.assertFalse(result["gpu_executed"])
+        self.assertTrue((self.root / "private-review.jpg").is_file())
+        with self.assertRaisesRegex(ProductionBlocked, "overwrite"):
+            contact_sheet(self.project, self.root, "private-review.jpg")
+
     def test_plan_records_no_gpu_and_full_six_lines(self):
         x = plan(self.project)
         self.assertEqual(x["status"], "PLAN_ONLY_NO_GPU")
