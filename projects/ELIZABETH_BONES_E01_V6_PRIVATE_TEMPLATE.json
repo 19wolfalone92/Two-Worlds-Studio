@@ -6,11 +6,13 @@
   "references": {
     "elizabeth": {
       "image": "canon/elizabeth.png",
-      "sha256": "PASTE_APPROVED_SHA256_OF_ELIZABETH"
+      "sha256": "PASTE_APPROVED_SHA256_OF_ELIZABETH",
+      "notes": "New photoreal canon only: long brown wavy hair, black long-sleeved lace blouse, realistic adult human face and natural skin; original cartoon image in red blazer is REJECTED."
     },
     "kostya": {
       "image": "canon/kostya.png",
-      "sha256": "PASTE_APPROVED_SHA256_OF_KOSTYA"
+      "sha256": "PASTE_APPROVED_SHA256_OF_KOSTYA",
+      "notes": "Actual private SDXL canon: ivory full skeletal skull and hands, matte black 3-piece suit with BLACK BOW TIE, bare skull NO hat, ornate dark red antique chair, warm walnut wood study. Preserve exact source PNG SHA-256; no fedora or burgundy tie."
     }
   },
   "shots": [
@@ -24,7 +26,7 @@
       "image_sha256": "LOCK_AFTER_IMAGE_REVIEW",
       "duration": 2,
       "caption": "",
-      "motion_prompt": "Cinematic over-the-shoulder entrance. Both characters breathe naturally; Elizabeth turns toward the guest and Kostya the anatomical skeleton sits opposite her, keeping his bones and black suit unchanged."
+      "motion_prompt": "Cinematic over-the-shoulder entrance. Both characters breathe naturally; Elizabeth turns toward the guest and Kostya the anatomical skeleton sits opposite her, keeping his bones and black suit unchanged. Kostya has a black bow tie, bare ivory skull with no hat. Elisabeth should be photorealistic, wearing matte black lace; no cartoon or red jacket."
     },
     {
       "id": "S01",
@@ -50,7 +52,7 @@
       "caption": "Константин Мортисович Костин. Для друзей — Костя.",
       "voice": "voice/S02.wav",
       "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
-      "motion_prompt": "An anatomically correct IVORY SKELETON Kostya wearing an unchanged black three-piece suit, burgundy tie and black fedora. He speaks with measured coherent jaw motion and natural slight neck and shoulder movement. NEVER human skin or flesh."
+      "motion_prompt": "An anatomically correct IVORY SKELETON Kostya wearing an unchanged black three-piece suit, black bow tie and bare skull, NO hat, seated in antique red upholstered chair. He speaks with measured coherent jaw motion and natural slight neck and shoulder movement. NEVER human skin or flesh."
     },
     {
       "id": "S03",
@@ -102,7 +104,7 @@
       "caption": "На испытательном. Уже три века.",
       "voice": "voice/S06.wav",
       "voice_sha256": "LOCK_REAL_RU_AUDIO_SHA256",
-      "motion_prompt": "Kostya is an exposed ivory-bone human skeleton only, not a living man. His lower jaw opens for speech, head turns very slightly, shoulders shift and his bony hand adjusts his fedora. Do not alter black suit or his skull."
+      "motion_prompt": "Kostya is an exposed ivory-bone human skeleton only, not a living man. His lower jaw opens for speech, head turns very slightly, shoulders shift and his bony hand makes a subtle natural gesture with his bony fingers near the chair arm. Do not alter black suit or his skull."
     }
   ]
 }
