@@ -32,8 +32,8 @@ jobs:
           set -euo pipefail
           python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3'
           python -m unittest tests.test_eb01_v7_storyboard -v
-          python -m unittest tests.test_v6_production tests.test_eb01_motion_artifact_gate -v
-          python -m py_compile tools/kaggle_eb01_v7_full_entry.py studio/eb01_v7_storyboard.py
+          python -m unittest tests.test_v6_production tests.test_eb01_motion_artifact_gate tests.test_eb01_v7_motion_buffer -v
+          python -m py_compile tools/kaggle_eb01_v7_full_entry.py studio/eb01_v7_storyboard.py studio/eb01_v7_motion_buffer.py
           python - <<'PY'
           from pathlib import Path
           import importlib.util
@@ -46,6 +46,7 @@ jobs:
           assert {s[0] for s in SHOTS}==set(module.REVIEWED_SOURCE_SHA)
           assert "studio.hybrid_master import produce" in Path(path).read_text()
           assert "human_dialogue_lipsync_approved" in Path(path).read_text()
+          assert "four_frame_source_buffer_provenance" in Path(path).read_text()
           assert "invideo_used" in Path(path).read_text()
           print("ONE_AUTHORIZED_FULL_REAL_I2V_JOB_PASS_7_NATIVE_SHOTS_6_SPEECH")
           PY
