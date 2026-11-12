@@ -38,6 +38,13 @@ def inspect(root: Path = ROOT) -> dict:
                 names = [node.module or ""]
                 if node.module == "studio":
                     names += ["studio." + alias.name for alias in node.names]
+                # .music_score and .ambient_sound are REAL internal callers.
+                # Treating them as unreferenced would lead to destructive pruning.
+                if node.level and p.parent == studio:
+                    if node.level == 1 and node.module:
+                        names.append("studio." + node.module)
+                    if node.level == 1 and not node.module:
+                        names += ["studio." + alias.name for alias in node.names]
             else:
                 continue
             for name in names:
