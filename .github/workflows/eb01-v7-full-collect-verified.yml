@@ -1,0 +1,139 @@
+name: EB01 V7 - collect one PRIVATE completed REAL 7-shot film (ZERO GPU)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_full_collect.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  read_only_review_collector:
+    runs-on: ubuntu-latest
+    timeout-minutes: 26
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install read-only private Kaggle and CPU validation tools
+        run: |
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
+      - name: Identify specifically named PRIVATE original full job, no GPU trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f ops/eb01_v7_full_collect.trigger
+          SOURCE="$(sed -n 's/^kernel: //p' ops/eb01_v7_full_collect.trigger)"
+          [[ "$SOURCE" =~ ^wolf19loner92/eb01-v7-native-full-[0-9a-f]{12}$ ]] || exit 2
+          echo "TW_REAL_FULL_KERNEL=$SOURCE" >> "$GITHUB_ENV"
+          STATUS="$(kaggle kernels status "$SOURCE")"
+          echo "$STATUS"
+          echo "$STATUS" | grep -q "KernelWorkerStatus.COMPLETE"
+      - name: Download existing PRIVATE complete movie review, never re-run inference
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eb01-v7-private-gpu-output"
+          kaggle kernels output "$TW_REAL_FULL_KERNEL" \
+            -p "$RUNNER_TEMP/eb01-v7-private-gpu-output" --force
+      - name: Independently verify true native E01 MP4/SRT/7 I2V clips/6 voices
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eb01-v7-ready-for-owner"
+          python - <<'PY'
+          import os,json,hashlib,subprocess,shutil
+          from pathlib import Path
+          from studio.eb01_v7_storyboard import DIALOGUES,SHOTS,SRC_SHA,VOICE_SHA
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-v7-private-gpu-output"
+          out=Path(os.environ["RUNNER_TEMP"])/"eb01-v7-ready-for-owner"
+          movie_name="EB01_V7_ELIZABETH_BONES_SOBESEDOVANIE_REAL_NATIVE_REVIEW.mp4"
+          movies=list(root.rglob(movie_name))
+          qa=list(root.rglob("EB01_V7_CREATIVE_REVIEW_REQUIRED.json"))
+          jobs=list(root.rglob("EB01_V7_PRODUCTION_JOB.json"))
+          if len(movies)!=1 or len(qa)!=1 or len(jobs)!=1:
+              raise RuntimeError("Missing completed model-produced full MP4+QA+source receipt")
+          movie=movies[0]
+          report=json.loads(qa[0].read_text())
+          receipt=json.loads(jobs[0].read_text())
+          sha=hashlib.sha256(movie.read_bytes()).hexdigest()
+          if not (
+              receipt.get("success") is True
+              and receipt.get("full_mp4_sha256")==sha
+              and receipt.get("human_approved") is False
+              and report.get("source_model")=="wan22-5b"
+              and report.get("native_studio")=="studio.hybrid_master.produce"
+              and report.get("invideo_used") is False
+              and report.get("real_I2V_shots")==7
+              and report.get("russian_voice_lines")==6
+              and report.get("subtitles")==6
+              and report.get("full_film_sha256")==sha
+              and report.get("source_private_canon_sha256")==SRC_SHA
+              and len(report.get("sources",{}))==7
+              and report.get("published") is False
+          ):
+              raise ValueError("Full original source/model/voice provenance not verified")
+          for sid,*_ in SHOTS:
+              item=report["sources"][sid]
+              match=list(root.rglob(sid+".mp4"))
+              if len(match)!=1:
+                  raise FileNotFoundError("Missing actual Wan video: "+sid)
+              if hashlib.sha256(match[0].read_bytes()).hexdigest()!=item["clip_sha256"]:
+                  raise ValueError("Real Wan clip SHA changed "+sid)
+              if item.get("decoded_native_frames")!=item.get("requested_native_frames"):
+                  raise ValueError("Native motion truncated "+sid)
+              if item.get("neon_artifact_qc")!="NO_NEON_ARTIFACT_FOUND":
+                  raise ValueError("Video color glitch: "+sid)
+          srt=movie.with_suffix(".srt")
+          subs=srt.read_text(encoding="utf-8")
+          if subs.count("-->")!=6 or any(x not in subs for x in DIALOGUES.values()):
+              raise ValueError("Six original Russian dialogue SRT cues missing")
+          probe=subprocess.run([
+              "ffprobe","-v","error","-count_frames","-show_entries",
+              "format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate,nb_read_frames",
+              "-of","json",str(movie)],capture_output=True,text=True,check=True)
+          meta=json.loads(probe.stdout)
+          streams=meta.get("streams",[])
+          video=[s for s in streams if s.get("codec_type")=="video"]
+          audio=[s for s in streams if s.get("codec_type")=="audio"]
+          duration=float(meta["format"]["duration"])
+          if (len(video)!=1 or len(audio)!=1 or video[0].get("width")!=576
+                  or video[0].get("height")!=1024 or video[0].get("avg_frame_rate")!="24/1"
+                  or not 20<=duration<=29):
+              raise ValueError("Full movie codec geometry audio or clock incorrect")
+          subprocess.run(["ffmpeg","-hide_banner","-nostdin","-v","error","-xerror",
+                          "-i",str(movie),"-f","null","-"],timeout=270,check=True)
+          shutil.copy2(movie,out/movie.name)
+          shutil.copy2(srt,out/srt.name)
+          audit={
+            "status":"REAL_SEVEN_SHOT_FILM_TECHNICALLY_VERIFIED_HUMAN_REVIEW_PENDING",
+            "source_kaggle_private":os.environ["TW_REAL_FULL_KERNEL"],
+            "full_movie_sha256":sha,
+            "duration_seconds":duration,"video_stream":video[0],
+            "audio_stream":audio[0],
+            "model":"Wan2.2 TI2V-5B via ComfyUI",
+            "editor":"studio.hybrid_master.produce",
+            "real_neural_video_clips":7,"original_russian_Qwen_lines":6,
+            "srt_cues":6,"no_invideo":True,
+            "original_portraits_or_WAV_in_GitHub_artifact":False,
+            "human_artistic_review_complete":False,
+            "published":False
+          }
+          (out/"EB01_V7_OWNER_REVIEW_QA.json").write_text(
+              json.dumps(audit,ensure_ascii=False,indent=2))
+          print("EB01_V7_REAL_OWNER_REVIEW_AVAILABLE",movie.name,sha,duration)
+          PY
+      - name: Private-source-safe MP4 + SRT review download (never original artwork)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_V7_REAL_FULL_7_NEURAL_CLIPS_6_RUSSIAN_VOICES_OWNER_REVIEW
+          path: ${{ runner.temp }}/eb01-v7-ready-for-owner/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Delete private GPU output from temporary runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-v7-private-gpu-output" "$RUNNER_TEMP/eb01-v7-ready-for-owner"
