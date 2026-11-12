@@ -3,7 +3,7 @@ name: EB01 V7 - PRE-GPU immutable character SHA and native Wan/Qwen contract (CP
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_ffmpeg_strict_preflight.trigger"]
+    paths: ["ops/eb01_v7_ffmpeg_true_dimensions_preflight.trigger"]
 
 permissions:
   contents: read
