@@ -1,5 +1,7 @@
 """Offline V6 tests: structural/video gate failures, never fake a completed film."""
 import json
+import sys
+import types
 import tempfile
 import unittest
 from pathlib import Path
@@ -165,8 +167,10 @@ class V6IdentityFirstTests(unittest.TestCase):
             output.write_bytes(b"fake-final-orchestration-only-not-a-video")
             return {"shots": 7, "static_camera_shots": 0, "motion_clips": 7}
 
+        fake_module = types.ModuleType("studio.hybrid_master")
+        fake_module.produce = fake_native
         with patch("studio.v6_production.check_clip", side_effect=verified_clip):
-            with patch("studio.hybrid_master.produce", side_effect=fake_native):
+            with patch.dict(sys.modules, {"studio.hybrid_master": fake_module}):
                 result = render(self.project, self.review, self.takes, self.root, "review.mp4")
         self.assertEqual(result["status"], "RENDERED_REVIEW_ONLY")
         self.assertFalse(result["human_final_watch_passed"])
