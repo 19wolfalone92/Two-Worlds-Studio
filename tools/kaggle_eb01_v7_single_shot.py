@@ -106,8 +106,12 @@ def generate_one(cfg,store,lock):
         print("EB01_V7_SINGLE_NATIVE_I2V_INFERENCE_START",sid,who,
               "raw_frames",frames+4,"kept_frames",frames,flush=True)
         start=time.monotonic()
+        # This is a separately reviewed recovery, not deterministic replay
+        # of the same 129-frame failed candidate. One new seed only.
+        chosen_seed=(202611130+int(sid[1:])*31
+                     if sid=="S02" else 202611120+int(sid[1:])*31)
         made=generate(full.MODEL,reference=path,output=raw,prompt=prompt,
-                      seed=202611120+int(sid[1:])*31,
+                      seed=chosen_seed,
                       host="http://127.0.0.1:8188",
                       width=WIDTH,height=HEIGHT,frames=frames+4,
                       steps=20,timeout=10600,execute=True,
@@ -181,6 +185,7 @@ def generate_one(cfg,store,lock):
             "duration_seconds":frames/FPS,
             "native_original_source_provenance":lineage,
             "original_raw_private_checkpoint":original,
+            "inference_seed":chosen_seed,
             "motion_first_last_mean_difference":motion,
             "temporal_rgb_artifact_gate":qc["status"],
             "seconds_elapsed":round(time.monotonic()-start,2),
