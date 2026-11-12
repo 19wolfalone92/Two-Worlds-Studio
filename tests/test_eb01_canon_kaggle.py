@@ -34,7 +34,7 @@ class EB01CanonPrivateTests(unittest.TestCase):
                     "sha256":hashlib.sha256(data).hexdigest(),"size":len(data),
                     "width":704,"height":1216,"art_reviewed":False}
         preview=self.root/CONTACT
-        Image.new("RGB",(484,483),"#7f654b").save(preview,quality=80)
+        Image.effect_noise((484,483),45).convert("RGB").save(preview,quality=80)
         receipt={
             "success":True,"nonce":self.nonce,"model":MODEL,
             "private":True,"gpu_inference_performed":True,
