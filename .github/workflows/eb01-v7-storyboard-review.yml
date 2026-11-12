@@ -3,7 +3,7 @@ name: EB01 V7 - seven consistent shot contact sheet (CPU NO GPU)
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_storyboard_v2.trigger"]
+    paths: ["ops/eb01_v7_storyboard_v3.trigger"]
 
 permissions:
   contents: read
@@ -26,6 +26,13 @@ jobs:
           python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
           python -m unittest tests.test_eb01_v7_storyboard -v
           python -m py_compile studio/eb01_v7_storyboard.py tools/kaggle_eb01_v7_storyboard_entry.py
+          python - <<'PY'
+          from pathlib import Path
+          src=Path("studio/eb01_v7_storyboard.py").read_text()
+          entry=Path("tools/kaggle_eb01_v7_storyboard_entry.py").read_text()
+          compile(src+"\n"+entry,"kernel_main.py","exec")
+          print("KAGGLE_APPENDED_WORKER_SYNTAX_OK")
+          PY
       - name: Prepare one PRIVATE zero-GPU source-contact notebook
         shell: bash
         run: |
@@ -91,6 +98,7 @@ jobs:
             mkdir -p "$RUNNER_TEMP/eb01-v7-contact-only"
             kaggle kernels output "$V7_STORYBOARD_KERNEL" -p "$RUNNER_TEMP/eb01-v7-contact-only" --force || true
             cat "$RUNNER_TEMP/eb01-v7-contact-only/EB01_V7_FRAMES_RECEIPT.json" || true
+            tail -n 45 "$RUNNER_TEMP/eb01-v7-contact-only/"*.log || true
           fi
       - name: Wipe runner temporary paths
         if: always()
