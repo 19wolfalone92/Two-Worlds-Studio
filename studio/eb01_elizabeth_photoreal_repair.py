@@ -61,7 +61,7 @@ def prepare(username: str, nonce: str, previous_folder: Path,
         "schema": 2, "nonce": nonce, "model": MODEL,
         "source_revision": os.environ.get("GITHUB_SHA", "local-test-revision"),
         "parent_source_kernel": PARENT_KERNEL,
-        "parent_KOSTYA_sha256": sha, "elizabeth_seed": 820261112,
+        "parent_KOSTYA_sha256": sha, "elizabeth_seed": 820261113,
         "reused_kostya": True, "max_new_images": 1,
         "allow_video": False, "private": True
     }
