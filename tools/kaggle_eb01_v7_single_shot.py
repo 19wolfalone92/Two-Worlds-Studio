@@ -78,7 +78,10 @@ def generate_one(cfg,store,lock):
     from tools import kaggle_eb01_v7_full_entry as full
     from studio.eb01_v7_storyboard import SHOTS,WIDTH,HEIGHT,FPS,sha
     from studio.eb01_motion_artifact_gate import inspect_clip
-    from studio.eb01_v7_motion_buffer import finalize
+    from studio.eb01_v7_motion_buffer import finalize, MotionBufferRejected
+    from studio.eb01_v7_private_checkpoint import (
+        checkpoint_raw, mark_quarantined, selected_contact_sheet
+    )
     from studio.comfy_neural import generate
     import torch
 
@@ -111,7 +114,46 @@ def generate_one(cfg,store,lock):
                       accepted_license=True,client=client)
         if made.get("status")!="GENERATED_REVIEW_REQUIRED":
             raise RuntimeError("No real native Wan inference returned for "+sid)
-        lineage=finalize(raw,raw.with_suffix(".receipt.json"),path,final,frames)
+        # CRITICAL: genuine Wan source and original model provenance MUST survive
+        # any artistic/temporal QC rejection or Kaggle worker termination.
+        # Old S02 rendered 129 frames but lost the private MP4 after QC failed
+        # because the raw file remained only under /kaggle/temp.
+        original=checkpoint_raw(
+            raw, raw.with_suffix(".receipt.json"), path, WORK, sid, frames
+        )
+        print("EB01_REAL_WAN_ORIGINAL_SAVED_PRIVATE_BEFORE_QC",sid,
+              original["original_mp4_sha256"],flush=True)
+        try:
+            lineage=finalize(raw,raw.with_suffix(".receipt.json"),path,final,frames)
+        except MotionBufferRejected as failure:
+            # Bright saturated pixels may be intentional lighting, so the
+            # heuristic is a REVIEW FLAG, not proof of corrupt cinema.
+            # Never silently approve; preserve RAW bytes + contact frame JPG.
+            try:
+                scan=inspect_clip(raw)
+                flagged=scan.get("flagged_frames",[])
+                inspection={
+                    "status":scan.get("status"),
+                    "flagged_frames":flagged,
+                    "threshold":scan.get("threshold"),
+                    "frame_saturation_trace":scan.get("frame_saturation_trace",[]),
+                }
+                mark_quarantined(WORK,sid,str(failure),inspection=inspection)
+                if flagged:
+                    chosen=sorted(set([0,1,10,max(0,flagged[0]-1)] +
+                                      flagged[:14] + [min(frames+3,flagged[-1]+1)]))
+                    chosen=chosen[:20]
+                    selected_contact_sheet(
+                        WORK/(sid+".original_wan_raw.mp4"),
+                        WORK/(sid+".LOW_RES_FRAME_REVIEW_ONLY.jpg"),chosen
+                    )
+            except Exception as review_failure:
+                print("EB01_PRIVATE_CONTACT_REVIEW_ERROR_NONFATAL",
+                      type(review_failure).__name__,
+                      str(review_failure)[:180],flush=True)
+            print("EB01_RAW_PERSISTED_BUT_ARTISTICALLY_QUARANTINED",sid,
+                  str(failure)[:350],flush=True)
+            raise
         qc=inspect_clip(final)
         if qc["status"]!="NO_NEON_ARTIFACT_FOUND" or qc["decoded_frames"]!=frames:
             raise RuntimeError("Model video contains bad/interrupted RGB frames")
@@ -138,6 +180,7 @@ def generate_one(cfg,store,lock):
             "width":WIDTH,"height":HEIGHT,
             "duration_seconds":frames/FPS,
             "native_original_source_provenance":lineage,
+            "original_raw_private_checkpoint":original,
             "motion_first_last_mean_difference":motion,
             "temporal_rgb_artifact_gate":qc["status"],
             "seconds_elapsed":round(time.monotonic()-start,2),
