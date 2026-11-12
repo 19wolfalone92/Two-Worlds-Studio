@@ -5,14 +5,18 @@ on:
     branches: ["production/eb01-canon-first-v6-20261112"]
     paths:
       - "studio/eb01_canon_kaggle.py"
+      - "studio/eb01_kostya_wan_preview.py"
       - "tools/kaggle_eb01_canon_entry.py"
       - "tests/test_eb01_canon_kaggle.py"
+      - "tests/test_eb01_kostya_wan_preview.py"
       - ".github/workflows/eb01-canon-offline.yml"
   pull_request:
     paths:
       - "studio/eb01_canon_kaggle.py"
+      - "studio/eb01_kostya_wan_preview.py"
       - "tools/kaggle_eb01_canon_entry.py"
       - "tests/test_eb01_canon_kaggle.py"
+      - "tests/test_eb01_kostya_wan_preview.py"
       - ".github/workflows/eb01-canon-offline.yml"
 
 permissions:
@@ -28,6 +32,6 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -q 'Pillow>=10,<12'
-      - run: python -m unittest tests.test_eb01_canon_kaggle -v
-      - run: python -m py_compile studio/eb01_canon_kaggle.py tools/kaggle_eb01_canon_entry.py
+      - run: python -m unittest tests.test_eb01_canon_kaggle tests.test_eb01_kostya_wan_preview -v
+      - run: python -m py_compile studio/eb01_canon_kaggle.py studio/eb01_kostya_wan_preview.py tools/kaggle_eb01_canon_entry.py
       - run: echo "Offline only; private image sources never leave Kaggle; zero GPU used."
