@@ -1,0 +1,40 @@
+name: EB01 S02 - test raw Wan preservation before QC (CPU ONLY)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_s02_checkpoint_cpu_preflight.trigger"]
+permissions:
+  contents: read
+jobs:
+  verify_no_model_quota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install FFmpeg to prevent skipped media tests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          command -v ffprobe
+          command -v ffmpeg
+      - name: CPU-only SHA/provenance, genuine-source preservation and regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'Pillow>=10,<12' 'numpy>=1.26,<3'
+          python -m unittest tests.test_eb01_v7_private_checkpoint -v
+          python -m unittest tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_real_sha_contract -v
+          python -m unittest tests.test_eb01_motion_artifact_gate tests.test_eb01_v7_motion_buffer -v
+          python -m py_compile tools/kaggle_eb01_v7_single_shot.py studio/eb01_v7_private_checkpoint.py
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('tools/kaggle_eb01_v7_single_shot.py').read_text()
+          assert src.index('checkpoint_raw(')<src.index('lineage=finalize('), 'Raw must be persisted before QC'
+          assert 'mark_quarantined(' in src and 'selected_contact_sheet(' in src
+          assert 'original_wan_raw.checkpoint.json' in src
+          assert 'REAL_GPU_VIDEO_PRESERVED_BUT_VISUAL_QA_FAILED' in src
+          print('NO_GPU_RAW_PERSISTENCE_AND_QA_QUARANTINE_VERIFIED')
+          PY
