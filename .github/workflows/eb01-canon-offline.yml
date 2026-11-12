@@ -1,0 +1,33 @@
+name: EB01 V6 - zero-GPU canonical source privacy tests
+
+on:
+  push:
+    branches: ["production/eb01-canon-first-v6-20261112"]
+    paths:
+      - "studio/eb01_canon_kaggle.py"
+      - "tools/kaggle_eb01_canon_entry.py"
+      - "tests/test_eb01_canon_kaggle.py"
+      - ".github/workflows/eb01-canon-offline.yml"
+  pull_request:
+    paths:
+      - "studio/eb01_canon_kaggle.py"
+      - "tools/kaggle_eb01_canon_entry.py"
+      - "tests/test_eb01_canon_kaggle.py"
+      - ".github/workflows/eb01-canon-offline.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  private-canon-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install -q 'Pillow>=10,<12'
+      - run: python -m unittest tests.test_eb01_canon_kaggle -v
+      - run: python -m py_compile studio/eb01_canon_kaggle.py tools/kaggle_eb01_canon_entry.py
+      - run: echo "Offline only; private image sources never leave Kaggle; zero GPU used."
