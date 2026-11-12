@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3'
           python -m unittest tests.test_eb01_v7_storyboard -v
-          python -m unittest tests.test_v6_production tests.test_eb01_motion_artifact_gate tests.test_eb01_v7_motion_buffer -v
+          python -m unittest tests.test_v6_production tests.test_eb01_motion_artifact_gate tests.test_eb01_v7_motion_buffer tests.test_eb01_v7_real_sha_contract -v
           python -m py_compile tools/kaggle_eb01_v7_full_entry.py studio/eb01_v7_storyboard.py studio/eb01_v7_motion_buffer.py
           python - <<'PY'
           from pathlib import Path
