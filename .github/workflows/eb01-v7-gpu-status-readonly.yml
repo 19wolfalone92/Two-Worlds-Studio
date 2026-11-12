@@ -1,0 +1,70 @@
+name: EB01 V7 - private GPU progress check (READ ONLY, ZERO GPU)
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_status_poll.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  check_private_original_job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL: wolf19loner92/eb01-v7-native-full-fe529cb849ea
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Kaggle CLI only
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Check original worker state and read existing receipts only, no submit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          kaggle kernels status "$KERNEL" | tee "$RUNNER_TEMP/status.txt"
+          mkdir -p "$RUNNER_TEMP/eb01-readonly"
+          kaggle kernels output "$KERNEL" -p "$RUNNER_TEMP/eb01-readonly" --force || true
+          python - <<'PY'
+          import os,json,hashlib
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-readonly"
+          status=(Path(os.environ["RUNNER_TEMP"])/"status.txt").read_text()
+          report={"schema":7,"kernel":os.environ["KERNEL"],"gpu_restarted":False,
+                  "private_media_public":False,"complete":False,
+                  "kernel_status":status.strip(),"files":[],
+                  "receipts":{}}
+          names=("EB01_V7_PROGRESS_PRIVATE.json",
+                 "EB01_V7_PRODUCTION_JOB.json",
+                 "EB01_V7_CREATIVE_REVIEW_REQUIRED.json")
+          for name in names:
+              matches=list(root.rglob(name))
+              if len(matches)==1 and matches[0].stat().st_size<100000:
+                  raw=json.loads(matches[0].read_text())
+                  if name.endswith("PROGRESS_PRIVATE.json"):
+                      raw={"status":raw.get("status"),
+                           "completed_ids":list(raw.get("completed_shots",{}))}
+                  report["receipts"][name]=raw
+          for p in sorted(root.rglob("*")):
+              if p.is_file() and (p.suffix==".mp4" or p.name in names):
+                  report["files"].append({
+                    "name":p.name,"size":p.stat().st_size,
+                    "sha256":hashlib.sha256(p.read_bytes()).hexdigest() if p.stat().st_size<200*1024*1024 else None})
+          report["complete"]="KernelWorkerStatus.COMPLETE" in status
+          Path("status_review.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+          print("EB01_V7_STATUS_REPORT",json.dumps(report,ensure_ascii=False)[:7500])
+          PY
+      - name: Upload only metadata, not private art or voice/film
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_V7_CURRENT_GPU_STATE_METADATA_ONLY
+          path: status_review.json
+          retention-days: 5
+          if-no-files-found: error
+      - name: Erase private data from temporary worker
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-readonly" "$RUNNER_TEMP/status.txt"
