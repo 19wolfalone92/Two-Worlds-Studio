@@ -1,0 +1,49 @@
+name: EB01 V7 - PRE-GPU immutable character SHA and native Wan/Qwen contract (CPU)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_corrected_preflight.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  test_complete_zero_gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU dependencies, without model weights or proprietary assets
+        run: python -m pip install -q 'Pillow>=10,<12' 'numpy>=1.26,<3'
+      - name: Exact 7 independent image SHA receipts, six voice files, all native 7 shots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_eb01_v7_real_sha_contract -v
+          python -m unittest tests.test_eb01_v7_storyboard tests.test_eb01_v7_motion_buffer tests.test_eb01_motion_artifact_gate -v
+          python -m py_compile tools/kaggle_eb01_v7_full_entry.py studio/eb01_v7_motion_buffer.py studio/eb01_v7_storyboard.py
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          from studio.eb01_v7_storyboard import SHOTS,SRC_SHA,VOICE_SHA
+          from studio.comfy_neural import wan22_workflow
+          name="tools/kaggle_eb01_v7_full_entry.py"
+          spec=importlib.util.spec_from_file_location("worker",name)
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          assert list(module.REVIEWED_SOURCE_SHA)==[x[0] for x in SHOTS]
+          for number,(sid,who,frames,seconds,_,__,___,prompt) in enumerate(SHOTS):
+              workflow=wan22_workflow(sid+".png",prompt,202611120+number*31,
+                                     width=320,height=576,frames=frames+4,steps=20)
+              assert workflow["55"]["inputs"]["length"]==frames+4
+              assert 9<=frames+4<=241
+              assert frames/24>=seconds
+          assert len(VOICE_SHA)==6
+          assert len(SRC_SHA)==2
+          assert "git fetch" not in Path(name).read_text() or "cfg[\"revision\"]" in Path(name).read_text()
+          print("V7_ALL_CPU_PRE_GPU_SOURCE_LOCKS_PASS")
+          PY
