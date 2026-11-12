@@ -1,0 +1,13 @@
+authorized_by_user: full_real_Elizabeth_Bones_E01
+premise: 7 human-reviewed-candidate SHA-locked source references
+originals: only PRIVATE Kaggle dataset
+KOSTYA: 447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd
+ELIZABETH: 7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1
+russian_Qwen3_voice_files: six original verified
+native_motion: true_Wan22_7_shots_no_static_pan
+native_editor: studio.hybrid_master.produce
+model: open_weight_Wan22_T4_single_private_GPU_job
+no_auto_retry: true
+no_social_publish: true
+no_originals_public_git: true
+output: genuine_MP4_SRT_review_only_if_valid
