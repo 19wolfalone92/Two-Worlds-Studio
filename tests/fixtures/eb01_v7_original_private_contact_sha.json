@@ -1,0 +1,17 @@
+{
+  "schema": 7,
+  "source": "Private Kaggle CPU storyboard receipt EB01_V7_FRAMES_RECEIPT.json from Actions run 43186281307",
+  "private_source_sha256": {
+    "KOSTYA": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+    "ELIZABETH": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1"
+  },
+  "frames": {
+    "S00": "7f1fef44ac5de0e51925024500058159bdf042f873ed3156f6a767001a5bd618",
+    "S01": "9ce2cb7a35ddf4cf4c662b0b1d4917d989fb2c6f55491f54ff283af20b89ea9a",
+    "S02": "6f101608d5fd76adc85a976b775a5dc91612aa7a36b456c04660f859d7bc96a9",
+    "S03": "16b076ec3fc9e3dbae87368940b06a8e444d0ebbf5e6d28a9ba10f7421547816",
+    "S04": "6e366694363b69e88663a2fd3b82c2c93ea87ffeb6ac9d39675c1a776898120e",
+    "S05": "eb5c4e86867141a4ebc442fa67550c8f10f4fa604c5805a3901e58b2e3841043",
+    "S06": "5c622532d6ade6656869898364519124333d6964951a5c50c8082ef8b278c92d"
+  }
+}
