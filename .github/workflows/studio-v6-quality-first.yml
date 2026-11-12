@@ -1,0 +1,46 @@
+name: TWO WORLDS V6 - zero GPU identity/motion gate contracts
+
+on:
+  pull_request:
+    paths:
+      - "studio/v6_production.py"
+      - "studio/cli.py"
+      - "tests/test_v6_production.py"
+      - ".github/workflows/studio-v6-quality-first.yml"
+  push:
+    branches: [main, "refactor/studio-v6-quality-first-20261112"]
+    paths:
+      - "studio/v6_production.py"
+      - "studio/cli.py"
+      - "tests/test_v6_production.py"
+      - ".github/workflows/studio-v6-quality-first.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v6_identity_first:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU-only image verification dependencies
+        run: python -m pip install -q 'Pillow>=10,<12'
+      - name: Test real-clip-only renderer and mandatory human QA gates
+        run: python -m unittest tests.test_v6_production -v
+      - name: Static syntax and no-real-GPU check
+        run: |
+          python -m py_compile studio/v6_production.py
+          python - <<'PY'
+          from pathlib import Path
+          src=Path("studio/v6_production.py").read_text()
+          assert "execute=True" in src
+          assert "human_visual_review" in src
+          assert "pilot_approved" in src
+          assert "from studio.hybrid_master import produce" in src
+          print("CI_PROOF_ONLY; no video generated or model weights downloaded")
+          PY
