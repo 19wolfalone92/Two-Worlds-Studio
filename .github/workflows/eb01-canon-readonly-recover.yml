@@ -1,0 +1,76 @@
+name: TWO WORLDS V6 - recover existing EB01 canon output (ZERO GPU)
+
+on:
+  push:
+    branches: ["production/eb01-canon-first-v6-20261112"]
+    paths: ["ops/eb01_canon_readback.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  read_only_original_success:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      SOURCE_CANON_KERNEL: wolf19loner92/eb01-v6-canon-adad762a9834
+      SOURCE_NONCE: eb01canon-43158183875-1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install read-only Kaggle CLI and hash check deps
+        run: python -m pip install -q -r requirements.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Fetch existing COMPLETE private kernel, without submitting another GPU job
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(kaggle kernels status "$SOURCE_CANON_KERNEL")"
+          echo "$STATUS"
+          echo "$STATUS" | grep -q 'KernelWorkerStatus.COMPLETE'
+          mkdir -p "$RUNNER_TEMP/private_eb01_readback"
+          kaggle kernels output "$SOURCE_CANON_KERNEL" \
+            -p "$RUNNER_TEMP/private_eb01_readback" --force
+      - name: Verify genuine two private candidate sources and export ONLY thumbnail
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.eb01_canon_kaggle verify \
+            --path "$RUNNER_TEMP/private_eb01_readback" --nonce "$SOURCE_NONCE"
+          mkdir -p "$RUNNER_TEMP/eb01_reviewer_only"
+          python - <<'PY'
+          from pathlib import Path
+          import os,json,shutil
+          root=Path(os.environ["RUNNER_TEMP"])
+          src=root/"private_eb01_readback"
+          out=root/"eb01_reviewer_only"
+          sheets=list(src.rglob("EB01_CANON_REVIEW_CONTACT.jpg"))
+          receipts=list(src.rglob("EB01_CANON_JOB.json"))
+          assert len(sheets)==1 and len(receipts)==1
+          receipt=json.loads(receipts[0].read_text())
+          assert receipt["success"] is True
+          shutil.copy2(sheets[0],out/"EB01_KOSTYA_ELIZABETH_CANON_LOW_RES_REVIEW.jpg")
+          report={
+            "status":"TWO_REAL_CANON_CANDIDATES_UNAPPROVED",
+            "originals":"private Kaggle output only: "+os.environ["SOURCE_CANON_KERNEL"],
+            "source_model":receipt["model"],
+            "KOSTYA_sha256":receipt["generated_images"]["KOSTYA"]["sha256"],
+            "ELIZABETH_sha256":receipt["generated_images"]["ELIZABETH"]["sha256"],
+            "original_PNG_in_GitHub_artifact":False,
+            "human_visual_review":False,
+            "GPU_new_jobs_launched":0,"published":False}
+          (out/"EB01_CANON_REVIEW_SUMMARY.json").write_text(json.dumps(report,indent=2))
+          print("READONLY_RECOVERY_SUCCESS_ORIGINALS_STAY_PRIVATE",receipt["model"])
+          PY
+      - name: Attach small UNAPPROVED review sheet and hashes only
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_CANON_TWO_CHARACTERS_READONLY_RECOVERED_REVIEW
+          path: ${{ runner.temp }}/eb01_reviewer_only/*
+          retention-days: 7
+          if-no-files-found: error
+      - name: Wipe ephemeral source PNG ZIPs regardless of result
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/private_eb01_readback" "$RUNNER_TEMP/eb01_reviewer_only"
