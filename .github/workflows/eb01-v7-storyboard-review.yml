@@ -1,9 +1,9 @@
-name: EB01 V7 - seven consistent shot contact sheet (CPU, NO GPU)
+name: EB01 V7 - seven consistent shot contact sheet (CPU NO GPU)
 
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_storyboard.trigger"]
+    paths: ["ops/eb01_v7_storyboard_v2.trigger"]
 
 permissions:
   contents: read
@@ -19,13 +19,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: {python-version: "3.11"}
-      - name: Prove all seven source-derived frames before any video GPU
+        with:
+          python-version: "3.11"
+      - name: Test real reference cropping contracts (CPU only)
         run: |
           python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
           python -m unittest tests.test_eb01_v7_storyboard -v
-          python -m py_compile studio/eb01_v7_storyboard.py
-      - name: Prepare private CPU kernel; full source art never goes into GitHub
+          python -m py_compile studio/eb01_v7_storyboard.py tools/kaggle_eb01_v7_storyboard_entry.py
+      - name: Prepare one PRIVATE zero-GPU source-contact notebook
         shell: bash
         run: |
           set -euo pipefail
@@ -34,33 +35,11 @@ jobs:
           import os,hashlib,json
           from pathlib import Path
           src=Path("studio/eb01_v7_storyboard.py").read_text()
+          entry=Path("tools/kaggle_eb01_v7_storyboard_entry.py").read_text()
           name="eb01-v7-review-"+hashlib.sha256(os.environ["GITHUB_RUN_ID"].encode()).hexdigest()[:12]
           dest=Path(os.environ["RUNNER_TEMP"])/"v7-storyboard-worker"
           dest.mkdir()
-          tail="""
-from pathlib import Path
-import json,traceback
-try:
-    root=Path("/kaggle/temp/v7-review-private")
-    lock=gather_private(Path("/kaggle/input"),root)
-    sheet=Path("/kaggle/working/EB01_V7_ALL_SEVEN_REFERENCES_REVIEW_ONLY.jpg")
-    contact_sheet(root,sheet)
-    result={
-      "schema":7,"status":"PRIVATE_SEVEN_SHOT_REFERENCE_REVIEW_PENDING",
-      "canon_sources":lock["source_sha256"],
-      "frames":{k:v["reference_sha256"] for k,v in lock["scenes"].items()},
-      "voices":lock["voice_sha256"],"human_approved":False,
-      "video_generated":False,"gpu_executed":False,"published":False}
-    Path("/kaggle/working/EB01_V7_FRAMES_RECEIPT.json").write_text(json.dumps(result,indent=2))
-    print("SEVEN_REAL_CANON_REFERENCE_CROPS_CREATED_CPU_ONLY")
-except BaseException as e:
-    Path("/kaggle/working/EB01_V7_FRAMES_RECEIPT.json").write_text(
-      json.dumps({"status":"FAILED","reason":str(e)[:200],
-                  "gpu_executed":False,"published":False}))
-    traceback.print_exc()
-    raise
-"""
-          (dest/"kernel_main.py").write_text(src+"\n"+tail)
+          (dest/"kernel_main.py").write_text(src+"\n"+entry)
           metadata={
             "id":os.environ["KAGGLE_USERNAME"]+"/"+name,
             "title":name,"code_file":"kernel_main.py",
@@ -69,16 +48,17 @@ except BaseException as e:
             "dataset_sources":[os.environ["PRIVATE_SOURCE"]],
             "competition_sources":[],"kernel_sources":[],"model_sources":[]}
           (dest/"kernel-metadata.json").write_text(json.dumps(metadata,indent=2))
-          with open(os.environ["GITHUB_ENV"],"a") as f:f.write("V7_STORYBOARD_KERNEL="+metadata["id"]+"\n")
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("V7_STORYBOARD_KERNEL="+metadata["id"]+"\n")
           print("V7_CPU_CONTACT_KERNEL",metadata["id"])
           PY
           kaggle kernels push -p "$RUNNER_TEMP/v7-storyboard-worker" --timeout 900
-      - name: Poll only this zero-GPU job
+      - name: Poll exactly the private CPU job, no GPU and no retry
         shell: bash
         run: |
           set -euo pipefail
-          python -m studio.kaggle_api poll --kernel "$V7_STORYBOARD_KERNEL" --timeout 650 --interval 35
-      - name: Read back ONLY small source-derived visual review and hashes
+          python -m studio.kaggle_api poll --kernel "$V7_STORYBOARD_KERNEL" --timeout 650 --interval 30
+      - name: Read only small contact JPG and source SHAs
         shell: bash
         run: |
           set -euo pipefail
@@ -93,16 +73,16 @@ except BaseException as e:
           assert len(r["frames"])==7 and len(r["voices"])==6
           assert (p/"EB01_V7_ALL_SEVEN_REFERENCES_REVIEW_ONLY.jpg").is_file()
           assert not r["human_approved"] and not r["video_generated"]
-          print("EB01_SEVEN_CANON_CROPS_READY_FOR_HUMAN_CREATIVE_REVIEW")
+          print("EB01_SEVEN_CANON_CROPS_READY_FOR_REVIEW")
           PY
-      - name: Upload LOW RES review image and metadata, NEVER original PNG or WAV
+      - name: Share only low resolution contact sheet, never source PNG/WAV
         uses: actions/upload-artifact@v4
         with:
           name: EB01_V7_SEVEN_REAL_CANON_SHOTS_UNAPPROVED
           path: ${{ runner.temp }}/eb01-v7-contact-only/*
           retention-days: 7
           if-no-files-found: error
-      - name: Inspect CPU failure without rerunning GPUs
+      - name: Inspect CPU failure only
         if: failure()
         shell: bash
         run: |
@@ -112,6 +92,6 @@ except BaseException as e:
             kaggle kernels output "$V7_STORYBOARD_KERNEL" -p "$RUNNER_TEMP/eb01-v7-contact-only" --force || true
             cat "$RUNNER_TEMP/eb01-v7-contact-only/EB01_V7_FRAMES_RECEIPT.json" || true
           fi
-      - name: Wipe runner review workspace
+      - name: Wipe runner temporary paths
         if: always()
         run: rm -rf "$RUNNER_TEMP/v7-storyboard-worker" "$RUNNER_TEMP/eb01-v7-contact-only"
