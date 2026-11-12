@@ -15,6 +15,11 @@ on:
         default: "episodes/E01_THE_REFLECTION.json"
         type: string
 
+# Cancel stale PR attempts so sequential Studio commits do not waste Actions quota.
+concurrency:
+  group: two-worlds-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
