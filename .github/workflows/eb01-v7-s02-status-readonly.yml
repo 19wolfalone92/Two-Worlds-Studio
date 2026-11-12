@@ -1,0 +1,59 @@
+name: EB01 S02 private read-only status and clip QA (zero GPU)
+on:
+  push:
+    branches: ["fix/eb01-v7-resume-existing-clips-20261112"]
+    paths: ["ops/eb01_v7_s02_status_check.trigger"]
+permissions:
+  contents: read
+jobs:
+  verify_private_s02:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      KERNEL: wolf19loner92/eb01-v7-s02-only-7dc172a237f2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU-only tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Inspect Kaggle state and validate only if COMPLETE
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          kaggle kernels status "$KERNEL" | tee "$RUNNER_TEMP/status.txt"
+          if ! grep -q 'KernelWorkerStatus.COMPLETE' "$RUNNER_TEMP/status.txt"; then
+            echo "NO_GPU_RETRY; NO_NEXT_SHOT; NOT_COMPLETE"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/private_s02"
+          kaggle kernels output "$KERNEL" -p "$RUNNER_TEMP/private_s02" --force
+          python - <<'PY'
+          from pathlib import Path
+          import json,hashlib,subprocess
+          p=Path(__import__('os').environ['RUNNER_TEMP'])/'private_s02'
+          clips=list(p.rglob('S02.mp4'))
+          receipts=list(p.rglob('EB01_V7_SINGLE_SHOT_JOB.json'))
+          assert len(clips)==1 and len(receipts)==1, 'Missing real S02 or receipt'
+          clip=clips[0]
+          r=json.loads(receipts[0].read_text())
+          sha=hashlib.sha256(clip.read_bytes()).hexdigest()
+          assert r.get('shot')=='S02' and r.get('clip_sha256')==sha
+          assert r.get('success') is True and r.get('neural_inference_performed') is True
+          assert r.get('model')=='wan22-5b'
+          probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames','-select_streams','v:0','-show_entries','stream=codec_name,width,height,avg_frame_rate,nb_read_frames','-of','json',str(clip)]))
+          s=probe['streams'][0]
+          assert (s['codec_name'],s['width'],s['height'],s['avg_frame_rate'],int(s['nb_read_frames']))==('h264',320,576,'24/1',125),s
+          subprocess.run(['ffmpeg','-nostdin','-v','error','-xerror','-i',str(clip),'-f','null','-'],check=True,timeout=180)
+          print('S02_TECHNICALLY_VERIFIED_SHA256',sha)
+          print('S02_PRIVATE_RECEIPT',r.get('status'))
+          PY
+      - name: Delete private media on runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/private_s02" "$RUNNER_TEMP/status.txt"
