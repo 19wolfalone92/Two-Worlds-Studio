@@ -71,8 +71,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/canon-result"
-          python -m studio.kaggle_api_limits output \
-            --kernel "$TW_CANON_KERNEL" --output-dir "$RUNNER_TEMP/canon-result"
+          # Canon worker names are EB01_CANON_SOURCE_PRIVATE.zip and
+          # EB01_CANON_JOB.json, unlike the older generic Studio output filter.
+          # Raw Kaggle CLI is required here; it performs ONE read only.
+          kaggle kernels output "$TW_CANON_KERNEL" \
+            -p "$RUNNER_TEMP/canon-result" --force
       - name: Verify BOTH genuine image sources and no falsely approved art
         shell: bash
         run: |
