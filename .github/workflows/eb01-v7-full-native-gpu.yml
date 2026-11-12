@@ -3,7 +3,7 @@ name: EB01 V7 - REAL full 7-shot native Wan Studio generation (private T4 ONE RU
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_full_native_gpu_once.trigger"]
+    paths: ["ops/eb01_v7_full_native_gpu_corrected.trigger"]
 
 permissions:
   contents: read
