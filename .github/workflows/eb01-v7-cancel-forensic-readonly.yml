@@ -1,0 +1,72 @@
+name: EB01 V7 - canceled Kaggle forensic read-only ZERO GPU
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_cancel_forensic_20261112.trigger"]
+permissions:
+  contents: read
+jobs:
+  forensic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KERNEL: wolf19loner92/eb01-v7-native-full-c188f4380731
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install read-only Kaggle and ffmpeg tools
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Read private kernel output and audit clips without submitting any jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          mkdir -p "$RUNNER_TEMP/eb01-forensic"
+          kaggle kernels status "$KERNEL" | tee "$RUNNER_TEMP/eb01-forensic-status.txt"
+          kaggle kernels output "$KERNEL" -p "$RUNNER_TEMP/eb01-forensic" --force
+          python - <<'PY'
+          import os,json,hashlib,subprocess,re
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-forensic"
+          status=(Path(os.environ["RUNNER_TEMP"])/"eb01-forensic-status.txt").read_text().strip()
+          expected={"S00":"7ac34976cfc5086ad068bffd837893a3c41ee6a5d48cc1fcd66f50c368e8b208",
+                    "S01":"fe0e45802d6df19af951dc1ebb8cfaeb396fdcce59d860d5826a62a7e7d36c87"}
+          out={"kernel":os.environ["KERNEL"],"kernel_status":status,"submitted_new_gpu_jobs":0,"clips":{},"receipt":{},"log_diagnostics":{}}
+          for sid,sha in expected.items():
+              matches=list(root.rglob(sid+".mp4"))
+              item={"count":len(matches)}
+              if len(matches)==1:
+                  p=matches[0]
+                  item.update({"bytes":p.stat().st_size,"sha256":hashlib.sha256(p.read_bytes()).hexdigest()})
+                  item["sha_match"]=item["sha256"]==sha
+                  pr=subprocess.run(["ffprobe","-v","error","-count_frames","-show_entries","format=duration:stream=codec_name,width,height,avg_frame_rate,nb_read_frames","-of","json",str(p)],capture_output=True,text=True)
+                  item["ffprobe_ok"]=pr.returncode==0
+                  if pr.returncode==0:item["ffprobe"]=json.loads(pr.stdout)
+                  de=subprocess.run(["ffmpeg","-hide_banner","-nostdin","-v","error","-xerror","-i",str(p),"-f","null","-"],capture_output=True,text=True,timeout=180)
+                  item["full_decode_ok"]=de.returncode==0
+              out["clips"][sid]=item
+          for name in ("EB01_V7_PROGRESS_PRIVATE.json","EB01_V7_PRODUCTION_JOB.json","EB01_V7_CREATIVE_REVIEW_REQUIRED.json"):
+              p=list(root.rglob(name))
+              if len(p)==1:
+                  obj=json.loads(p[0].read_text())
+                  out["receipt"][name]={"present":True,"status":obj.get("status"),"completed_shot_ids":sorted(obj.get("completed_shots",{})),"success":obj.get("success")}
+              else:out["receipt"][name]={"present":False}
+          patterns={"cancel":r"cancel(?:led|ed|ation|_acknowledged)?","timeout":r"timeout|time.limit|timed.out","quota":r"quota|limit.exceed|resource.exhaust","out_of_memory":r"out.of.memory|cuda.*memory|oom","exception":r"traceback|exception|fatal|error","interrupted":r"keyboardinterrupt|sigterm|sigkill|signal 15|signal 9"}
+          logs=[p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in (".log",".txt") and p.stat().st_size<50_000_000]
+          for p in logs:
+              raw=p.read_text(errors="replace")
+              out["log_diagnostics"][p.name]={"bytes":p.stat().st_size,"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"pattern_counts":{k:len(re.findall(v,raw,re.I)) for k,v in patterns.items()}}
+          Path("eb01_cancel_forensic_metadata.json").write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print("EB01_CANCEL_FORENSIC_METADATA",json.dumps(out,ensure_ascii=False)[:12000])
+          PY
+      - name: Upload safe metadata only (no original media or logs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_CANCEL_FORENSIC_METADATA_ONLY
+          path: eb01_cancel_forensic_metadata.json
+          retention-days: 5
+      - name: Wipe private media
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-forensic" "$RUNNER_TEMP/eb01-forensic-status.txt"
