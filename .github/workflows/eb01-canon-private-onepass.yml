@@ -1,0 +1,128 @@
+name: TWO WORLDS V6 - EB01 two private canon portraits (ONE GPU submission)
+
+on:
+  push:
+    branches: ["production/eb01-canon-first-v6-20261112"]
+    paths: ["ops/eb01_canon.trigger"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+
+jobs:
+  one-private-gpu-canon-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      RUN_NONCE: eb01canon-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test private source proof WITHOUT GPU or user images
+        run: |
+          python -m pip install -q -r requirements.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+          python -m unittest tests.test_eb01_canon_kaggle tests.test_v6_production -v
+          python -m py_compile tools/kaggle_eb01_canon_entry.py studio/eb01_canon_kaggle.py
+      - name: Resolve linked user's private Kaggle account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN" || { echo "::error::Missing Kaggle credential"; exit 2; }
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+      - name: Build single reviewed 2-image job (no art in GitHub)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.eb01_canon_kaggle prepare \
+            --username "$KAGGLE_USERNAME" --nonce "$RUN_NONCE" \
+            --destination "$RUNNER_TEMP/eb01-canon-kernel" \
+            > "$RUNNER_TEMP/canon_plan.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          report=json.loads((Path(os.environ["RUNNER_TEMP"])/"canon_plan.json").read_text())
+          assert report["max_images"]==2 and report["output_private"] and not report["gpu_executed"]
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("TW_CANON_KERNEL="+report["kernel"]+"\n")
+          print("CANON_READY_ONE_PRIVATE_JOB",report["kernel"],"no_video",flush=True)
+          PY
+      - name: SUBMIT exactly one image-only Kaggle T4 notebook
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/eb01-canon-kernel" \
+            --timeout 3600 --accelerator NvidiaTeslaT4
+          echo "::notice::One private art-only GPU run submitted. No original PNG in public GitHub."
+      - name: Poll only that exact submitted notebook (no retries)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.kaggle_api poll \
+            --kernel "$TW_CANON_KERNEL" --timeout 3300 --interval 80
+      - name: Read back PRIVATE original output temporarily
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/canon-result"
+          python -m studio.kaggle_api_limits output \
+            --kernel "$TW_CANON_KERNEL" --output-dir "$RUNNER_TEMP/canon-result"
+      - name: Verify BOTH genuine image sources and no falsely approved art
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.eb01_canon_kaggle verify \
+            --path "$RUNNER_TEMP/canon-result" --nonce "$RUN_NONCE"
+          mkdir -p "$RUNNER_TEMP/canon-public-review-only"
+          python - <<'PY'
+          from pathlib import Path
+          import json,os,shutil
+          root=Path(os.environ["RUNNER_TEMP"])
+          src=root/"canon-result"
+          dest=root/"canon-public-review-only"
+          matches=list(src.rglob("EB01_CANON_REVIEW_CONTACT.jpg"))
+          receipts=list(src.rglob("EB01_CANON_JOB.json"))
+          assert len(matches)==1 and len(receipts)==1
+          meta=json.loads(receipts[0].read_text())
+          assert meta["success"] and not meta["human_visual_review"]
+          shutil.copy2(matches[0],dest/"EB01_CANON_REVIEW_ONLY_LOW_RES.jpg")
+          summary={
+              "status":"PRIVATE_SOURCES_GENERATED_LOW_RES_REVIEW_ONLY",
+              "nonce":meta["nonce"],
+              "source_revision":meta["source_revision"],
+              "model":meta["model"],
+              "image_sources_sha256":{k:v["sha256"] for k,v in meta["generated_images"].items()},
+              "original_png_in_public_artifact":False,
+              "identity_approved":False,"full_video_allowed":False,"published":False,
+              "originals_location":"private Kaggle output: "+os.environ["TW_CANON_KERNEL"]
+          }
+          (dest/"EB01_CANON_REVIEW_RECEIPT.json").write_text(json.dumps(summary,indent=2))
+          print("PROTECTED_ART_REVIEW_ONLY",os.environ["TW_CANON_KERNEL"])
+          PY
+      - name: Downloadable low-resolution character REVIEW only - never original art
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_V6_TWO_CANON_CONTACT_LOW_RES_UNAPPROVED
+          path: ${{ runner.temp }}/canon-public-review-only/*
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 4
+      - name: On failure print current EXISTING private worker status only
+        if: failure()
+        shell: bash
+        run: |
+          if [[ -n "${TW_CANON_KERNEL:-}" ]]; then
+            kaggle kernels status "$TW_CANON_KERNEL" || true
+          fi
+          echo "::notice::No GPU retry. Original private images not uploaded."
+      - name: Securely delete all temporary original PNGs from GitHub runner
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/canon-result" "$RUNNER_TEMP/eb01-canon-kernel" \
+            "$RUNNER_TEMP/canon-public-review-only" "$RUNNER_TEMP/canon_plan.json"
