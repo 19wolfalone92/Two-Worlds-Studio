@@ -8,6 +8,7 @@ on:
       - "studio/eb01_kostya_wan_preview.py"
       - "studio/eb01_elizabeth_photoreal_repair.py"
       - "studio/eb01_motion_artifact_gate.py"
+      - "studio/v6_production.py"
       - "tools/kaggle_eb01_elizabeth_repair_entry.py"
       - "tools/kaggle_eb01_canon_entry.py"
       - "tests/test_eb01_canon_kaggle.py"
@@ -21,6 +22,7 @@ on:
       - "studio/eb01_kostya_wan_preview.py"
       - "studio/eb01_elizabeth_photoreal_repair.py"
       - "studio/eb01_motion_artifact_gate.py"
+      - "studio/v6_production.py"
       - "tools/kaggle_eb01_elizabeth_repair_entry.py"
       - "tools/kaggle_eb01_canon_entry.py"
       - "tests/test_eb01_canon_kaggle.py"
@@ -42,6 +44,6 @@ jobs:
         with:
           python-version: "3.11"
       - run: python -m pip install -q 'Pillow>=10,<12' 'numpy>=1.26,<3'
-      - run: python -m unittest tests.test_eb01_canon_kaggle tests.test_eb01_kostya_wan_preview tests.test_eb01_elizabeth_photoreal_repair tests.test_eb01_motion_artifact_gate -v
-      - run: python -m py_compile studio/eb01_canon_kaggle.py studio/eb01_kostya_wan_preview.py studio/eb01_elizabeth_photoreal_repair.py studio/eb01_motion_artifact_gate.py tools/kaggle_eb01_canon_entry.py tools/kaggle_eb01_elizabeth_repair_entry.py
+      - run: python -m unittest tests.test_eb01_canon_kaggle tests.test_eb01_kostya_wan_preview tests.test_eb01_elizabeth_photoreal_repair tests.test_eb01_motion_artifact_gate tests.test_v6_production -v
+      - run: python -m py_compile studio/eb01_canon_kaggle.py studio/eb01_kostya_wan_preview.py studio/eb01_elizabeth_photoreal_repair.py studio/eb01_motion_artifact_gate.py studio/v6_production.py tools/kaggle_eb01_canon_entry.py tools/kaggle_eb01_elizabeth_repair_entry.py
       - run: echo "Offline only; private image sources never leave Kaggle; zero GPU used."
