@@ -2,7 +2,7 @@ name: EB01 V6 - zero-GPU canonical source privacy tests
 
 on:
   push:
-    branches: ["production/eb01-canon-first-v6-20261112"]
+    branches: ["production/eb01-canon-first-v6-20261112", "fix/eb01-photo-upload-small-payload-20261112"]
     paths:
       - "studio/eb01_canon_kaggle.py"
       - "studio/eb01_kostya_wan_preview.py"
