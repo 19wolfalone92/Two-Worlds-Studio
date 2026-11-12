@@ -93,7 +93,7 @@ def inspect_clip(path: Path) -> dict:
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     values = []
     try:
-        while len(values) < 180:
+        while len(values) < 400:
             raw = proc.stdout.read(frame_bytes)
             if not raw:
                 break
@@ -101,7 +101,7 @@ def inspect_clip(path: Path) -> dict:
                 raise ArtifactRejected("Truncated raw frame")
             frame = np.frombuffer(raw, dtype=np.uint8).reshape((h,w,3))
             values.append(bright_color_fraction(frame))
-        if len(values) >= 180:
+        if len(values) >= 400:
             raise ArtifactRejected("Too many frames for bounded pilot check")
         if proc.wait(timeout=30) != 0:
             raise ArtifactRejected("ffmpeg decode failed")
