@@ -74,8 +74,6 @@ def cmd(*args, timeout=1500):
 
 def create_art(cfg):
     import torch
-    from diffusers import StableDiffusionXLPipeline, DPMSolverMultistepScheduler
-    from PIL import Image, ImageDraw, ImageStat
     if not torch.cuda.is_available():
         raise RuntimeError("Private 16GB NVIDIA GPU not available")
     device = torch.cuda.get_device_properties(0)
@@ -86,6 +84,8 @@ def create_art(cfg):
     cmd(sys.executable,"-m","pip","install","-q","diffusers>=0.35,<0.38",
         "transformers>=4.55,<5","accelerate>=1,<2","Pillow>=10,<12",
         "safetensors>=0.4",timeout=1200)
+    from diffusers import StableDiffusionXLPipeline, DPMSolverMultistepScheduler
+    from PIL import Image, ImageDraw, ImageStat
     pipe=StableDiffusionXLPipeline.from_pretrained(
         MODEL,torch_dtype=torch.float16,variant="fp16",use_safetensors=True)
     pipe.scheduler=DPMSolverMultistepScheduler.from_config(
