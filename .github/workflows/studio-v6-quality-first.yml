@@ -5,6 +5,7 @@ on:
     paths:
       - "studio/v6_production.py"
       - "studio/v6_art.py"
+      - "tools/v6_audit.py"
       - "studio/cli.py"
       - "tests/test_v6_production.py"
       - ".github/workflows/studio-v6-quality-first.yml"
@@ -13,6 +14,7 @@ on:
     paths:
       - "studio/v6_production.py"
       - "studio/v6_art.py"
+      - "tools/v6_audit.py"
       - "studio/cli.py"
       - "tests/test_v6_production.py"
       - ".github/workflows/studio-v6-quality-first.yml"
@@ -34,9 +36,11 @@ jobs:
         run: python -m pip install -q 'Pillow>=10,<12'
       - name: Test real-clip-only renderer and mandatory human QA gates
         run: python -m unittest tests.test_v6_production -v
+      - name: Inventory entire Studio code and workflow landscape without GPU
+        run: python -m tools.v6_audit
       - name: Static syntax and no-real-GPU check
         run: |
-          python -m py_compile studio/v6_production.py studio/v6_art.py
+          python -m py_compile studio/v6_production.py studio/v6_art.py tools/v6_audit.py
           python - <<'PY'
           from pathlib import Path
           src=Path("studio/v6_production.py").read_text()
