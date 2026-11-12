@@ -166,6 +166,20 @@ def verify(folder: Path, nonce: str, parent_original_sha: str) -> dict:
         raise ValueError("No validated real moving skeleton reference clip")
     if not re.fullmatch("[a-f0-9]{64}",parent_original_sha):
         raise ValueError("Missing private parent canon hash")
+    # A successful FFmpeg decode/first-last motion difference is NOT artistic QA.
+    # The E01 49-frame Wan proof contained 3 neon stripe frames at the end;
+    # block that source from any future production/review release.
+    import tempfile
+    from studio.eb01_motion_artifact_gate import inspect_clip
+    with tempfile.TemporaryDirectory(prefix="eb01-wan-qc-") as work:
+        video = Path(work)/"actual_neural_proof.mp4"
+        video.write_bytes(clip)
+        temporal = inspect_clip(video)
+    if temporal["status"] != "NO_NEON_ARTIFACT_FOUND":
+        raise ValueError(
+            "Real Wan I2V video contains unacceptable temporal artifacts: "
+            + temporal["status"] + " frames=" + str(temporal["flagged_frames"])
+        )
     return {
         "status":"GENUINE_KOSTYA_WAN_I2V_MOTION_PROOF_REVIEW_REQUIRED",
         "nonce":nonce,"frames":FRAMES,"seconds":data["video"].get("seconds"),
