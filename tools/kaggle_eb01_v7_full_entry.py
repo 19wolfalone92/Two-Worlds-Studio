@@ -26,6 +26,17 @@ RECEIPT = WORK/"EB01_V7_PRODUCTION_JOB.json"
 FINAL = WORK/"EB01_V7_ELIZABETH_BONES_SOBESEDOVANIE_REAL_NATIVE_REVIEW.mp4"
 FILM_QA = WORK/"EB01_V7_CREATIVE_REVIEW_REQUIRED.json"
 MODEL = "wan22-5b"
+# Frame refs from VERIFIED PRIVATE CPU source-mount Contact Sheet run #43186281307.
+# Human-readable storyboard was inspected before authorizing any GPU inference.
+REVIEWED_SOURCE_SHA={
+ "S00":"7f1fef44ac5de0e51925024500058159bdf042f873ed3156f6a767001a5bd618",
+ "S01":"9ce2cb7a35ddf4cf4c662b0b1d4917d989fb2c6f55491f54ff283af20b89a9a",
+ "S02":"6f101608d5fd76adc85a976b775a5dc91612aa7a36b456c04660f859d7bc96a9",
+ "S03":"16b076ec3fc9e3dbae87368940b06a8e444d0ebbf5e6d28a9ba10f7421547816",
+ "S04":"6e366694363b69e88663a2fd3b82c2c93ea87ffeb6ac9d39675c1a776898120e",
+ "S05":"eb5c4e86867141a4ebc442fa67550c8f10f4fa604c5805a3901e58b2e3841043",
+ "S06":"5c622532d6ade6656869898364519124333d6964951a5c50c8082ef8b278c92d"
+}
 
 def command(args, *, timeout=1200, cwd=None):
     subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
@@ -48,8 +59,9 @@ def authenticate_and_sources(cfg):
     lock=gather_private(Path("/kaggle/input"),ROOT)
     if (lock.get("source_sha256") != SRC_SHA or
             lock.get("voice_sha256") != VOICE_SHA or
-            list(lock.get("scenes",{})) != [v[0] for v in SHOTS]):
-        raise RuntimeError("Private reference/source identity lock failed")
+            list(lock.get("scenes",{})) != [v[0] for v in SHOTS]
+            or {sid:row["reference_sha256"] for sid,row in lock["scenes"].items()} != REVIEWED_SOURCE_SHA):
+        raise RuntimeError("Private reference/source image SHA differs from visually reviewed storyboard")
     print("EB01_V7_ALL_SIX_OLD_QWEN_WAV_PLUS_TWO_CANON_SOURCES_VERIFIED",flush=True)
     return info,lock
 
