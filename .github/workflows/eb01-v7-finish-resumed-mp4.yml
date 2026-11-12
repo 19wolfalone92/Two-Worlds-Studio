@@ -1,0 +1,138 @@
+name: EB01 V7 - stitch ALL verified private Wan clips into full native MP4 (CPU ONLY)
+
+on:
+  push:
+    branches: ["fix/eb01-v7-resume-existing-clips-20261112"]
+    paths: ["ops/eb01_v7_finish_verified.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  assemble_real_nonnn_fixture_film:
+    runs-on: ubuntu-latest
+    timeout-minutes: 38
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      OLD_CANCELED_KERNEL: wolf19loner92/eb01-v7-native-full-c188f4380731
+      PRIVATE_ORIGINAL_DATASET: wolf19loner92/eb01-v7-private-production-sources
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install all CPU-only source and native Studio video validation dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' \
+            'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12'
+          python -m py_compile studio/eb01_v7_cpu_final_recovery.py
+          python -m unittest tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_real_sha_contract -v
+      - name: Parse strict monotonic five-Kaggle-kernel SHA receipt; reject missing scenes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json,re,os
+          f=Path("ops/eb01_v7_finish_verified.trigger")
+          raw=f.read_text(encoding="utf-8")
+          pairs=dict(line.split(": ",1) for line in raw.splitlines() if ": " in line)
+          required={"kernel_"+("S"+str(i).zfill(2)) for i in range(2,7)}
+          required|={"sha_"+("S"+str(i).zfill(2)) for i in range(2,7)}
+          if set(pairs)!=required:
+              raise ValueError("Full movie requires exactly five named original private kernel+SHA pairs")
+          for i in range(2,7):
+              sid="S"+str(i).zfill(2)
+              if not re.fullmatch(r"wolf19loner92/eb01-v7-s0[2-6]-only-[a-f0-9]{12}",pairs["kernel_"+sid]):
+                  raise ValueError("Invalid private original source: "+sid)
+              if "-"+sid.lower()+"-" not in pairs["kernel_"+sid]:
+                  raise ValueError("Kernel scene-ID mismatch: "+sid)
+              if not re.fullmatch(r"[a-f0-9]{64}",pairs["sha_"+sid]):
+                  raise ValueError("Missing original genuine WAN MP4 SHA: "+sid)
+          out=Path(os.environ["RUNNER_TEMP"])/"verified_sources.json"
+          out.write_text(json.dumps(pairs,indent=2))
+          print("EB01_FIVE_REAL_SOURCES_STRICTLY_IDENTIFIED_NO_GPU")
+          PY
+      - name: Download only existing private 2 photos 6 WAV and seven previously generated MP4
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          mkdir -p "$RUNNER_TEMP/originals" "$RUNNER_TEMP/clips/S00" "$RUNNER_TEMP/clips/S01"
+          kaggle datasets download -d "$PRIVATE_ORIGINAL_DATASET" -p "$RUNNER_TEMP/originals" --unzip
+          kaggle kernels output "$OLD_CANCELED_KERNEL" -p "$RUNNER_TEMP/clips/S00" --force
+          # Copy original canceled source only once; private output has S00,S01.
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          records=json.loads((Path(os.environ["RUNNER_TEMP"])/"verified_sources.json").read_text())
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+            for i in range(2,7):
+              sid="S"+str(i).zfill(2)
+              f.write("EB01_KERNEL_"+sid+"="+records["kernel_"+sid]+"\n")
+          print("KEPT_S00_S01_ORIGINAL_CANCELLED_KERNEL_NO_REGENERATION")
+          PY
+          for sid in S02 S03 S04 S05 S06; do
+            kernel_var="EB01_KERNEL_${sid}"
+            original="${!kernel_var}"
+            status="$(kaggle kernels status "$original")"
+            echo "$status"
+            echo "$status" | grep -q "KernelWorkerStatus.COMPLETE"
+            mkdir -p "$RUNNER_TEMP/clips/$sid"
+            kaggle kernels output "$original" -p "$RUNNER_TEMP/clips/$sid" --force
+          done
+      - name: Independently verify every actual original MP4+receipt SHA/FFmpeg then run studio.hybrid_master.produce
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/owner-review"
+          python - <<'PY'
+          from pathlib import Path
+          import json,os,hashlib
+          from studio.eb01_v7_cpu_final_recovery import produce_review,OLD_GENUINE_SHA
+          tmp=Path(os.environ["RUNNER_TEMP"])
+          proofs=json.loads((tmp/"verified_sources.json").read_text())
+          sources={}
+          for sid in ("S00","S01"):
+            sources[sid]=tmp/"clips"/"S00"
+          for i in range(2,7):
+            sid="S"+str(i).zfill(2)
+            folder=tmp/"clips"/sid
+            movies=list(folder.rglob(sid+".mp4"))
+            receipts=list(folder.rglob("EB01_V7_SINGLE_SHOT_JOB.json"))
+            if len(movies)!=1 or len(receipts)!=1:
+              raise RuntimeError("Missing exactly one original private I2V movie/receipt "+sid)
+            sha=hashlib.sha256(movies[0].read_bytes()).hexdigest()
+            row=json.loads(receipts[0].read_text())
+            if sha!=proofs["sha_"+sid] or row.get("clip_sha256")!=sha:
+              raise RuntimeError("Checkpointed original neural MP4 changed: "+sid)
+            sources[sid]=folder
+          master=tmp/"owner-review"/"EB01_V7_ELIZABETH_BONES_SOBESEDOVANIE_REAL_NATIVE_REVIEW.mp4"
+          result=produce_review(tmp/"originals",sources,tmp/"assembly-private",master)
+          assert result["status"]=="SEVEN_REAL_NATIVE_SHOTS_PLUS_SIX_ORIGINAL_VOICES_REVIEW_REQUIRED"
+          assert result["all_frames_source_genuine"] is True
+          assert result["human_artistic_review_completed"] is False
+          print("EB01_SEVEN_REAL_WAN_TAKES_SIX_QWEN_RU_VOICES_FULL_MP4_CREATED_SHA",result["output_sha256"])
+          PY
+      - name: Upload only video + six-subtitle SRT + independent QA for owner
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_V7_TRUE_SEVEN_NEURAL_SCENES_SIX_RUSSIAN_VOICES_REVIEW
+          path: |
+            ${{ runner.temp }}/owner-review/*.mp4
+            ${{ runner.temp }}/owner-review/*.srt
+            ${{ runner.temp }}/owner-review/*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Wipe all original private portraits and WAV from runner
+        if: always()
+        shell: bash
+        run: |
+          rm -rf "$RUNNER_TEMP/originals" "$RUNNER_TEMP/clips" \
+                 "$RUNNER_TEMP/assembly-private" "$RUNNER_TEMP/owner-review" \
+                 "$RUNNER_TEMP/verified_sources.json"
