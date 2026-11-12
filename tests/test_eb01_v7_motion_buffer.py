@@ -31,13 +31,13 @@ class NativeWanBufferTests(unittest.TestCase):
  def create(self,glitches=(18,19,20)):
   frames=[]
   for i in range(21):
-   img=np.full((288,160,3),[30+i//2,29+i//2,27+i//2],dtype=np.uint8)
+   img=np.full((576,320,3),[30+i//2,29+i//2,27+i//2],dtype=np.uint8)
    if i in glitches:
-    img[260:,:,:]=[255,214,7]
+    img[515:,:,:]=[255,214,7]
    frames.append(img.tobytes())
   proc=subprocess.run([
     "ffmpeg","-hide_banner","-nostdin","-y","-v","error",
-    "-f","rawvideo","-pix_fmt","rgb24","-s","160x288","-r","24",
+    "-f","rawvideo","-pix_fmt","rgb24","-s","320x576","-r","24",
     "-i","-","-an","-c:v","libx264","-crf","16",
     "-pix_fmt","yuv420p",str(self.raw)
   ],input=b"".join(frames),capture_output=True,check=True,timeout=80)
