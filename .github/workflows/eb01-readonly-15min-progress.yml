@@ -1,0 +1,106 @@
+name: EB01 - watch genuine private Wan job every 15 minutes (READ ONLY)
+
+# This lightweight read-only watchdog complements the ChatGPT hourly
+# production automation. It NEVER submits jobs, writes to Kaggle, publishes
+# media, or interprets a green GitHub run as a finished MP4.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eb01-v7-readonly-progress-watch
+  cancel-in-progress: false
+
+jobs:
+  check_current_private_gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - name: Read metadata only from the dedicated current production branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/eb01-s02-private-raw-preservation-20261113
+          path: production-state
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Read-only Kaggle CLI, no GPU dependencies or original media
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Verify pinned state and check ONLY original private current kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python - <<'PY'
+          import json,re,os
+          from pathlib import Path
+          p=Path("production-state/ops/eb01_v7_monitor_state.json")
+          s=json.loads(p.read_text(encoding="utf-8"))
+          if (s.get("schema")!=1 or s.get("read_only_monitor") is not True
+              or s.get("allow_gpu_submission") is not False
+              or s.get("auto_approve_visual_art") is not False
+              or s.get("allow_social_publish") is not False):
+              raise RuntimeError("Production monitoring state cannot permit writes")
+          sid=s.get("active_shot","")
+          kernel=s.get("active_kernel","")
+          if not re.fullmatch(r"S0[2-6]",sid):
+              raise RuntimeError("Only S02-S06 private progress may be polled")
+          if not re.fullmatch(r"wolf19loner92/eb01-v7-s0[2-6]-only-[a-f0-9]{12}",kernel):
+              raise RuntimeError("Active kernel must be a precisely named private Wan job")
+          if ("-s"+sid[1:]+"-" not in kernel):
+              raise RuntimeError("Private kernel does not match intended shot")
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+              f.write("CURRENT_SHOT="+sid+"\n")
+              f.write("CURRENT_KERNEL="+kernel+"\n")
+          print("PRODUCTION_STATE_VALIDATED",sid,kernel)
+          PY
+          kaggle kernels status "$CURRENT_KERNEL" | tee "$RUNNER_TEMP/eb01-current-kaggle-status.txt"
+      - name: Record genuine observed state, no source video in GitHub artifact
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os,json
+          from pathlib import Path
+          state=(Path(os.environ["RUNNER_TEMP"])/"eb01-current-kaggle-status.txt").read_text().strip()
+          known=("COMPLETE","ERROR","CANCEL_ACKNOWLEDGED","RUNNING","QUEUED")
+          states=[s for s in known if "KernelWorkerStatus."+s in state]
+          if len(states)!=1:
+              raise RuntimeError("Kaggle status was not unambiguous: "+state[:240])
+          actual=states[0]
+          report={
+              "schema":7,
+              "current_shot":os.environ["CURRENT_SHOT"],
+              "private_kernel":os.environ["CURRENT_KERNEL"],
+              "source":"actual_kaggle_kernel_status",
+              "actual_status":actual,
+              "real_video_verified":False,
+              "complete_full_episode":False,
+              "original_private_media_uploaded":False,
+              "new_gpu_jobs_started":0,
+              "owner_visual_quality_approved":False
+          }
+          Path("EB01_READONLY_KAGGLE_PROGRESS.json").write_text(
+              json.dumps(report,ensure_ascii=False,indent=2)+"\n")
+          print("EB01_LIVE_GPU_WATCH",report["current_shot"],actual)
+          if actual in ("ERROR","CANCEL_ACKNOWLEDGED"):
+              print("::warning::Real EB01 Wan worker failed or was canceled; require raw checkpoint forensic, no automatic GPU rerun")
+          elif actual=="COMPLETE":
+              print("::notice::Wan kernel reached COMPLETE; review native MP4+receipt and true image/video quality before next scene")
+          PY
+      - name: Upload only SHA-free status metadata, not original character art/voices
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_READONLY_KAGGLE_PROGRESS
+          path: EB01_READONLY_KAGGLE_PROGRESS.json
+          if-no-files-found: error
+          retention-days: 3
+      - name: Clear temporary status data
+        if: always()
+        run: rm -f EB01_READONLY_KAGGLE_PROGRESS.json "$RUNNER_TEMP/eb01-current-kaggle-status.txt"
