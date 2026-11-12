@@ -1,0 +1,56 @@
+name: EB01 V7 - confirm PRIVATE Kaggle source dataset (ZERO GPU, read-only)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_dataset_verify.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  check_existence_without_writes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      DATASET: wolf19loner92/eb01-v7-private-production-sources
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install Kaggle client only
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Inspect existing dataset metadata, files and visibility; never create/retry
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os,json,sys
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          a=KaggleApi();a.authenticate()
+          ident=os.environ["DATASET"]
+          try:
+              d=a.dataset_view(ident)
+          except Exception as e:
+              print("EXISTING_DATASET_NOT_VIEWABLE",type(e).__name__,str(e)[:260])
+              sys.exit(2)
+          def get(obj, *names):
+              for name in names:
+                  value=getattr(obj,name,None)
+                  if value is not None:return value
+          status={
+              "dataset":ident,
+              "ref":get(d,"ref","id"),
+              "isPrivate":get(d,"is_private","isPrivate"),
+              "totalBytes":get(d,"total_bytes","totalBytes"),
+              "file_count":len(get(d,"resources","files") or []),
+              "status":"READ_ONLY_DATASET_METADATA",
+          }
+          print("V7_DATASET_METADATA",json.dumps(status,default=str))
+          if status["isPrivate"] is not True and str(status["isPrivate"]).lower()!="true":
+              print("BLOCK: cannot prove private; no video job may consume it")
+              sys.exit(3)
+          print("PRIVATE_DATASET_AUTHORITATIVELY_CONFIRMED")
+          PY
+          kaggle datasets files "$DATASET" --csv || true
+          echo "NO_GPU_NO_PUBLIC_MEDIA_ONLY_EXISTING_DATASET_VERIFIED"
