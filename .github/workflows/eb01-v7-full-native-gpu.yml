@@ -1,0 +1,111 @@
+name: EB01 V7 - REAL full 7-shot native Wan Studio generation (private T4 ONE RUN)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_full_native_gpu_once.trigger"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+
+jobs:
+  one_private_real_full_episode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      SOURCE_DATASET: wolf19loner92/eb01-v7-private-production-sources
+      RUN_NONCE: eb01v7real-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: CPU contracts, source-pinned review frames, code compile BEFORE GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3'
+          python -m unittest tests.test_eb01_v7_storyboard -v
+          python -m unittest tests.test_v6_production tests.test_eb01_motion_artifact_gate -v
+          python -m py_compile tools/kaggle_eb01_v7_full_entry.py studio/eb01_v7_storyboard.py
+          python - <<'PY'
+          from pathlib import Path
+          import importlib.util
+          path="tools/kaggle_eb01_v7_full_entry.py"
+          spec=importlib.util.spec_from_file_location("eb01_full_worker",path)
+          module=importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          from studio.eb01_v7_storyboard import SHOTS,DIALOGUES,VOICE_SHA
+          assert len(SHOTS)==7 and len(DIALOGUES)==6 and len(VOICE_SHA)==6
+          assert {s[0] for s in SHOTS}==set(module.REVIEWED_SOURCE_SHA)
+          assert "studio.hybrid_master import produce" in Path(path).read_text()
+          assert "human_dialogue_lipsync_approved" in Path(path).read_text()
+          assert "invideo_used" in Path(path).read_text()
+          print("ONE_AUTHORIZED_FULL_REAL_I2V_JOB_PASS_7_NATIVE_SHOTS_6_SPEECH")
+          PY
+      - name: Stage ONE small PRIVATE Kaggle T4 notebook, no original art in source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python - <<'PY'
+          import os,json,base64,hashlib
+          from pathlib import Path
+          repo=Path(".").resolve()
+          src=(repo/"tools/kaggle_eb01_v7_full_entry.py").read_text()
+          assert src.count("__EB01_V7_FULL_CONFIG_B64__")==1
+          payload={
+            "schema":7,"nonce":os.environ["RUN_NONCE"],
+            "revision":os.environ["GITHUB_SHA"],
+            "branch":"production/elizabeth-bones-full-native-v7-20261112",
+            "model":"wan22-5b","scene_count":7,"image_sources":2,"voice_lines":6,
+            "private":True,"no_paid_services":True,
+            "allow_social_publish":False
+          }
+          rendered=src.replace("__EB01_V7_FULL_CONFIG_B64__",
+            base64.b64encode(json.dumps(payload,sort_keys=True).encode()).decode())
+          assert len(rendered.encode())<100000
+          assert not any(s in rendered for s in ("iVBORw0KGgo","KAGGLE_API_TOKEN="))
+          slug="eb01-v7-native-full-"+hashlib.sha256(payload["nonce"].encode()).hexdigest()[:12]
+          metadata={
+             "id":os.environ["KAGGLE_USERNAME"]+"/"+slug,"title":slug,
+             "code_file":"kernel_main.py","language":"python",
+             "kernel_type":"script","is_private":"true","enable_gpu":"true",
+             "enable_internet":"true","machine_shape":"NvidiaTeslaT4",
+             "dataset_sources":[os.environ["SOURCE_DATASET"]],
+             "competition_sources":[],"kernel_sources":[],"model_sources":[]
+          }
+          dest=Path(os.environ["RUNNER_TEMP"])/"eb01-v7-real-kernel"
+          dest.mkdir()
+          (dest/"kernel_main.py").write_text(rendered,encoding="utf-8")
+          (dest/"kernel-metadata.json").write_text(json.dumps(metadata,indent=2))
+          with open(os.environ["GITHUB_ENV"],"a") as f:
+             f.write("TW_EB01_V7_REAL_KERNEL="+metadata["id"]+"\n")
+          print("PRIVATE_REAL_7_SHOT_WAN_JOB_PREPARED",metadata["id"],
+                "bytes",len(rendered),"original_art_public",False)
+          PY
+      - name: Submit exactly ONE real 7-shot GPU kernel (no automatic retries)
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/eb01-v7-real-kernel" \
+            --timeout 3600 --accelerator NvidiaTeslaT4
+          echo "::notice::ONE real native 7-shot I2V production GPU run submitted; progress in private Kaggle, source media remain private."
+      - name: Confirm accepted private kernel and expose reviewer target
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels status "$TW_EB01_V7_REAL_KERNEL"
+          echo "V7_PRIVATE_REAL_FULL_JOB=$TW_EB01_V7_REAL_KERNEL"
+          echo "V7_FINAL_ARTIFACT_EXPECTED=EB01_V7_ELIZABETH_BONES_SOBESEDOVANIE_REAL_NATIVE_REVIEW.mp4"
+          echo "V7_RECEIPT_EXPECTED=EB01_V7_PRODUCTION_JOB.json"
+          echo "STATUS=SUBMITTED_NOT_READY_NOT_APPROVED"
+      - name: Delete kernel source from GitHub runner (no public originals)
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-v7-real-kernel"
