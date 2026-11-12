@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "film": "Elizabeth Bones E01 Собеседование",
+  "source_branch": "fix/eb01-s02-private-raw-preservation-20261113",
+  "active_shot": "S02",
+  "active_kernel": "wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c",
+  "last_known_status": "KernelWorkerStatus.RUNNING",
+  "last_confirmed_run": 43310655623,
+  "finished_shots": [
+    "S00",
+    "S01"
+  ],
+  "pending_shots": [
+    "S02",
+    "S03",
+    "S04",
+    "S05",
+    "S06"
+  ],
+  "original_S00_SHA256": "7ac34976cfc5086ad068bffd837893a3c41ee6a5d48cc1fcd66f50c368e8b208",
+  "original_S01_SHA256": "fe0e45802d6df19af951dc1ebb8cfaeb396fdcce59d860d5826a62a7e7d36c87",
+  "read_only_monitor": true,
+  "allow_gpu_submission": false,
+  "auto_approve_visual_art": false,
+  "allow_social_publish": false,
+  "full_mp4_verified": false
+}
