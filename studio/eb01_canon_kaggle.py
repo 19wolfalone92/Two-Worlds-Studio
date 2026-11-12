@@ -16,6 +16,7 @@ from studio.release_gate import sha256
 
 WORKER = "tools/kaggle_eb01_canon_entry.py"
 MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
+MIXED_MODEL = "eb01-v6-mixed-sdxl-kostya-juggernaut-v9-elizabeth"
 ARCHIVE = "EB01_CANON_SOURCE_PRIVATE.zip"
 RECEIPT = "EB01_CANON_JOB.json"
 CONTACT = "EB01_CANON_REVIEW_CONTACT.jpg"
@@ -68,13 +69,19 @@ def verify(root: Path, nonce: str) -> dict:
         raise FileNotFoundError("Exactly one original archive+receipt+review contact required")
     receipt=json.loads(matches[0].read_text(encoding="utf-8"))
     if not (receipt.get("success") is True and receipt.get("nonce")==nonce
-            and receipt.get("model")==MODEL and receipt.get("private") is True
+            and receipt.get("model") in {MODEL, MIXED_MODEL} and receipt.get("private") is True
             and receipt.get("gpu_inference_performed") is True
             and receipt.get("video_generated") is False
             and receipt.get("published") is False
             and receipt.get("image_identity_verified") is False
             and receipt.get("full_video_allowed") is False):
         raise ValueError("Not valid real two-character private output")
+    if receipt.get("model") == MIXED_MODEL:
+        if (receipt.get("parent_KOSTYA_sha256") !=
+                receipt.get("generated_images", {}).get("KOSTYA", {}).get("sha256")
+                or receipt["generated_images"]["KOSTYA"].get("reused_unchanged") is not True
+                or receipt["generated_images"]["ELIZABETH"].get("model") != "RunDiffusion/Juggernaut-XL-v9"):
+            raise ValueError("Mixed canon must preserve original skeleton and disclose new model")
     if sha256(archives[0]) != receipt.get("archive_sha256"):
         raise ValueError("Original private PNG archive checksum mismatch")
     if sha256(previews[0]) != receipt.get("contact_sha256"):
