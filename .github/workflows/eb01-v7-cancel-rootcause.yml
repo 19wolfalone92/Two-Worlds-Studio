@@ -1,0 +1,71 @@
+name: EB01 V7 - investigate interrupted GPU log, read-only, zero-GPU
+
+on:
+  push:
+    branches: ["fix/eb01-v7-resume-existing-clips-20261112"]
+    paths: ["ops/eb01_v7_cancel_rootcause.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect_existing_cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 13
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      SOURCE_KERNEL: wolf19loner92/eb01-v7-native-full-c188f4380731
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Kaggle read-only dependencies
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Read original cancelled task logs and receipts, no GPU changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          mkdir -p "$RUNNER_TEMP/eb01-cancel-readonly"
+          kaggle kernels status "$SOURCE_KERNEL"
+          kaggle kernels output "$SOURCE_KERNEL" -p "$RUNNER_TEMP/eb01-cancel-readonly" --force
+          python - <<'PY'
+          from pathlib import Path
+          import json,os,re,hashlib
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-cancel-readonly"
+          files=sorted([p for p in root.rglob("*.log") if p.is_file()],key=lambda p:p.name)
+          print("EB01_RAW_PRIVATE_LOG_FILE_COUNT",len(files),flush=True)
+          redact=[
+            (re.compile(r"(?i)(hf_[a-zA-Z0-9]{20,})"),"<REDACTED_HF_TOKEN>"),
+            (re.compile(r"(?i)(sk-[a-zA-Z0-9_-]{16,})"),"<REDACTED_TOKEN>"),
+            (re.compile(r"(?i)(KAGGLE_API_TOKEN[=: ]+)[^\\s]+"),r"\\1<REDACTED>"),
+          ]
+          for p in files:
+            raw=p.read_text(errors="replace")
+            text=raw
+            for rx,replace in redact:
+              text=rx.sub(replace,text)
+            lines=text.splitlines()
+            selected=[]
+            for i,line in enumerate(lines):
+              if re.search(r"(?i)EB01_|S0[0-6]|cancel|interrupt|sigterm|sigkill|quota|gpu|timeout|ERROR|exception|fail|traceback|process",line):
+                selected.append((i+1,line[:300]))
+            print("EB01_PRIVATE_LOG_PROVENANCE",json.dumps({
+              "name":p.name,"bytes":len(raw.encode()),"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+              "total_lines":len(lines),"diagnostic_lines":selected[-75:]
+            },ensure_ascii=False)[:13500],flush=True)
+            print("EB01_PRIVATE_LOG_END",p.name,"tail",json.dumps(lines[-25:],ensure_ascii=False)[:8000],flush=True)
+          for file in sorted(root.rglob("*.json")):
+            if file.name in ("EB01_V7_PROGRESS_PRIVATE.json","EB01_V7_PRODUCTION_JOB.json","EB01_V7_CREATIVE_REVIEW_REQUIRED.json"):
+              content=json.loads(file.read_text())
+              print("EB01_RECEIPT",file.name,
+                    json.dumps({"status":content.get("status"),
+                                "completed":list(content.get("completed_shots",{})),
+                                "error_summary":content.get("error_summary"),
+                                "error_type":content.get("error_type")},
+                               ensure_ascii=False))
+          PY
+      - name: Delete downloaded private output from transient runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-cancel-readonly"
