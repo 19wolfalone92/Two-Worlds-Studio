@@ -1,0 +1,118 @@
+name: EB01 V7 - assemble SHA-verified PRIVATE Kaggle source dataset (ZERO GPU)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_private_dataset.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  private_sources_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      DATASET_SLUG: wolf19loner92/eb01-v7-private-production-sources
+      KOSTYA_KERNEL: wolf19loner92/eb01-v6-canon-adad762a9834
+      ELIZABETH_KERNEL: wolf19loner92/eb01-v6-photoreal-e140674dabc5
+      VOICE_KERNEL: wolf19loner92/tw-elizabeth-native-02233574da68
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install CPU-only exact audio and SHA verifier
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'soundfile>=0.12' 'Pillow>=10,<12'
+      - name: Read ONLY previously generated private assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          for pair in "K:$KOSTYA_KERNEL" "E:$ELIZABETH_KERNEL" "V:$VOICE_KERNEL"; do
+            folder="${pair%%:*}"; kernel="${pair#*:}"
+            mkdir -p "$RUNNER_TEMP/private-existing/$folder"
+            kaggle kernels output "$kernel" -p "$RUNNER_TEMP/private-existing/$folder" --force
+          done
+      - name: Pin original PNG and 6 original WAV SHA; preserve original files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,json,hashlib,zipfile,shutil
+          from pathlib import Path
+          import soundfile as sf
+          from studio.eb01_canon_kaggle import verify as verify_k
+          from studio.eb01_elizabeth_photoreal_repair import verify as verify_e
+          root=Path(os.environ["RUNNER_TEMP"])/"private-existing"
+          target=Path(os.environ["RUNNER_TEMP"])/"private-source-package"
+          target.mkdir()
+          parent=verify_k(root/"K","eb01canon-43158183875-1")
+          k_sha=parent["images"]["KOSTYA"]["sha256"]
+          photo_receipt=json.loads(next((root/"E").rglob("EB01_ELIZABETH_REPAIR_JOB.json")).read_text())
+          repair=verify_e(root/"E",photo_receipt["nonce"],k_sha)
+          with zipfile.ZipFile(next((root/"K").rglob("EB01_CANON_SOURCE_PRIVATE.zip"))) as z:
+              (target/"KOSTYA.png").write_bytes(z.read("canon/KOSTYA.png"))
+          with zipfile.ZipFile(next((root/"E").rglob("EB01_ELIZABETH_PRIVATE_ONLY.zip"))) as z:
+              (target/"ELIZABETH.png").write_bytes(z.read("canon/ELIZABETH.png"))
+          assert hashlib.sha256((target/"KOSTYA.png").read_bytes()).hexdigest()==k_sha
+          assert hashlib.sha256((target/"ELIZABETH.png").read_bytes()).hexdigest()==repair["ELIZABETH_sha256"]
+          known={
+            "S01":"58763966f8084cafd7a82221e7846c0f57b1ffe5234c4905afc4ce1691c5bc26",
+            "S02":"d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+            "S03":"21c5bffae7bccdd179365cd0d139222d2ed484b74b7e7e792937b31d1d895296",
+            "S04":"6fd367739292a710ade59887d10b2d7ec19a67d563eec19cbd2c1aff355f1965",
+            "S05":"a047e6ecedbeb33524f41e37ac61e2d7785b9051c669318460edbbc6a37cd5e8",
+            "S06":"a9e29b7fa792e840d8c9fc02775a119c52ea1527bc9d96624506b7663c69ce21"
+          }
+          report={"schema":1,"status":"PRIVATE_CANONICAL_SOURCE_LOCK","KOSTYA_sha256":k_sha,
+                  "ELIZABETH_sha256":repair["ELIZABETH_sha256"],"voices":{},
+                  "public":False,"published":False,"source_kernels":[
+                    os.environ["KOSTYA_KERNEL"],os.environ["ELIZABETH_KERNEL"],os.environ["VOICE_KERNEL"]]}
+          for sid,expected in known.items():
+              matches=list((root/"V").rglob(sid+".wav"))
+              assert len(matches)==1,(sid,len(matches))
+              source=matches[0]
+              actual=hashlib.sha256(source.read_bytes()).hexdigest()
+              assert actual==expected,(sid,"SHA mismatch")
+              with sf.SoundFile(source) as f:
+                  duration=f.frames/f.samplerate
+                  assert f.channels==1 and 1<=duration<=8,(sid,duration)
+              shutil.copy2(source,target/(sid+".wav"))
+              report["voices"][sid]={"sha256":actual,"seconds":duration}
+          (target/"source_lock.json").write_text(json.dumps(report,indent=2,ensure_ascii=False)+"\n")
+          meta={"title":"Elizabeth Bones E01 Private Source Lock",
+                "id":os.environ["DATASET_SLUG"],"isPrivate":True,
+                "description":"PRIVATE internal unreleased character images + original Russian AI speech. Not licensed for public redistribution.",
+                "licenses":[{"name":"copyright-authors"}]}
+          (target/"dataset-metadata.json").write_text(json.dumps(meta,indent=2)+"\n")
+          print("PRIVATE_DATASET_READY",os.environ["DATASET_SLUG"],
+                "image_sources",2,"original_voice_files",len(report["voices"]),
+                "original_art_sha256",k_sha,repair["ELIZABETH_sha256"])
+          PY
+      - name: Create strictly private dataset - NO --public flag ever
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "$RUNNER_TEMP/private-source-package/source_lock.json"
+          test -f "$RUNNER_TEMP/private-source-package/dataset-metadata.json"
+          kaggle datasets create -p "$RUNNER_TEMP/private-source-package" --quiet -t -r skip
+          kaggle datasets status "$DATASET_SLUG"
+      - name: Verify creator-only dataset privacy and all source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          a=KaggleApi();a.authenticate()
+          s=a.dataset_view(os.environ["DATASET_SLUG"])
+          p=getattr(s,"is_private",None)
+          if p is None: p=getattr(s,"isPrivate",None)
+          print("PRIVATE_DATASET_CONFIRMED",p,"dataset",os.environ["DATASET_SLUG"])
+          if p is not True and str(p).lower() != "true":
+              raise RuntimeError("Cannot confirm this dataset is private: halt")
+          PY
+      - name: Immediately wipe originals from GitHub Actions runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/private-existing" "$RUNNER_TEMP/private-source-package"
