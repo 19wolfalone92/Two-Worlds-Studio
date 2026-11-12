@@ -41,7 +41,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import re,os
-          p=Path("ops/eb01_v7_next_shot.trigger")
+          p=Path("ops/eb01_v7_next_shot_after_verified.trigger")
           raw=p.read_text(encoding="utf-8")
           fields=dict(row.split(": ",1) for row in raw.splitlines() if ": " in row)
           shot=fields.get("shot","")
