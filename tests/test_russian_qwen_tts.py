@@ -3,12 +3,15 @@ import hashlib
 import json
 import tempfile
 import unittest
+import sys
+from types import SimpleNamespace
+from unittest.mock import Mock
 from pathlib import Path
 from unittest.mock import patch
 
 from studio.narration_batch import prepare, execute
 from studio.russian_qwen_tts import (
-    MODEL_SMALL, STYLE_PROMPTS, VOICES, split_text, validate,
+    MODEL_SMALL, STYLE_PROMPTS, VOICES, split_text, validate, _get_model,
 )
 
 RUSSIAN = "Когда часы пробили полночь, она услышала знакомый голос. " * 5
@@ -97,6 +100,29 @@ class RussianVoiceTests(unittest.TestCase):
         self.assertEqual(" ".join(chunks), " ".join(RUSSIAN.split()))
         with self.assertRaises(ValueError):
             split_text("Ы" * 400, limit=100)
+
+    def test_qwen_tts_precision_t4_fp32_bf16_if_supported(self):
+        for cuda, bf16, expected in (
+            (True, False, "float32"), (True, True, "bfloat16"),
+            (False, False, "float32"),
+        ):
+            with self.subTest(cuda=cuda, native_bf16=bf16):
+                fake_torch = SimpleNamespace(
+                    cuda=SimpleNamespace(is_available=lambda: cuda,
+                                         is_bf16_supported=lambda: bf16),
+                    bfloat16="bfloat16", float32="float32")
+                maker=Mock()
+                with patch.dict(sys.modules, {
+                    "torch": fake_torch,
+                    "qwen_tts": SimpleNamespace(Qwen3TTSModel=maker),
+                }):
+                    _get_model.cache_clear()
+                    _get_model(MODEL_SMALL)
+                    maker.from_pretrained.assert_called_once_with(
+                        MODEL_SMALL,
+                        device_map="cuda:0" if cuda else "cpu",
+                        dtype=expected, attn_implementation="sdpa")
+        _get_model.cache_clear()
 
     def test_catalog_contains_emotional_options(self):
         self.assertIn("Serena", VOICES)
