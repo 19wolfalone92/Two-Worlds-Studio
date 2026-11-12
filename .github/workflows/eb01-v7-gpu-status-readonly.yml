@@ -2,7 +2,7 @@ name: EB01 V7 - private GPU progress check (READ ONLY, ZERO GPU)
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_status_poll_1806.trigger"]
+    paths: ["ops/eb01_v7_status_poll_forensic_1624.trigger"]
 
 permissions:
   contents: read
