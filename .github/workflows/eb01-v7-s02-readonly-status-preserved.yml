@@ -1,0 +1,105 @@
+name: EB01 V7 - inspect ORIGINAL private S02 model progress and raw recovery (ZERO GPU)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_v7_s02_readonly_status.trigger"]
+permissions:
+  contents: read
+jobs:
+  check_existing_one_model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      SOURCE_KERNEL: wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Kaggle and CPU-only FFprobe/decoder
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Read ONLY this already submitted private model; never push or resubmit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          mkdir -p "$RUNNER_TEMP/eb01-s02-original-output"
+          kaggle kernels status "$SOURCE_KERNEL" | tee "$RUNNER_TEMP/status.txt"
+          # Kaggle may expose partial output only when COMPLETE/ERROR.
+          # Read both, but never recreate/call push or rerun GPU.
+          kaggle kernels output "$SOURCE_KERNEL" \
+            -p "$RUNNER_TEMP/eb01-s02-original-output" --force || true
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          found=root/"eb01-s02-original-output"
+          status=(root/"status.txt").read_text(errors="replace").strip()
+          report={
+             "schema":7,"kernel":os.environ["SOURCE_KERNEL"],
+             "kernel_status":status,"source_art_private":True,
+             "zero_new_gpu_jobs":True,"published":False,
+             "files":[],"receipts":{},"genuine_raw":{},
+             "approved_for_final_film":False,
+          }
+          for p in sorted(found.rglob("*")):
+             if not p.is_file():continue
+             row={"name":p.name,"bytes":p.stat().st_size}
+             if p.suffix in (".mp4",".json"):
+               h=hashlib.sha256()
+               with p.open("rb") as f:
+                 for piece in iter(lambda:f.read(1048576),b""):
+                   h.update(piece)
+               row["sha256"]=h.hexdigest()
+             report["files"].append(row)
+             if p.name in ("EB01_V7_SINGLE_SHOT_JOB.json",
+                           "S02.original_wan_raw.checkpoint.json",
+                           "S02.needs_visual_review.json"):
+               if p.stat().st_size<200000:
+                 try:
+                   obj=json.loads(p.read_text(encoding="utf-8"))
+                   if p.name=="EB01_V7_SINGLE_SHOT_JOB.json":
+                     report["receipts"][p.name]={k:obj.get(k) for k in
+                       ("status","success","shot","clip_sha256",
+                        "error_type","error_summary","private_raw_mp4_preserved",
+                        "private_raw_mp4_sha256","model_inference_performed")}
+                   else:
+                     report["receipts"][p.name]=obj
+                 except Exception as e:
+                   report["receipts"][p.name]={"read_error":str(e)[:150]}
+          for name in ("S02.mp4","S02.original_wan_raw.mp4"):
+             matches=list(found.rglob(name))
+             if len(matches)!=1:continue
+             movie=matches[0]
+             data=json.loads(subprocess.check_output([
+               "ffprobe","-v","error","-count_frames",
+               "-select_streams","v:0",
+               "-show_entries","stream=codec_name,width,height,avg_frame_rate,nb_read_frames",
+               "-of","json",str(movie)],timeout=100))
+             p=subprocess.run([
+               "ffmpeg","-hide_banner","-nostdin","-v","error",
+               "-xerror","-i",str(movie),"-f","null","-"],
+               text=True,capture_output=True,timeout=180)
+             report["genuine_raw"][name]={
+                "probe":data,"full_decode_passed":p.returncode==0,
+                "decode_error":p.stderr[:150] if p.returncode else "",
+             }
+          out=root/"EB01_V7_S02_READ_ONLY_QA_STATUS.json"
+          out.write_text(json.dumps(report,ensure_ascii=False,indent=2))
+          print("EB01_S02_READONLY_ACTUAL_KAGGLE_STATUS",
+                json.dumps(report,ensure_ascii=False)[:11000])
+          PY
+      - name: Upload only provenance metadata, never raw MP4 or original media
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_V7_S02_MODEL_STATUS_ONLY_NO_SOURCE_MEDIA
+          path: ${{ runner.temp }}/EB01_V7_S02_READ_ONLY_QA_STATUS.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Remove transient private GPU source bytes
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-s02-original-output" "$RUNNER_TEMP/status.txt" "$RUNNER_TEMP/EB01_V7_S02_READ_ONLY_QA_STATUS.json"
