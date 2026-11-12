@@ -1,5 +1,4 @@
 """Private CPU-only E01 7-reference preview; appended after storyboard utilities."""
-from __future__ import annotations
 import json
 import traceback
 from pathlib import Path
