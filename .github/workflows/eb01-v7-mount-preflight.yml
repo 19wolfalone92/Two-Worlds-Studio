@@ -3,7 +3,7 @@ name: EB01 V7 - CPU private Kaggle kernel-input mount proof (ZERO GPU)
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_mount_preflight.trigger"]
+    paths: ["ops/eb01_v7_mount_preflight_v2.trigger"]
 
 permissions:
   contents: read
@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 18
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      KAGGLE_USERNAME: wolf19loner92
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
