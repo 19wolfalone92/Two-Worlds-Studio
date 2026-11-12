@@ -1,4 +1,4 @@
-name: EB01 V6 - private Elizabeth-only photographic repair (small payload)
+name: EB01 V6 - black wardrobe and gothic office Elizabeth master photo (small payload)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - "fix/eb01-photo-upload-small-payload-20261112"
       - "production/eb01-canon-first-v6-20261112"
     paths:
-      - "ops/eb01_elizabeth_repair_v2.trigger"
+      - "ops/eb01_elizabeth_directed_v3.trigger"
 
 permissions:
   contents: read
@@ -24,7 +24,7 @@ jobs:
       KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
       SOURCE_KERNEL: wolf19loner92/eb01-v6-canon-adad762a9834
       SOURCE_NONCE: eb01canon-43158183875-1
-      RUN_NONCE: eb01photo2-${{ github.run_id }}-${{ github.run_attempt }}
+      RUN_NONCE: eb01photo3-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
