@@ -206,12 +206,35 @@ def main():
         result=generate_one(cfg,store,lock)
         RECEIPT.write_text(json.dumps(result,indent=2,ensure_ascii=False)+"\n",encoding="utf-8")
     except BaseException as exc:
+        # The original generated MP4 now survives ANY aesthetic rejection.
+        # Report this distinction so collectors do not confuse true model
+        # inference with a failed/empty Kaggle job or an approved scene.
+        checkpoint=WORK/(sid+".original_wan_raw.checkpoint.json")
+        checkpoint_data={}
+        if checkpoint.is_file():
+            try:
+                checkpoint_data=json.loads(checkpoint.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        preserved=checkpoint_data.get("status")=="GENUINE_NEURAL_SOURCE_PRESERVED_QA_PENDING"
         RECEIPT.write_text(json.dumps({
-            "schema":7,"status":"INCOMPLETE_STOP_REQUIRES_DIAGNOSIS",
+            "schema":7,
+            "status":("REAL_GPU_VIDEO_PRESERVED_BUT_VISUAL_QA_FAILED"
+                      if preserved else "INCOMPLETE_STOP_REQUIRES_DIAGNOSIS"),
             "success":False,"shot":sid,"nonce":cfg["nonce"],
             "error_type":type(exc).__name__,
             "error_summary":str(exc)[:350],
-            "no_auto_retry":True,"published":False},indent=2)+"\n")
+            "model_inference_performed":preserved,
+            "private_raw_mp4_preserved":preserved,
+            "private_raw_mp4_sha256":checkpoint_data.get("original_mp4_sha256"),
+            "needs_visual_review":preserved,
+            "finished_episode_ready":False,
+            "no_auto_retry":True,"published":False},
+            ensure_ascii=False,indent=2)+"\n")
+        print("EB01_V7_SINGLE_SHOT_ERROR",sid,type(exc).__name__,
+              str(exc)[:350],"raw_model_video_persisted",preserved,flush=True)
+        traceback.print_exc()
+        raise
         print("EB01_V7_SINGLE_SHOT_ERROR",sid,type(exc).__name__,
               str(exc)[:350],flush=True)
         traceback.print_exc()
