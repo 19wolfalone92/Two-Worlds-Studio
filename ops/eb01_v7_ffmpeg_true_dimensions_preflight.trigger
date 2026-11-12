@@ -1,0 +1,4 @@
+check: real ffprobe/ffmpeg
+fixture_dimensions: 320x576_valid_neural_model
+prior_failure: undersized_160x288_test_fixture_rejected
+noGPU: true
