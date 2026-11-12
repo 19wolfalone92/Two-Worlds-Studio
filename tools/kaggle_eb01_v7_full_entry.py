@@ -49,11 +49,16 @@ def authenticate_and_sources(cfg):
     if info.total_memory < 14*(2**30):
         raise RuntimeError("GPU VRAM insufficient for explicitly selected Wan 5B")
     print("EB01_V7_TRUE_GPU",torch.cuda.get_device_name(0),flush=True)
+    # A monitor can add commits to the same production branch while GPU
+    # is queued. Fetch the exact submitted SHA, not a mutable branch head.
     command(["git","clone","--depth","1","--branch",cfg["branch"],
              "https://github.com/19wolfalone92/Two-Worlds-Studio.git",str(STUDIO)],timeout=360)
+    command(["git","fetch","--depth","1","origin",cfg["revision"]],
+            cwd=STUDIO,timeout=240)
+    command(["git","checkout","--detach",cfg["revision"]],cwd=STUDIO,timeout=120)
     actual = subprocess.check_output(["git","rev-parse","HEAD"],cwd=STUDIO,text=True).strip()
     if actual != cfg["revision"]:
-        raise RuntimeError("Public Studio producer revision changed after approval")
+        raise RuntimeError("Exact production source SHA is not present at pinned commit")
     sys.path.insert(0,str(STUDIO))
     from studio.eb01_v7_storyboard import SRC_SHA,VOICE_SHA,gather_private,SHOTS
     lock=gather_private(Path("/kaggle/input"),ROOT)
