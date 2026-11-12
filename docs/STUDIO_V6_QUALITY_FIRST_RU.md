@@ -98,7 +98,17 @@ existing educational motion comic tests and unrelated projects do not break.
    `visual_checks={S00..S06:{identity:true,wardrobe:true,anatomy:true,
    lighting:true,composition:true,kostya_is_skeleton:true}}`.
    Only fill those fields **after personally seeing the images**, not in CI.
-4. Offline preflight: `python -m studio.v6_production plan --storyboard /private/storyboard.json`.
+4. Before trusting any ComfyUI image-to-image workflow, export its API graph
+   with its canonical reference loader named `__REFERENCE_IMAGE__`, then run
+   `python -m studio.v6_art reference-graph --api-graph /private/comfy_api.json`.
+   The guard rejects a disconnected image and a sampler not conditioned by the
+   IP-Adapter. Review the image result separately; structural connectivity is
+   NOT semantic identity proof.
+5. Generate the PRIVATE nine-image contact sheet for your eyes:
+   `python -m studio.v6_art contact-sheet --storyboard /private/storyboard.json
+   --assets /private/eb01`. The first two tiles show the canon references,
+   and the next seven the actual keyframes. This is a storyboard, NOT a video.
+6. Offline preflight: `python -m studio.v6_production plan --storyboard /private/storyboard.json`.
 5. ONE actual optional GPU pilot on a real installed local ComfyUI server:
    `python -m studio.v6_production pilot --storyboard /private/storyboard.json --review /private/visual_review.json --assets /private/eb01 --shot S02 --execute-local-gpu --accept-model-license`.
    Omitting `--execute-local-gpu` consumes no quota.
