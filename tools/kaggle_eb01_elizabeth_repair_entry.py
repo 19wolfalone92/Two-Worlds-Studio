@@ -30,25 +30,32 @@ RECEIPT = WORK / "EB01_ELIZABETH_REPAIR_JOB.json"
 PREVIEW = WORK / "EB01_ELIZABETH_REVIEW_LOW_RES.jpg"
 WIDTH, HEIGHT = 704, 1216
 PROMPT = (
-    "RAW ANALOG FILM PHOTOGRAPH, 35mm live-action movie still, real human actress, "
-    "naturally elegant 31-year-old adult brunette funeral professional, "
-    "LONG flowing dark chestnut WAVY HAIR, oval natural human face, "
-    "subtle realistic skin texture with a tiny beauty mark below her left eye, "
-    "dark-brown expressive almond-shaped eyes, finely defined eyebrows, "
-    "fitted MATTE BLACK long-sleeve HIGH-NECK LACE blouse, "
-    "tiny antique silver cameo necklace, holding a black pen at a walnut desk, "
-    "subtle sarcastic expression, warm brass desk lamp, "
-    "deep burgundy velvet curtains, atmospheric tasteful gothic office, "
-    "cinematic natural proportions, authentic tungsten practical lighting, "
-    "rich understated film color grading, photoreal detailed skin, "
-    "subtle depth of field, shot on Kodak Vision3 500T, exceptional film photography."
+    "CINEMATIC MEDIUM-WIDE FILM STILL, NOT A CLOSE UP, camera sees entire UPPER "
+    "BODY from WAIST to head AND DESK in the bottom third. A real 31-year-old "
+    "brunette actress ELIZABETH BONES sits behind a polished WALNUT INTERVIEW DESK "
+    "in an atmospheric Victorian gothic office. She wears an unmistakably "
+    "JET BLACK FITTED HIGH-NECK LONG-SLEEVE LACE BLOUSE, the black long "
+    "sleeves and BLACK LACE torso are clearly visible and occupy the central "
+    "and lower part of the image. No white fabric, no exposed shoulders. "
+    "LONG WAVY DARK CHESTNUT HAIR falling to her chest, naturally attractive "
+    "oval face, expressive BROWN eyes, tiny left-eye beauty mark, authentic "
+    "real skin texture, subtle skeptical interviewing expression. Her right "
+    "hand holds a dark pen against a cream resume on the walnut desk. A warm "
+    "BRASS DESK LAMP, BURGUNDY VELVET DRAPES and dark walnut wood-panelled "
+    "walls are distinctly visible behind her. CINEMA PRODUCTION DESIGN, "
+    "beautiful moody warm amber practical lighting, dark rich professional "
+    "color grade, Kodak Vision3 tungsten 35mm FILM, natural skin "
+    "with no glamour retouching, expensive photoreal live action, "
+    "50mm cinema lens, art-directed composition and real physical materials."
 )
 NEGATIVE = (
-    "illustration, cartoon, animation, comic, anime, painting, drawing, "
-    "black ink outlines, plastic CGI, 3D render, stylized doll, airbrushed skin, "
-    "flat vector, synthetic-looking face, short bob hairstyle, blonde, "
-    "red jacket, red blouse, red clothes, white dress, skeleton, "
-    "oversaturated, bad anatomy, extra fingers, missing hands, watermark, text"
+    "tight headshot, selfie, cropped shoulders, portrait with no torso, "
+    "modern bright white bedroom, white wall, grey wall, white top, "
+    "WHITE BLOUSE, beige top, white sleeveless dress, bare shoulders, "
+    "light clothing, bright pale outfit, red blouse, red jacket, "
+    "blonde, bob haircut, cartoon, comic book, ink lines, anime, painting, "
+    "stylized 3D render, fake plastic doll, theatrical cosplay, "
+    "muddy shapes, extra limbs, missing hands, watermark, letters, text"
 )
 
 def generate(data):
@@ -82,7 +89,7 @@ def generate(data):
 
     image = pipe(
         prompt=PROMPT, negative_prompt=NEGATIVE, width=WIDTH, height=HEIGHT,
-        num_inference_steps=34, guidance_scale=4.6,
+        num_inference_steps=38, guidance_scale=7.4,
         generator=torch.Generator(device="cpu").manual_seed(data["elizabeth_seed"]),
     ).images[0].convert("RGB")
     dest = PRIVATE / "ELIZABETH.png"
