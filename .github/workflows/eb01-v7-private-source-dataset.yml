@@ -3,7 +3,7 @@ name: EB01 V7 - assemble SHA-verified PRIVATE Kaggle source dataset (ZERO GPU)
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_private_dataset.trigger"]
+    paths: ["ops/eb01_v7_private_dataset_v2.trigger"]
 
 permissions:
   contents: read
@@ -84,7 +84,7 @@ jobs:
           meta={"title":"Elizabeth Bones E01 Private Source Lock",
                 "id":os.environ["DATASET_SLUG"],"isPrivate":True,
                 "description":"PRIVATE internal unreleased character images + original Russian AI speech. Not licensed for public redistribution.",
-                "licenses":[{"name":"copyright-authors"}]}
+                "licenses":[{"name":"other"}]}
           (target/"dataset-metadata.json").write_text(json.dumps(meta,indent=2)+"\n")
           print("PRIVATE_DATASET_READY",os.environ["DATASET_SLUG"],
                 "image_sources",2,"original_voice_files",len(report["voices"]),
