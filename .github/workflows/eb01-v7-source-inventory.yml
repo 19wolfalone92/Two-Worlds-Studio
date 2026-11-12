@@ -1,0 +1,85 @@
+name: EB01 V7 - inventory existing private art and six WAVs (ZERO GPU)
+
+on:
+  push:
+    branches: ["production/elizabeth-bones-full-native-v7-20261112"]
+    paths: ["ops/eb01_v7_source_inventory.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  read_private_sources_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 17
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KOSTYA_KERNEL: wolf19loner92/eb01-v6-canon-adad762a9834
+      ELIZABETH_KERNEL: wolf19loner92/eb01-v6-photoreal-e140674dabc5
+      VOICE_KERNEL: wolf19loner92/tw-elizabeth-native-02233574da68
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: CPU-only tooling
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'soundfile>=0.12'
+      - name: Fetch three EXISTING private outputs - no generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          for pair in "kostya:$KOSTYA_KERNEL" "elizabeth:$ELIZABETH_KERNEL" "voices:$VOICE_KERNEL"; do
+            name="${pair%%:*}"
+            kernel="${pair#*:}"
+            mkdir -p "$RUNNER_TEMP/eb01-v7-private/$name"
+            echo "INSPECT_EXISTING_KERNEL $name"
+            kaggle kernels status "$kernel"
+            kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-v7-private/$name" --force
+          done
+      - name: Audit six original Qwen3 WAV source files, two private photos
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, json, hashlib, zipfile
+          from pathlib import Path
+          import soundfile as sf
+          from studio.eb01_canon_kaggle import verify as verify_kostya
+          from studio.eb01_elizabeth_photoreal_repair import verify as verify_photo
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-v7-private"
+          parent=verify_kostya(root/"kostya","eb01canon-43158183875-1")
+          original_sha=parent["images"]["KOSTYA"]["sha256"]
+          print("KOSTYA_SOURCE_HASH",original_sha)
+          photo_root=root/"elizabeth"
+          receipts=list(photo_root.rglob("EB01_ELIZABETH_REPAIR_JOB.json"))
+          if len(receipts)!=1: raise FileNotFoundError("Elizabeth v3 receipt absent")
+          data=json.loads(receipts[0].read_text())
+          photo=verify_photo(photo_root,data["nonce"],original_sha)
+          print("ELIZABETH_SHA",photo["ELIZABETH_sha256"])
+          wav_root=root/"voices"
+          req={
+            "S01":"58763966f8084cafd7a82221e7846c0f57b1ffe5234c4905afc4ce1691c5bc26",
+            "S02":"d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+            "S03":"21c5bffae7bccdd179365cd0d139222d2ed484b74b7e7e792937b31d1d895296",
+            "S04":"6fd367739292a710ade59887d10b2d7ec19a67d563eec19cbd2c1aff355f1965",
+            "S05":"a047e6ecedbeb33524f41e37ac61e2d7785b9051c669318460edbbc6a37cd5e8",
+            "S06":"a9e29b7fa792e840d8c9fc02775a119c52ea1527bc9d96624506b7663c69ce21"
+          }
+          print("PRIVATE_AUDIO_FILE_COUNT",len(list(wav_root.rglob("*.wav"))))
+          for sid,sha in req.items():
+            matches=list(wav_root.rglob(sid+".wav"))
+            if len(matches)!=1:
+                print("MISSING_OR_AMBIGUOUS",sid, len(matches))
+                continue
+            p=matches[0]
+            with sf.SoundFile(p) as f:
+                seconds=f.frames/f.samplerate
+                channels=f.channels
+            got=hashlib.sha256(p.read_bytes()).hexdigest()
+            print("VOICE",sid,"sec",round(seconds,3),"bytes",p.stat().st_size,
+                  "channels",channels,"SHA_MATCH",got==sha)
+          print("READONLY_SOURCE_AUDIT_DONE_NO_GPU")
+          PY
+      - name: Wipe all private PNG and WAV input from ephemeral runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-v7-private"
