@@ -2,7 +2,7 @@ name: EB01 V7 - canceled Kaggle forensic read-only ZERO GPU
 on:
   push:
     branches: ["production/elizabeth-bones-full-native-v7-20261112"]
-    paths: ["ops/eb01_v7_cancel_forensic_20261112.trigger"]
+    paths: ["ops/eb01_v7_cancel_forensic_ffmpeg_fix.trigger"]
 permissions:
   contents: read
 jobs:
@@ -17,7 +17,9 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.11"}
       - name: Install read-only Kaggle and ffmpeg tools
-        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
       - name: Read private kernel output and audit clips without submitting any jobs
         shell: bash
         run: |
