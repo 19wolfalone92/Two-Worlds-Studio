@@ -68,6 +68,7 @@ adapters and adds strict, fail-closed orchestration rather than duplicating them
 
 ## Removed obsolete technical-only routes
 - `studio/rig_demo.py` — a purely synthetic animation demo, not genuine AI.
+- `studio/ambient_sound.py` — orphaned standalone synthetic-ambience generator (repo-wide import audit found no caller); the actively used `studio.story_soundtrack` + `studio.audio_master` remain.
 - `.github/workflows/wan-real-gpu-proof.yml` and
   `.github/workflows/wan-real-gpu-readback.yml` plus their one-shot
   `ops/wan_*.trigger` files — old public engineering-fixture proof flows.
