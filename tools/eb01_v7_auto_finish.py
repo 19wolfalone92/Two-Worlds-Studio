@@ -194,7 +194,9 @@ def main():
                 report["sources"][sid]=verify_shot(sid,folder,known)
                 sources[sid]=folder
                 report["genuine_finished_shots"].append(sid)
-                report["pending"].remove(sid)
+                # S03 was verified before this workflow, only S04 is pending.
+                if sid in report["pending"]:
+                    report["pending"].remove(sid)
                 record(dest/"EB01_V7_STATUS.json",report)
             # All remaining clips are completely independent: each verified
             # BEFORE investment in the next GPU shot. No silent retries.
