@@ -7,3 +7,6 @@ native_editor: TWO WORLDS STUDIO hybrid_master.produce
 full_film_delivery: real MP4 7 shots 6 lines + SRT + QA
 on_error: stop and preserve truthful status, never substitute static placeholders
 social_publish: false
+
+resume_revision: 2
+fix: S03 previously finished and excluded from pending list
