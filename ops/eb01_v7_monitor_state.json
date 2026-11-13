@@ -31,8 +31,9 @@
   "S02_full_decode_passed": true,
   "S02_frames": 125,
   "S02_raw_frames": 129,
-  "S02_next_action": "S02_TECHNICALLY_COMPLETE_BUT_VISUAL_NEON_ARTIFACTS_VISIBLE_FULL_SCENE_ART_REVIEW_FAIL",
+  "S02_next_action": "SOURCE_PRESERVED_TECHNICAL_PASS_BUT_ARTISTIC_VISUAL_REVIEW_FLAGS_NEON_STRIPES",
   "S02_observed_visual_problem": "Bright RGB/cyan-magenta stripes in interior/background across multiple genuine frames of S02; not an acceptable cinematic final take",
   "S03_model_submitted_with_run": 43365117680,
-  "S03_artistic_approved": false
+  "S03_artistic_approved": false,
+  "S03_status_note": "Submitted as isolated private Wan GPU in Actions 43365117680; completion unknown"
 }
