@@ -61,6 +61,11 @@ jobs:
               f.write("CURRENT_KERNEL="+kernel+"\n")
           print("PRODUCTION_STATE_VALIDATED",sid,kernel)
           PY
+      - name: Read actual Kaggle status in a NEW STEP after GITHUB_ENV propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CURRENT_KERNEL"
           kaggle kernels status "$CURRENT_KERNEL" | tee "$RUNNER_TEMP/eb01-current-kaggle-status.txt"
       - name: Record genuine observed state, no source video in GitHub artifact
         shell: bash
