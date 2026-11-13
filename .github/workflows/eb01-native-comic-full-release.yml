@@ -1,0 +1,71 @@
+name: EB01 — FINISHED original Russian 14-shot Studio motion-comic MP4 (CPU only)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_native_comic_full_6_lines.trigger"]
+permissions:
+  contents: read
+jobs:
+  cinematic_comic_cut:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      PRIVATE_DATASET: wolf19loner92/eb01-v7-private-production-sources
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install offline fonts, audio and native FFmpeg composer
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12' 'scipy>=1.10'
+          python -m py_compile tools/eb01_native_comic_release.py
+      - name: Fetch two owner portraits and six original RU Qwen voice WAVs PRIVATELY
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          mkdir -p "$RUNNER_TEMP/eb01-private-originals"
+          kaggle datasets download -d "$PRIVATE_DATASET" -p "$RUNNER_TEMP/eb01-private-originals" --unzip
+      - name: Produce the COMPLETE motion-comic cut using only TWO WORLDS STUDIO compositor
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eb01-owner-full"
+          python -m tools.eb01_native_comic_release \
+            --dataset "$RUNNER_TEMP/eb01-private-originals" \
+            --workspace "$RUNNER_TEMP/eb01-work" \
+            --output "$RUNNER_TEMP/eb01-owner-full/ELIZABETH_BONES_E01_COMPLETE_MOTION_COMIC_RU.mp4"
+          python - <<'PY'
+          import os,json
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-owner-full"
+          report=json.loads(next(root.glob("*.cut_qa.json")).read_text())
+          assert report["status"]=="COMPLETE_NATIVE_MOTION_COMIC_OWNER_REVIEW"
+          assert report["original_russian_Qwen3_voice_lines"]==6
+          assert report["subtitles"]==6
+          assert report["designed_comic_shots"]==14
+          assert report["native_studio"]=="studio.hybrid_master.produce"
+          assert report["original_video_shots_claimed"]==0
+          assert report["published"] is False
+          mp4=next(root.glob("*.mp4"))
+          assert mp4.stat().st_size>600000
+          print("EB01_COMPLETE_RUSSIAN_14_SHOT_NATIVE_STUDIO_MOTION_COMIC",mp4.stat().st_size)
+          PY
+      - name: Export finished comic MP4, all subtitles and transparent QA receipt (NOT neural V7)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_COMPLETE_RUSSIAN_MOTION_COMIC_14_SHOTS_6_VOICES_NOT_NEURAL_V7
+          path: |
+            ${{ runner.temp }}/eb01-owner-full/*.mp4
+            ${{ runner.temp }}/eb01-owner-full/*.srt
+            ${{ runner.temp }}/eb01-owner-full/*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Destroy private source media and interim character artwork
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-private-originals" "$RUNNER_TEMP/eb01-work" "$RUNNER_TEMP/eb01-owner-full"
