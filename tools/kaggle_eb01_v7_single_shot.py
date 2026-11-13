@@ -45,12 +45,17 @@ def check_configuration(config:dict)->str:
             or not isinstance(config.get("revision"),str)
             or len(config["revision"])!=40):
         raise ValueError("Invalid or unsafe isolated real I2V shot request")
-    # Retakes are deliberately separate from the immutable original S02.
-    # A new seed never rewrites a previously verified source and must be
-    # explicitly marked as a quality retake, not an accidental duplicate.
+    # Each artistic retake is a separate, immutable private Kaggle kernel.
+    # Only rejected S02/S05 or a *failed* new S06 is eligible; no changes
+    # to the already verified S00/S01/S03/S04 source media.
     retake=config.get("quality_retake",False)
-    if type(retake) is not bool or (retake and config["shot"]!="S02"):
-        raise ValueError("Quality retakes are permitted only for corrupted S02")
+    attempt=config.get("seed_variant",0)
+    if (type(retake) is not bool or type(attempt) is not int
+            or attempt not in (0,1,2)
+            or (retake and config["shot"] not in ("S02","S05","S06"))
+            or (attempt>0 and not retake)
+            or (config["shot"]=="S02" and not retake)):
+        raise ValueError("Unsafe or unbounded native Wan quality-retake request")
     return config["shot"]
 
 def stage_reproducible_source(cfg):
@@ -116,15 +121,22 @@ def generate_one(cfg,store,lock):
         # of the same 129-frame failed candidate. One new seed only.
         chosen_seed=(202611130+int(sid[1:])*31
                      if sid=="S02" else 202611120+int(sid[1:])*31)
-        if sid=="S02" and cfg.get("quality_retake") is True:
-            # The original S02 used the base seed and produced unacceptable
-            # coloured background stripes. A new seed must not replay it.
-            chosen_seed += 1009
+        # Rejected S02/S05 clips exhibit broad neon latent corruption, not
+        # an encoding error. Do not recycle the proven-bad stochastic seed.
+        # Retakes use a genuinely different diffusion trajectory and a
+        # modestly longer sampler. Never relabel an unchanged RAW as fixed.
+        variant=cfg.get("seed_variant",0)
+        if sid=="S02" and variant==0:
+            raise RuntimeError("Known-neon S02 requires explicit new diffusion seed")
+        chosen_seed += 1009*variant
+        sample_steps=(20 if variant==0 else (24 if variant==1 else 28))
+        print("EB01_WAN_QUALITY_RETAKE_CONFIG",sid,"variant",variant,
+              "seed",chosen_seed,"steps",sample_steps,flush=True)
         made=generate(full.MODEL,reference=path,output=raw,prompt=prompt,
                       seed=chosen_seed,
                       host="http://127.0.0.1:8188",
                       width=WIDTH,height=HEIGHT,frames=frames+4,
-                      steps=20,timeout=10600,execute=True,
+                      steps=sample_steps,timeout=10600,execute=True,
                       accepted_license=True,client=client)
         if made.get("status")!="GENERATED_REVIEW_REQUIRED":
             raise RuntimeError("No real native Wan inference returned for "+sid)
