@@ -1,0 +1,147 @@
+name: EB01 S02 - ACTUAL LTX2B TRUE I2V rescue after broken Wan neon
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_s02_ltx2b_real_gpu.trigger"]
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+jobs:
+  official_ltx_source_locked_genuine_s02:
+    runs-on: ubuntu-latest
+    timeout-minutes: 95
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: CPU proof: no counterfeit media, original characters and six-voice SHA, safe T4 source patch
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
+          python -m py_compile tools/kaggle_eb01_ltx2b_s02_fallback.py
+          python -m unittest tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_isolated_resume -q
+          python - <<'PY'
+          from pathlib import Path
+          from studio.eb01_v7_storyboard import SHOTS, SRC_SHA, VOICE_SHA
+          path=Path("tools/kaggle_eb01_ltx2b_s02_fallback.py")
+          source=path.read_text()
+          assert source.count("__EB01_LTX2B_CONFIG_B64__")==1
+          assert 'LTX-Video-2B-0.9.6-distilled' in source
+          assert 'clip_sha256' in source
+          assert 'torch.float16' in source
+          assert next(x for x in SHOTS if x[0]=="S02")[2]==125
+          assert len(SRC_SHA)==2 and len(VOICE_SHA)==6
+          print("EB01_REAL_LTX_GPU_PRIVATE_SOURCE_CPU_PREFLIGHT_PASS")
+          PY
+      - name: Submit exactly one private authentic LTX2B GPU generation, never an image slideshow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json,base64,hashlib,os
+          from tools.kaggle_eb01_ltx2b_s02_fallback import LTX_SHA
+          nonce="eb01-s02-real-ltx-2b-"+os.environ["GITHUB_RUN_ID"]
+          slug="eb01-s02-ltx2b-real-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]
+          kernel=os.environ["KAGGLE_USERNAME"]+"/"+slug
+          config={"schema":7,"shot":"S02","private":True,
+            "no_paid_services":True,"new_gpu_jobs":1,
+            "allow_social_publish":False,
+            "source_dataset":"wolf19loner92/eb01-v7-private-production-sources",
+            "branch":"fix/eb01-s02-private-raw-preservation-20261113",
+            "revision":os.environ["GITHUB_SHA"],"nonce":nonce}
+          body=Path("tools/kaggle_eb01_ltx2b_s02_fallback.py").read_text()
+          token="__EB01_LTX2B_CONFIG_B64__"
+          assert body.count(token)==1
+          body=body.replace(token,base64.b64encode(
+            json.dumps(config,sort_keys=True).encode()).decode())
+          folder=Path(os.environ["RUNNER_TEMP"])/"eb01-ltx-native"
+          folder.mkdir()
+          (folder/"kernel_main.py").write_text(body)
+          meta={"id":kernel,"title":slug,"code_file":"kernel_main.py",
+            "language":"python","kernel_type":"script","is_private":"true",
+            "enable_gpu":"true","enable_internet":"true",
+            "machine_shape":"NvidiaTeslaT4",
+            "dataset_sources":[config["source_dataset"]],
+            "competition_sources":[],"kernel_sources":[],"model_sources":[]}
+          (folder/"kernel-metadata.json").write_text(json.dumps(meta))
+          (Path(os.environ["RUNNER_TEMP"])/"S02_LTX_REAL_KERNEL.txt").write_text(kernel)
+          print("EB01_S02_ALTERNATE_ACTUAL_MODEL_ID",kernel,flush=True)
+          PY
+          kaggle kernels push -p "$RUNNER_TEMP/eb01-ltx-native" --timeout 3600 --accelerator NvidiaTeslaT4
+      - name: Monitor actual Kaggle model progress and preserve real video only on genuine success
+        shell: bash
+        run: |
+          set -euo pipefail
+          kernel="$(cat "$RUNNER_TEMP/S02_LTX_REAL_KERNEL.txt")"
+          for attempt in $(seq 1 50); do
+            status="$(kaggle kernels status "$kernel")"
+            echo "EB01_REAL_LTX_S02_STATUS $status"
+            if [[ "$status" == *'KernelWorkerStatus.COMPLETE'* ]]; then
+              mkdir -p "$RUNNER_TEMP/eb01-ltx-output"
+              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-ltx-output" --force
+              python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-ltx-output"
+          info=json.loads((root/"EB01_S02_LTX_PRIVATE_JOB.json").read_text())
+          v=root/"S02.mp4"
+          assert info.get("success") is True and info.get("whole_movie_ready") is False
+          assert info.get("shot")=="S02" and info.get("true_gpu_neural_inference") is True
+          assert info.get("frame_count")==125
+          assert hashlib.sha256(v.read_bytes()).hexdigest()==info["clip_sha256"]
+          probe=json.loads(subprocess.check_output(["ffprobe","-v","error",
+                "-count_frames","-select_streams","v:0",
+                "-show_entries","stream=width,height,avg_frame_rate,nb_read_frames",
+                "-of","json",str(v)]))
+          s=probe["streams"][0]
+          assert (int(s["nb_read_frames"])==125 and s["avg_frame_rate"]=="24/1"
+                  and int(s["width"])==320 and int(s["height"])==576)
+          print("EB01_REAL_S02_125_NATIVE_LTX_FRAMES_GPU_VERIFIED",info["clip_sha256"])
+          PY
+              exit 0
+            fi
+            if [[ "$status" == *'KernelWorkerStatus.ERROR'* ||
+                  "$status" == *'KernelWorkerStatus.CANCEL'* ]]; then
+              echo "::error::LTX official native S02 failed; collect original job receipt privately"
+              mkdir -p "$RUNNER_TEMP/eb01-ltx-output"
+              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-ltx-output" --force || true
+              exit 1
+            fi
+            sleep 90
+          done
+          echo "::error::Bounded actual GPU status deadline hit"
+          exit 1
+      - name: Owner-only genuine generated S02 native video and provenance, never call it the whole film
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_S02_NEW_REAL_LTX2B_125_NATIVE_FRAMES_NOT_FULL_FILM
+          path: |
+            ${{ runner.temp }}/eb01-ltx-output/S02.mp4
+            ${{ runner.temp }}/eb01-ltx-output/EB01_S02_LTX_PRIVATE_JOB.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Always retain only exact GPU job receipt and private kernel slug if failed
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_S02_NEW_LTX_REAL_GPU_STATUS
+          path: |
+            ${{ runner.temp }}/S02_LTX_REAL_KERNEL.txt
+            ${{ runner.temp }}/eb01-ltx-output/EB01_S02_LTX_PRIVATE_JOB.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Wipe private model source media and original photo/voice mounts
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-ltx-native" "$RUNNER_TEMP/eb01-ltx-output"
