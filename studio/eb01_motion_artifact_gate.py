@@ -86,6 +86,26 @@ def warm_scene_spectral_intrusion_fraction(frame: np.ndarray) -> float:
     return float(np.mean(blue | cyan | magenta))
 
 
+def narrow_neon_intrusion_fraction(frame: np.ndarray) -> float:
+    """Conservative absolute blue/magenta streak diagnostic for warm EB01 scenes.
+
+    Relative-to-first-frames thresholds cannot detect artifacts present from
+    frame zero. Isolated thin lines also evade the old 35%-of-row detector.
+    Trigger manual REVIEW for consistently saturated cool-color intrusions,
+    never attempt to recolor or call the affected footage approved.
+    """
+    if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
+        raise ArtifactRejected("Expected RGB video frame")
+    rgb = frame.astype(np.int16)
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    hi, lo = rgb.max(axis=2), rgb.min(axis=2)
+    vivid = ((hi - lo) > 80) & (hi > 110)
+    cyan = (b > r + 50) & (g > r + 45) & (b > 85)
+    magenta = (r > g + 45) & (b > g + 45) & (b > 85)
+    blue = (b > r + 32) & (b > g + 32) & (b > 90)
+    return float(np.mean(vivid & (cyan | magenta | blue)))
+
+
 def classify(values: list[float]) -> dict:
     if len(values) < 10:
         raise ArtifactRejected("Pilot has too few frames to check continuity")
@@ -126,6 +146,7 @@ def inspect_clip(path: Path) -> dict:
     values = []
     horizontal_trace = []
     spectral_trace = []
+    narrow_neon_trace = []
     try:
         while len(values) < 400:
             raw = proc.stdout.read(frame_bytes)
@@ -137,6 +158,7 @@ def inspect_clip(path: Path) -> dict:
             values.append(bright_color_fraction(frame))
             horizontal_trace.append(horizontal_neon_band_fraction(frame))
             spectral_trace.append(warm_scene_spectral_intrusion_fraction(frame))
+            narrow_neon_trace.append(narrow_neon_intrusion_fraction(frame))
         if len(values) >= 400:
             raise ArtifactRejected("Too many frames for bounded pilot check")
         if proc.wait(timeout=30) != 0:
@@ -160,6 +182,18 @@ def inspect_clip(path: Path) -> dict:
         result["status"] = "REJECT_SPECTRAL_NEON_IN_WARM_SCENE"
         result["safe_frame_count"] = 0
         result["flagged_frames"] = sorted(set(result["flagged_frames"] + spectral_bad))
+    # This independent ABSOLUTE check catches the real rejected owner-review
+    # 563-frame video: 76 RGB-suspect frames across S00/S02/S06 despite old
+    # baseline-relative gate marking source clips as clean. False positives
+    # require human visual review; never treat this as automated repair.
+    suspicious = [i for i, v in enumerate(narrow_neon_trace) if v > .0015]
+    if len(suspicious) > 5:
+        result["status"] = "REJECT_PERSISTENT_NARROW_NEON_STRIPES_REVIEW_REQUIRED"
+        result["safe_frame_count"] = 0
+        result["flagged_frames"] = sorted(set(result["flagged_frames"] + suspicious))
+    result["narrow_neon_suspected_frames"] = suspicious
+    result["narrow_neon_suspicion_threshold"] = .0015
+    result["narrow_neon_scan_note"] = "Conservative manual review flag, not an aesthetic approval"
     result["spectral_intrusion_trace"] = [round(v, 5) for v in spectral_trace]
     result["spectral_intrusion_flagged_frames"] = spectral_bad
     result["spectral_intrusion_threshold"] = round(spectral_threshold, 5)
