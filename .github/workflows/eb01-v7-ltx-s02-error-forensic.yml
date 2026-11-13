@@ -1,4 +1,4 @@
-name: EB01 LTX S02 first alternative GPU error - diagnose real traceback
+name: EB01 LTX S02 3rd real GPU ERROR - diagnose current failure
 on:
   push:
     branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 14
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      ORIGINAL_KERNEL: wolf19loner92/eb01-s02-ltx2b-real-103857643f19
+      ORIGINAL_KERNEL: wolf19loner92/eb01-s02-ltx2b-real-5ec733d0369c
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
