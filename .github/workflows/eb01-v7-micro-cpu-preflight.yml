@@ -27,7 +27,7 @@ jobs:
           from studio.eb01_v7_native_micro_master import SOURCE_SEGMENT_COUNTS,CANONICAL_FRAMES
           from tools.kaggle_eb01_v7_micro_shot import SEGMENT
           assert EXPECTED_S02 == ('S02_A41','S02_B41','S02_C45')
-          assert PREVIOUS['S06_tail']=='wolf19loner92/eb01-v7-s06-tail29-3a0a1002da34'
+          assert PREVIOUS['S06_tail']=='wolf19loner92/eb01-v7-s06-tail29-17f5716049d7'
           for shot in ('S02','S06'):
               assert sum(v[2] for v in SOURCE_SEGMENT_COUNTS[shot])==CANONICAL_FRAMES[shot]
           assert [SEGMENT[s]['frames'] for s in EXPECTED_S02]==[41,41,45]
