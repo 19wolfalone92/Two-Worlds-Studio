@@ -7,3 +7,5 @@ no_publication: true
 
 restart_after_root_cause_fixed: missing Pillow in GitHub CPU source-image validation
 never_duplicate_good_scenes: true
+
+root_cause_fix_2: Kaggle runs wrapper in /kaggle/src; clone & pin Studio before module imports; reuse verified immutable checkout
