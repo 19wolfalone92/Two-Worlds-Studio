@@ -66,6 +66,11 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$CURRENT_KERNEL"
+          # GITHUB_ENV is loaded only for the NEXT step, not the current shell.
+          # Derive the validated value explicitly here (stale read was the
+          # cause of failed 15-minute status monitoring on 2026-11-13).
+          CURRENT_KERNEL="$(sed -n 's/^CURRENT_KERNEL=//p' "$GITHUB_ENV" | tail -n 1)"
+          test -n "$CURRENT_KERNEL"
           kaggle kernels status "$CURRENT_KERNEL" | tee "$RUNNER_TEMP/eb01-current-kaggle-status.txt"
       - name: Record genuine observed state, no source video in GitHub artifact
         shell: bash
