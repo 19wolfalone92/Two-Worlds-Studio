@@ -45,6 +45,12 @@ def check_configuration(config:dict)->str:
             or not isinstance(config.get("revision"),str)
             or len(config["revision"])!=40):
         raise ValueError("Invalid or unsafe isolated real I2V shot request")
+    # Retakes are deliberately separate from the immutable original S02.
+    # A new seed never rewrites a previously verified source and must be
+    # explicitly marked as a quality retake, not an accidental duplicate.
+    retake=config.get("quality_retake",False)
+    if type(retake) is not bool or (retake and config["shot"]!="S02"):
+        raise ValueError("Quality retakes are permitted only for corrupted S02")
     return config["shot"]
 
 def stage_reproducible_source(cfg):
@@ -110,6 +116,10 @@ def generate_one(cfg,store,lock):
         # of the same 129-frame failed candidate. One new seed only.
         chosen_seed=(202611130+int(sid[1:])*31
                      if sid=="S02" else 202611120+int(sid[1:])*31)
+        if sid=="S02" and cfg.get("quality_retake") is True:
+            # The original S02 used the base seed and produced unacceptable
+            # coloured background stripes. A new seed must not replay it.
+            chosen_seed += 1009
         made=generate(full.MODEL,reference=path,output=raw,prompt=prompt,
                       seed=chosen_seed,
                       host="http://127.0.0.1:8188",
