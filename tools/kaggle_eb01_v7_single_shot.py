@@ -63,13 +63,16 @@ def stage_reproducible_source(cfg):
         raise RuntimeError("Real T4 GPU missing")
     if torch.cuda.get_device_properties(0).total_memory<14*2**30:
         raise RuntimeError("Need >=14GiB GPU, no CPU mock/fixture")
-    subprocess.run(["git","clone","--depth","1","--branch",cfg["branch"],
-                    "https://github.com/19wolfalone92/Two-Worlds-Studio.git",str(ROOT)],
-                   check=True,timeout=360)
-    subprocess.run(["git","fetch","--depth","1","origin",cfg["revision"]],
-                   cwd=ROOT,check=True,timeout=240)
-    subprocess.run(["git","checkout","--detach",cfg["revision"]],
-                   cwd=ROOT,check=True,timeout=60)
+    if not ROOT.exists():
+        subprocess.run(["git","clone","--depth","1","--branch",cfg["branch"],
+                        "https://github.com/19wolfalone92/Two-Worlds-Studio.git",str(ROOT)],
+                       check=True,timeout=360)
+        subprocess.run(["git","fetch","--depth","1","origin",cfg["revision"]],
+                       cwd=ROOT,check=True,timeout=240)
+        subprocess.run(["git","checkout","--detach",cfg["revision"]],
+                       cwd=ROOT,check=True,timeout=60)
+    # A short-shot bootstrap may pre-clone the exact immutable source SHA.
+    # Reuse it only after independent SHA validation below, never HEAD.
     actual=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip()
     if actual!=cfg["revision"]:
         raise RuntimeError("Source revision not pinned")
