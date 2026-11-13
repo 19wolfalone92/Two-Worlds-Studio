@@ -1,0 +1,1 @@
+Inspect original Wan S02_A41 true model RAW (45 frames), quarantine frame indices 21 and 22; verify clean frame ranges and SHA for potentially salvaging 39 good frames and skipping expensive complete retake. No new GPUs, no publish.
