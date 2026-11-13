@@ -29,6 +29,7 @@ def import_take(clip:Path, receipt:Path, reference:Path, *, duration:float)->dic
           or proof.get("model")!="Lightricks/LTX-Video-2B-0.9.6-distilled"
           or proof.get("official_source_git_sha")!="50f0aef1297574a4b29acbdb874e3a363a6d5f2e"
           or not re.fullmatch(r"[0-9a-f]{64}",str(proof.get("compatibility_patch_sha256")))
+          or not re.fullmatch(r"[0-9a-f]{64}",str(proof.get("pipeline_memory_patch_sha256")))
           or proof.get("original_reference_sha256")!=sha256(reference)
           or proof.get("clip_sha256")!=sha256(clip)
           or proof.get("true_gpu_neural_inference") is not True
@@ -51,5 +52,6 @@ def import_take(clip:Path, receipt:Path, reference:Path, *, duration:float)->dic
       "original_reference_sha256":proof["original_reference_sha256"],
       "official_repository_revision":proof["official_source_git_sha"],
       "source_engine_fp16_patch_sha256":proof["compatibility_patch_sha256"],
+      "source_engine_sequential_cpu_gpu_patch_sha256":proof["pipeline_memory_patch_sha256"],
       "actual_neural_frames":125,"synthetic_frames":0,
       "artistically_approved":False,"published":False}
