@@ -2,16 +2,16 @@
   "schema": 1,
   "film": "Elizabeth Bones E01 Собеседование",
   "source_branch": "fix/eb01-s02-private-raw-preservation-20261113",
-  "active_shot": "S02",
-  "active_kernel": "wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c",
-  "last_known_status": "KernelWorkerStatus.COMPLETE",
-  "last_confirmed_run": 43322919265,
+  "active_shot": "S03",
+  "active_kernel": "wolf19loner92/eb01-v7-s03-only-1e7b0ac41e3a",
+  "last_known_status": "KernelWorkerStatus.RUNNING",
+  "last_confirmed_run": 43365117680,
   "finished_shots": [
     "S00",
-    "S01"
+    "S01",
+    "S02"
   ],
   "pending_shots": [
-    "S02",
     "S03",
     "S04",
     "S05",
@@ -31,5 +31,8 @@
   "S02_full_decode_passed": true,
   "S02_frames": 125,
   "S02_raw_frames": 129,
-  "S02_next_action": "PRIVATE_VISUAL_REVIEW_REQUIRED_NO_GPU_SUBMISSION"
+  "S02_next_action": "S02_TECHNICALLY_COMPLETE_BUT_VISUAL_NEON_ARTIFACTS_VISIBLE_FULL_SCENE_ART_REVIEW_FAIL",
+  "S02_observed_visual_problem": "Bright RGB/cyan-magenta stripes in interior/background across multiple genuine frames of S02; not an acceptable cinematic final take",
+  "S03_model_submitted_with_run": 43365117680,
+  "S03_artistic_approved": false
 }
