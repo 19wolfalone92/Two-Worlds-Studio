@@ -1,0 +1,91 @@
+name: EB01 - real rejected 23s movie forensic QA regression
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths:
+      - studio/eb01_motion_artifact_gate.py
+      - tests/test_eb01_neon_false_green_regression.py
+      - ops/eb01_real_artistic_qa_regression.trigger
+permissions:
+  contents: read
+  actions: read
+jobs:
+  prove_bad_review_is_rejected:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: "43490411848"
+      SOURCE_SHA: "5bc0180346a9e89c80e72cfea2ef4ca81bbbd76186c0bc62af1634b29f2b3b1f"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU-only exact-frame dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'numpy>=1.26,<3'
+          python -m unittest tests.test_eb01_neon_false_green_regression -v
+      - name: Inspect 563 frames from actual rejected 23-second owner review and prove false-green source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eb01-qc-private"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name ELIZABETH_BONES_SOBESEDOVANIE_COMPLETE_RU_REAL_WAN_OWNER_REVIEW_MP4 \
+            --dir "$RUNNER_TEMP/eb01-qc-private"
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          import numpy as np
+          from pathlib import Path
+          from studio.eb01_motion_artifact_gate import narrow_neon_intrusion_fraction
+          folder=Path(os.environ["RUNNER_TEMP"])/"eb01-qc-private"
+          clips=list(folder.glob("*.mp4"))
+          assert len(clips)==1, "Full owner-review footage cannot be uniquely resolved"
+          clip=clips[0]
+          proof=hashlib.sha256(clip.read_bytes()).hexdigest()
+          assert proof==os.environ["SOURCE_SHA"],"Original rejected clip SHA changed"
+          info=json.loads(subprocess.check_output(["ffprobe","-v","error",
+                  "-show_streams","-show_format","-of","json",str(clip)]))
+          s=next(x for x in info["streams"] if x["codec_type"]=="video")
+          assert (int(s["width"]),int(s["height"]))==(320,576)
+          w,h=320,576
+          proc=subprocess.Popen(["ffmpeg","-v","error","-nostdin","-i",str(clip),
+                 "-pix_fmt","rgb24","-f","rawvideo","-"],stdout=subprocess.PIPE)
+          bad=[];n=0
+          while True:
+             b=proc.stdout.read(w*h*3)
+             if not b:break
+             assert len(b)==w*h*3
+             a=np.frombuffer(b,dtype=np.uint8).reshape(h,w,3)
+             if narrow_neon_intrusion_fraction(a)>.0015:bad.append(n)
+             n+=1
+          proc.stdout.close()
+          assert proc.wait(timeout=30)==0
+          assert n==563, "Do not use fabricated frames or incomplete source"
+          assert len(bad)>=50, "Known color artifact failsafe did not catch real rejected clip"
+          assert float(info["format"]["duration"])<40
+          report={"schema":1,"full_video_sha256":proof,
+                  "actual_input_frames":n,"suspected_colored_neon_frames":len(bad),
+                  "first_suspected_frames":bad[:18],
+                  "blocking_reasons":["ARTIFACTS_IN_ACTUAL_MOVIE",
+                                      "23S_INSTEAD_OF_APPROVED_40S",
+                                      "S02_IS_OTHER_SCENES_REUSED",
+                                      "NO_AUDIO_CONDITIONED_FACE_LIPSYNC_VERIFICATION",
+                                      "NOT_ARTISTICALLY_APPROVED"],
+                  "public_release_pass":False}
+          (folder/"EB01_REAL_REJECTED_MOVIE_QA.json").write_text(json.dumps(report,indent=2)+"\n")
+          print("EB01_ACTUAL_REJECTED_MOVIE_QUALITY_REGRESSION_CAUGHT",json.dumps(report))
+          PY
+      - name: Upload only audit counts, never private character photos or rejected video
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_REJECTED_23_SECOND_MOVIE_CINEMATIC_QA_FACTS
+          path: ${{ runner.temp }}/eb01-qc-private/EB01_REAL_REJECTED_MOVIE_QA.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Securely delete source footage from runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-qc-private"
