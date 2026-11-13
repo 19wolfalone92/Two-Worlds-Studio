@@ -128,7 +128,10 @@ def generate_one(cfg,store,lock):
         if sid=="S02" and variant==0:
             raise RuntimeError("Known-neon S02 requires explicit new diffusion seed")
         chosen_seed += 1009*variant
-        sample_steps=(20 if variant==0 else (24 if variant==1 else 28))
+        # S02 is 129 native frames: more than 21 steps risks Kaggle's hard
+        # one-hour GPU limit. Scene-independent seed rotation is the main fix.
+        sample_steps=(20 if variant==0 else
+                      (21 if sid=="S02" else (24 if variant==1 else 22)))
         print("EB01_WAN_QUALITY_RETAKE_CONFIG",sid,"variant",variant,
               "seed",chosen_seed,"steps",sample_steps,flush=True)
         made=generate(full.MODEL,reference=path,output=raw,prompt=prompt,
