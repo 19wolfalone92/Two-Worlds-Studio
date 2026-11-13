@@ -69,6 +69,23 @@ def horizontal_neon_band_fraction(frame: np.ndarray) -> float:
     return float(np.mean(row_fraction >= .35))
 
 
+def warm_scene_spectral_intrusion_fraction(frame: np.ndarray) -> float:
+    """Unnatural blue/cyan/magenta streak pixels in EB01's warm gothic palette.
+
+    Previous QC only looked at bottom-of-frame neon or bars spanning >=35% of
+    a row, missing the actual S02 thin multicolour stripes across furniture.
+    Deliberately false-positive conservative: quarantine, never auto-correct.
+    """
+    if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
+        raise ArtifactRejected("Expected RGB video frame")
+    rgb = frame.astype(np.int16)
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    blue = (b > 100) & (b > r + 60) & (b > g + 40)
+    cyan = (b > 100) & (g > 90) & (b > r + 50) & (g > r + 40)
+    magenta = (r > 100) & (b > 100) & (r > g + 55) & (b > g + 50)
+    return float(np.mean(blue | cyan | magenta))
+
+
 def classify(values: list[float]) -> dict:
     if len(values) < 10:
         raise ArtifactRejected("Pilot has too few frames to check continuity")
@@ -108,6 +125,7 @@ def inspect_clip(path: Path) -> dict:
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     values = []
     horizontal_trace = []
+    spectral_trace = []
     try:
         while len(values) < 400:
             raw = proc.stdout.read(frame_bytes)
@@ -118,6 +136,7 @@ def inspect_clip(path: Path) -> dict:
             frame = np.frombuffer(raw, dtype=np.uint8).reshape((h,w,3))
             values.append(bright_color_fraction(frame))
             horizontal_trace.append(horizontal_neon_band_fraction(frame))
+            spectral_trace.append(warm_scene_spectral_intrusion_fraction(frame))
         if len(values) >= 400:
             raise ArtifactRejected("Too many frames for bounded pilot check")
         if proc.wait(timeout=30) != 0:
@@ -132,6 +151,18 @@ def inspect_clip(path: Path) -> dict:
         result["status"] = "REJECT_HORIZONTAL_NEON_BANDS_REVIEW_REQUIRED"
         result["safe_frame_count"] = 0
         result["flagged_frames"] = sorted(set(result["flagged_frames"] + band_frames))
+    # Even sparse RGB streaks are visible in the real 320px S02 background.
+    # Require two bad frames; one sparkle of blue can be legitimate cinema.
+    spectral_baseline = float(np.median(spectral_trace[:max(5, round(len(spectral_trace)*.35))]))
+    spectral_threshold = max(.006, spectral_baseline + .004)
+    spectral_bad = [i for i, v in enumerate(spectral_trace) if v > spectral_threshold]
+    if len(spectral_bad) >= 2:
+        result["status"] = "REJECT_SPECTRAL_NEON_IN_WARM_SCENE"
+        result["safe_frame_count"] = 0
+        result["flagged_frames"] = sorted(set(result["flagged_frames"] + spectral_bad))
+    result["spectral_intrusion_trace"] = [round(v, 5) for v in spectral_trace]
+    result["spectral_intrusion_flagged_frames"] = spectral_bad
+    result["spectral_intrusion_threshold"] = round(spectral_threshold, 5)
     result["horizontal_neon_band_trace"] = [round(v, 5) for v in horizontal_trace]
     result["horizontal_neon_band_flagged_frames"] = band_frames
     if meta.get("nb_frames") and int(meta["nb_frames"]) != len(values):
