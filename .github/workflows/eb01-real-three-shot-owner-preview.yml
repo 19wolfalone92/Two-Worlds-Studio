@@ -1,0 +1,85 @@
+name: EB01 - REAL 3-of-7 Wan Russian preview MP4 (CPU only)
+
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_3shot_preview_20261113.trigger"]
+
+permissions:
+  contents: read
+
+jobs:
+  three_original_model_shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      ORIGINAL_KERNEL: wolf19loner92/eb01-v7-native-full-c188f4380731
+      S02_KERNEL: wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c
+      VOICE_KERNEL: wolf19loner92/tw-elizabeth-native-02233574da68
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install open-source audio/video tooling; NO GPU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
+          python -m py_compile tools/eb01_private_three_shot_preview.py
+      - name: Download EXISTING private Wan 3-shot sources and original Russian voice
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          for pair in "old:$ORIGINAL_KERNEL" "S02:$S02_KERNEL" "voice:$VOICE_KERNEL"; do
+            source="${pair#*:}"
+            name="${pair%%:*}"
+            mkdir -p "$RUNNER_TEMP/eb01-existing/$name"
+            status="$(kaggle kernels status "$source")"
+            echo "$status"
+            if [[ "$name" == "S02" ]]; then
+              echo "$status" | grep -q "KernelWorkerStatus.COMPLETE"
+            fi
+            kaggle kernels output "$source" \
+              -p "$RUNNER_TEMP/eb01-existing/$name" --force
+          done
+      - name: Build a genuine but incomplete first 3-shot MP4 with two original spoken lines
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eb01-owner-preview"
+          python -m tools.eb01_private_three_shot_preview \
+            --original "$RUNNER_TEMP/eb01-existing/old" \
+            --s02 "$RUNNER_TEMP/eb01-existing/S02" \
+            --voices "$RUNNER_TEMP/eb01-existing/voice" \
+            --output "$RUNNER_TEMP/eb01-owner-preview/ELIZABETH_BONES_E01_REAL_3_OF_7_PREVIEW.mp4"
+          python - <<'PY'
+          from pathlib import Path
+          import os,json
+          path=Path(os.environ["RUNNER_TEMP"])/"eb01-owner-preview"
+          movies=list(path.glob("*.mp4"))
+          assert len(movies)==1 and movies[0].stat().st_size>120000
+          review=json.loads(next(path.glob("*.qa.json")).read_text())
+          assert review["status"]=="REAL_WAN_3_OF_7_PREVIEW_NOT_FULL_FILM"
+          assert review["actual_video_shots"]==3
+          assert review["original_russian_Qwen_WAV_lines"]==2
+          assert review["subtitles"]==2
+          assert not review["full_episode_ready"]
+          print("AUTHENTIC_THREE_OF_SEVEN_MP4_READY_FOR_USER_REVIEW_NOT_FINISHED_FILM")
+          PY
+      - name: Provide owner actual original Wan+Russian-voice partial MP4, not finished film
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_ACTUAL_WAN_THREE_OF_SEVEN_WITH_ORIGINAL_RUSSIAN_VOICES_NOT_FINAL
+          path: |
+            ${{ runner.temp }}/eb01-owner-preview/*.mp4
+            ${{ runner.temp }}/eb01-owner-preview/*.srt
+            ${{ runner.temp }}/eb01-owner-preview/*.qa.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Wipe original private models and WAVs from GitHub runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-existing" "$RUNNER_TEMP/eb01-owner-preview"
