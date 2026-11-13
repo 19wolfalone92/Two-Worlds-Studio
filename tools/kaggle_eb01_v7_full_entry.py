@@ -201,21 +201,29 @@ def assemble_native(cfg,lock,real_clips):
     import soundfile as sf
     from studio.hybrid_master import produce
     firsts=[]
+    selected_engines={}
     for sid,who,frames,seconds,zoom,cx,cy,prompt in SHOTS:
         clip=ROOT/"clips"/(sid+".mp4")
         proof=ROOT/"clips"/(sid+".receipt.json")
         ref=ROOT/"frames"/(sid+".png")
         if not clip.is_file() or sha(clip)!=real_clips[sid]["clip_sha256"]:
             raise RuntimeError("Full film requires seven original I2V clips")
+        # Provenance-gated genuine alternative I2V for S02 only. The
+        # hybrid master must NEVER mislabel a real LTX model take as Wan.
+        proof_data=json.loads(proof.read_text(encoding="utf-8"))
+        actor_engine=("neural_ltx" if sid=="S02" and
+                      proof_data.get("engine")=="ltx_official_fp16_t4_compatibility"
+                      else "neural_comfy")
         row={"clip":"clips/"+sid+".mp4",
              "duration":seconds,
              "shot_type":"establishing" if sid=="S00" else "medium",
              "camera":"push_in","camera_strength":0.0,
              "caption_position":"bottom","caption":DIALOGUES.get(sid,""),
              "approved":False,
-             "clip_take":{"engine":"neural_comfy","visual_profile":"photoreal_cinematic",
+             "clip_take":{"engine":actor_engine,"visual_profile":"photoreal_cinematic",
                           "sha256":sha(clip),"receipt":"clips/"+sid+".receipt.json",
                           "reference":"frames/"+sid+".png"}}
+        selected_engines[sid]=actor_engine
         if sid in VOICE_SHA:
             wav=ROOT/"voices"/(sid+".wav")
             with sf.SoundFile(wav) as f:
@@ -255,7 +263,9 @@ def assemble_native(cfg,lock,real_clips):
     command(["ffmpeg","-hide_banner","-nostdin","-loglevel","error","-xerror","-i",str(FINAL),
              "-f","null","-"],timeout=260)
     doc={"schema":7,"status":"FULL_NATIVE_MP4_TECHNICAL_QA_PASSED_ART_REVIEW_REQUIRED",
-         "source_model":MODEL,
+         "source_model":("Wan2.2+LTX2B verified native hybrid"
+                          if "neural_ltx" in selected_engines.values() else MODEL),
+         "source_engine_by_scene":selected_engines,
          "native_studio":"studio.hybrid_master.produce","invideo_used":False,
          "real_I2V_shots":7,"independent_text_to_image_shots":0,
          "russian_voice_lines":6,"subtitles":6,
