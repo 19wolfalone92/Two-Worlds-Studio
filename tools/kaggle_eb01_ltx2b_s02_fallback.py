@@ -85,17 +85,17 @@ def main():
         # Stage all original official weights on CPU. Inside the sampler,
         # move T5 -> CPU, transformer -> CPU, VAE -> CUDA sequentially.
         # Keep the full actual LTX inference on the real T4, no fake frames.
-        original_call="        device=device,\n        enhance_prompt=enhance_prompt,"
+        original_call="        sampler=sampler,\n        device=device,\n        enhance_prompt=enhance_prompt,"
         if code.count(original_call)!=1:
             raise RuntimeError("Official LTX pipeline call changed; memory fix cannot be verified")
         code=code.replace(original_call,
-            "        device='cpu',\n        enhance_prompt=enhance_prompt,")
+            "        sampler=sampler,\n        device='cpu',\n        enhance_prompt=enhance_prompt,")
         source.write_text(code)
         stages=LTX/"ltx_video"/"pipelines"/"pipeline_ltx_video.py"
         pipe=stages.read_text()
         updates=[
-          ("        device = self._execution_device\n",
-           "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n"),
+          ("        device = self._execution_device\n\n        self.video_scale_factor",
+           "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n\n        self.video_scale_factor"),
           ("self.text_encoder = self.text_encoder.to(self._execution_device)",
            "self.text_encoder = self.text_encoder.to(device)"),
           ("self.transformer = self.transformer.to(self._execution_device)",
