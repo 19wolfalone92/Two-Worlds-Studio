@@ -1,0 +1,94 @@
+name: TWO WORLDS - Elizabeth Bones native preview, NO InVideo
+
+on:
+  push:
+    branches: ["feature/elizabeth-native-review-pipeline-20261111"]
+    paths: ["ops/elizabeth_native_promo.trigger"]
+  pull_request:
+    branches: ["main"]
+    paths: ["tools/elizabeth_native_promo.py", "tests/test_elizabeth_native_promo.py", ".github/workflows/elizabeth-native-preview.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: elizabeth-native-studio-review-portable
+  cancel-in-progress: false
+
+jobs:
+  real-studio-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout real TWO WORLDS STUDIO codebase
+        uses: actions/checkout@v4
+
+      - name: Python and studio dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CPU Studio requirements
+        run: |
+          python -m pip install -q -r requirements.txt
+
+      - name: Provision self-contained FFmpeg and ffprobe without apt or elevated privileges
+        run: |
+          set -euo pipefail
+          python -m pip install -q static-ffmpeg
+          python - <<'PY'
+          from static_ffmpeg import run
+          import os
+          from pathlib import Path
+          ffmpeg, ffprobe = run.get_or_fetch_platform_executables_else_raise()
+          target = Path(os.environ["RUNNER_TEMP"])/"tw_portable_video_bin"
+          target.mkdir(parents=True, exist_ok=True)
+          (target/"ffmpeg").symlink_to(Path(ffmpeg).resolve())
+          (target/"ffprobe").symlink_to(Path(ffprobe).resolve())
+          with open(os.environ["GITHUB_PATH"],"a") as f: f.write(str(target)+"\n")
+          print("Portable FFmpeg and ffprobe verified",Path(ffmpeg).stat().st_size,Path(ffprobe).stat().st_size)
+          PY
+
+      - name: Check seven locked shots, six dialogue gates, missing asset refusal
+        run: |
+          python -m unittest tests.test_elizabeth_native_promo tests.test_hybrid_master -v
+
+      - name: Render REAL MP4 using Studio hybrid_master (SYNTHETIC STORYBOARD ONLY)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eb_private" "$RUNNER_TEMP/eb_output"
+          python -m tools.elizabeth_native_promo \
+            --media "$RUNNER_TEMP/eb_private" \
+            --output "$RUNNER_TEMP/eb_output/EB01_TWO_WORLDS_NATIVE_TECHNICAL_REVIEW.mp4" \
+            --fixture > "$RUNNER_TEMP/eb_output/studio_render_report.json"
+          ffprobe -v error -show_entries format=duration:stream=codec_name,width,height,avg_frame_rate \
+            -of json "$RUNNER_TEMP/eb_output/EB01_TWO_WORLDS_NATIVE_TECHNICAL_REVIEW.mp4" > "$RUNNER_TEMP/eb_output/ffprobe.json"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb_output"
+          r=json.loads((root/"studio_render_report.json").read_text())
+          p=json.loads((root/"ffprobe.json").read_text())
+          assert r["native_studio_build"] and r["fixture_art"] and r["invideo_used"] is False
+          assert r["shots"]==7 and r["resolution"]==[576,1024] and r["fps"]==24
+          assert r["motion_clips"]==0 and r["static_camera_shots"]==7
+          assert r["missing_spoken_dialogue_shots"]==["S01","S02","S03","S04","S05","S06"]
+          assert r["review_status"]=="preview_unreviewed" and not r["production_approved"]
+          assert float(p["format"]["duration"])>18
+          print("NATIVE_STUDIO_MP4_TECHNICAL_QA=PASS, NO VOICE, NO NEURAL MOTION, NOT FOR PUBLICATION")
+          PY
+
+      - name: Upload technical storyboard + provenance (NOT publishable film)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Elizabeth_Bones_EB01_NATIVE_STUDIO_TECHNICAL_ONLY
+          path: |
+            ${{ runner.temp }}/eb_output/*.mp4
+            ${{ runner.temp }}/eb_output/*.srt
+            ${{ runner.temp }}/eb_output/*.json
+          retention-days: 14
+
+      - name: Scrub temporary generated references
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb_private" "$RUNNER_TEMP/eb_output"
