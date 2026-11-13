@@ -4,8 +4,8 @@
   "source_branch": "fix/eb01-s02-private-raw-preservation-20261113",
   "active_shot": "S02",
   "active_kernel": "wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c",
-  "last_known_status": "KernelWorkerStatus.RUNNING",
-  "last_confirmed_run": 43310655623,
+  "last_known_status": "KernelWorkerStatus.COMPLETE",
+  "last_confirmed_run": 43322919265,
   "finished_shots": [
     "S00",
     "S01"
@@ -23,5 +23,13 @@
   "allow_gpu_submission": false,
   "auto_approve_visual_art": false,
   "allow_social_publish": false,
-  "full_mp4_verified": false
+  "full_mp4_verified": false,
+  "S02_technical_sha256": "53ce7cf5245b194c9c6a47489db48acb957b552a687b5f05fa28fb62cc41ce4e",
+  "S02_raw_sha256": "9158989560eba7b30924782c8a434b5fddfa2e79d79372cd5936d8e0fbd9f1fe",
+  "S02_technical_verified": true,
+  "S02_artistic_approved": false,
+  "S02_full_decode_passed": true,
+  "S02_frames": 125,
+  "S02_raw_frames": 129,
+  "S02_next_action": "PRIVATE_VISUAL_REVIEW_REQUIRED_NO_GPU_SUBMISSION"
 }
