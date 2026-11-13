@@ -30,7 +30,7 @@ jobs:
             'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12' \
             'scipy>=1.10' 'requests>=2.31'
           python -m py_compile tools/eb01_v7_auto_finish.py tools/kaggle_eb01_v7_single_shot.py
-          python -m unittest tests.test_eb01_v7_private_checkpoint tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_motion_buffer -v
+          python -m unittest tests.test_eb01_v7_private_checkpoint tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_motion_buffer tests.test_eb01_v7_bounded_quality_retakes -v
           python - <<'PY'
           from tools.kaggle_eb01_v7_single_shot import check_configuration
           from tools.eb01_v7_auto_finish import S04, ORIGINAL, SOURCE_DATASET
@@ -39,7 +39,7 @@ jobs:
           assert SOURCE_DATASET == "wolf19loner92/eb01-v7-private-production-sources"
           print("S04_ORIGINAL_IS_PRESERVED_NO_REGEN_AND_REAL_WAN_ONLY")
           PY
-      - name: Resume existing S04; run only missing genuine Wan S05/S06/S02 retake; master full original Russian movie
+      - name: Reuse original S03/S04; automatically diagnose and rerun failed Wan S05/S06/S02 on changed seeds; master real movie
         shell: bash
         run: |
           set -euo pipefail
