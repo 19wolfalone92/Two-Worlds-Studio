@@ -13,3 +13,12 @@ fix: S03 previously finished and excluded from pending list
 
 resume_revision: 3
 recovery: S05 quarantined original preserved, new seed variant 1; bounded QA-only retry and tests
+
+autonomous_recovery: 2026-11-13
+root_cause: S05 original true Wan GPU frames 21-77 exhibited neon/temporal latent corruption
+fix: variant-1 changed diffusion seed and sampler steps; bounded second attempt on genuine QA failures
+s02: quality retake with independent seed
+s06: original generation with bounded quality retry
+s03_s04: reuse verified genuine private outputs without regeneration
+monitor: ChatGPT scheduled hourly; GitHub pipeline runs internal polling every 90 seconds
+no_draft_or_synthetic_fallback: true
