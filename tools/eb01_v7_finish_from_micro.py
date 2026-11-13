@@ -33,7 +33,7 @@ PREVIOUS={"original":"wolf19loner92/eb01-v7-native-full-c188f4380731",
  "S04":"wolf19loner92/eb01-v7-s04-only-2333bba16751",
  "S05":"wolf19loner92/eb01-v7-s05-only-75dbb6f053bf",
  "S06_original":"wolf19loner92/eb01-v7-s06-only-beca33b6874e",
- "S06_tail":"wolf19loner92/eb01-v7-s06-tail29-3a0a1002da34"}
+ "S06_tail":"wolf19loner92/eb01-v7-s06-tail29-17f5716049d7"}
 EXPECTED_S02=("S02_A41","S02_B41","S02_C45")
 
 def call(args,timeout=300):
