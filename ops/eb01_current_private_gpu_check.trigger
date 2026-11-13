@@ -3,3 +3,5 @@ no_gpu_jobs: true
 read_only: true
 
 monitor_fix: install required six dependency, verify live Kaggle kernel states
+
+forensic_20261113: inspect S06 failure both attempts; logs only, no GPU
