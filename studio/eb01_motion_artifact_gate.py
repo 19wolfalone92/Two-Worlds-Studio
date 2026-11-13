@@ -54,6 +54,21 @@ def bright_color_fraction(frame: np.ndarray) -> float:
     return float(np.mean(mask))
 
 
+def horizontal_neon_band_fraction(frame: np.ndarray) -> float:
+    """Detect broad bright RGB/cyan/magenta stripes anywhere in frame."""
+    if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
+        raise ArtifactRejected("Expected RGB video frame")
+    rgb = frame.astype(np.int16)
+    hi, lo = rgb.max(axis=2), rgb.min(axis=2)
+    chroma = (hi >= 165) & ((hi - lo) >= 95)
+    r, g, b = rgb[:, :, 0], rgb[:, :, 1], rgb[:, :, 2]
+    cyan = (g > r + 65) & (b > r + 65)
+    red = (r > g + 75) & (r > b + 60)
+    magenta = (r > g + 65) & (b > g + 65)
+    row_fraction = np.mean(chroma & (cyan | red | magenta), axis=1)
+    return float(np.mean(row_fraction >= .35))
+
+
 def classify(values: list[float]) -> dict:
     if len(values) < 10:
         raise ArtifactRejected("Pilot has too few frames to check continuity")
@@ -92,6 +107,7 @@ def inspect_clip(path: Path) -> dict:
                "-f", "rawvideo", "-"]
     proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     values = []
+    horizontal_trace = []
     try:
         while len(values) < 400:
             raw = proc.stdout.read(frame_bytes)
@@ -101,6 +117,7 @@ def inspect_clip(path: Path) -> dict:
                 raise ArtifactRejected("Truncated raw frame")
             frame = np.frombuffer(raw, dtype=np.uint8).reshape((h,w,3))
             values.append(bright_color_fraction(frame))
+            horizontal_trace.append(horizontal_neon_band_fraction(frame))
         if len(values) >= 400:
             raise ArtifactRejected("Too many frames for bounded pilot check")
         if proc.wait(timeout=30) != 0:
@@ -110,6 +127,13 @@ def inspect_clip(path: Path) -> dict:
             proc.kill()
             proc.wait()
     result = classify(values)
+    band_frames = [i for i, v in enumerate(horizontal_trace) if v >= .012]
+    if len(band_frames) >= 2:
+        result["status"] = "REJECT_HORIZONTAL_NEON_BANDS_REVIEW_REQUIRED"
+        result["safe_frame_count"] = 0
+        result["flagged_frames"] = sorted(set(result["flagged_frames"] + band_frames))
+    result["horizontal_neon_band_trace"] = [round(v, 5) for v in horizontal_trace]
+    result["horizontal_neon_band_flagged_frames"] = band_frames
     if meta.get("nb_frames") and int(meta["nb_frames"]) != len(values):
         raise ArtifactRejected("Decoded frame count differs from stream metadata")
     result.update({"source_video_sha256": sha256(path), "width": w,
