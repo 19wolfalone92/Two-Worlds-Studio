@@ -53,8 +53,7 @@ def check_configuration(config:dict)->str:
     if (type(retake) is not bool or type(attempt) is not int
             or attempt not in (0,1,2)
             or (retake and config["shot"] not in ("S02","S05","S06"))
-            or (attempt>0 and not retake)
-            or (config["shot"]=="S02" and not retake)):
+            or (attempt>0 and not retake)):
         raise ValueError("Unsafe or unbounded native Wan quality-retake request")
     return config["shot"]
 
