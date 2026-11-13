@@ -1,0 +1,86 @@
+name: EB01 S03 existing private Wan production — read-only forensic
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_s03_forensic_readonly.trigger"]
+permissions:
+  contents: read
+jobs:
+  inspect_existing_s03:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      SOURCE_KERNEL: wolf19loner92/eb01-v7-s03-only-1e7b0ac41e3a
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU tools only
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' Pillow
+      - name: Check exact S03 private kernel and collect existing outputs WITHOUT new GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          mkdir -p "$RUNNER_TEMP/s03-original"
+          kaggle kernels status "$SOURCE_KERNEL" | tee "$RUNNER_TEMP/status.txt"
+          kaggle kernels output "$SOURCE_KERNEL" -p "$RUNNER_TEMP/s03-original" --force || true
+          python - <<'PY'
+          import os,json,hashlib,subprocess
+          from pathlib import Path
+          work=Path(os.environ["RUNNER_TEMP"])
+          raw=work/"s03-original"
+          status=(work/"status.txt").read_text(errors="replace").strip()
+          report={"schema":7,"shot":"S03","kernel":os.environ["SOURCE_KERNEL"],
+                  "status_from_kaggle":status,"new_gpu_jobs":0,"published":False,
+                  "full_episode_ready":False,"original_reference_uploaded":False,
+                  "files":[],"receipt":{},"video":{}}
+          for p in sorted(raw.rglob("*")):
+              if not p.is_file():continue
+              item={"name":p.name,"size_bytes":p.stat().st_size}
+              if p.suffix.lower() in (".mp4",".json"):
+                  item["sha256"]=hashlib.sha256(p.read_bytes()).hexdigest()
+              report["files"].append(item)
+              if p.name=="EB01_V7_SINGLE_SHOT_JOB.json":
+                  data=json.loads(p.read_text())
+                  report["receipt"]={k:data.get(k) for k in (
+                    "status","success","shot","clip_sha256","frame_count",
+                    "temporal_rgb_artifact_gate","error_type","error_summary",
+                    "private_raw_mp4_preserved","neural_inference_performed",
+                    "original_reference_sha256","human_artistic_approved")}
+          clips=list(raw.rglob("S03.mp4"))
+          if len(clips)==1:
+              p=clips[0]
+              probe=json.loads(subprocess.check_output(["ffprobe","-v","error",
+                "-count_frames","-select_streams","v:0","-show_entries",
+                "stream=codec_name,width,height,avg_frame_rate,nb_read_frames",
+                "-of","json",str(p)]))
+              check=subprocess.run(["ffmpeg","-nostdin","-v","error","-xerror",
+                 "-i",str(p),"-f","null","-"],capture_output=True,text=True,timeout=180)
+              report["video"]={"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+                "probe":probe,"full_decode_ok":check.returncode==0,
+                "decode_error":check.stderr[:220]}
+              dst=work/"review"
+              dst.mkdir(exist_ok=True)
+              import shutil
+              shutil.copy2(p,dst/"EB01_S03_PRIVATE_REAL_WAN_UNAPPROVED.mp4")
+          (work/"EB01_S03_STATUS.json").write_text(json.dumps(report,ensure_ascii=False,indent=2)+"\n")
+          print("EB01_S03_VERIFIED_OBSERVED_STATUS",json.dumps(report,ensure_ascii=False)[:13000])
+          PY
+      - name: Upload private QA status and existing native S03 if any
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_S03_EXISTING_PRIVATE_GPU_STATUS_NOT_FULL_FILM
+          path: |
+            ${{ runner.temp }}/EB01_S03_STATUS.json
+            ${{ runner.temp }}/review/*.mp4
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - name: Securely wipe private working files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/s03-original" "$RUNNER_TEMP/review" "$RUNNER_TEMP/EB01_S03_STATUS.json" "$RUNNER_TEMP/status.txt"
