@@ -18,7 +18,7 @@ from studio.eb01_v7_native_micro_master import (
 )
 from tools import kaggle_eb01_v7_full_entry as composer
 
-LTX="wolf19loner92/eb01-s02-ltx2b-real-103857643f19"
+LTX="wolf19loner92/eb01-s02-ltx2b-real-5ec733d0369c"
 DATASET="wolf19loner92/eb01-v7-private-production-sources"
 SOURCES={
  "ORIGINAL":"wolf19loner92/eb01-v7-native-full-c188f4380731",
