@@ -29,7 +29,7 @@ AUDIO = {".wav", ".mp3", ".flac", ".m4a", ".ogg"}
 SHOT_TYPES = frozenset({"establishing", "wide", "medium", "close", "extreme_close",
                         "over_shoulder", "reaction", "insert"})
 VISUAL_PROFILES = {"photoreal_cinematic", "stylized_cinematic", "3d_character"}
-CLIP_ENGINES = {"blender_3d", "neural_character", "neural_comfy", "neural_animate2"}
+CLIP_ENGINES = {"blender_3d", "neural_character", "neural_comfy", "neural_ltx", "neural_animate2"}
 MOBILE_DELIVERY = (576, 1024, 24)
 
 
@@ -180,7 +180,7 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                 or set(take) != ({"engine", "visual_profile", "sha256", "receipt", "reference", "driver"}
                                  if take["engine"] in {"neural_character", "neural_animate2"} else
                                  {"engine", "visual_profile", "sha256", "receipt", "reference"}
-                                 if take["engine"] == "neural_comfy" else
+                                 if take["engine"] in {"neural_comfy", "neural_ltx"} else
                                  {"engine", "visual_profile", "sha256"} | ({"receipt"} if "receipt" in take else set()))
                 or profile is None or take["visual_profile"] != profile or sha256(media) != take["sha256"]):
             raise ValueError(f"Shot {i}: clip take must match the locked source and visual profile")
@@ -306,6 +306,18 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
                                   r.get("kind") in {"face", "wardrobe", "mouth", "jaw", "cheek"}
                                   for r in qc_regions):
                 raise ValueError("Neural master requires independent character-motion QC windows")
+
+        elif take is not None and take["engine"] == "neural_ltx":
+            from studio.ltx_take import import_take as import_ltx_take
+
+            reference = source(base, take["reference"], IMAGES)
+            proof = source(base, take["receipt"], {".json"})
+            motion_receipt = import_ltx_take(media, proof, reference, duration=frames / fps)
+            motion_inputs = [proof]
+            if master and not any(r.get("motion_windows") and
+                                  r.get("kind") in {"face", "wardrobe", "mouth", "jaw", "cheek"}
+                                  for r in qc_regions):
+                raise ValueError("LTX neural master requires independent character-motion QC windows")
 
         elif take is not None and take["engine"] == "neural_animate2":
             from studio.wan_animate2_run import import_take as import_animate2_take
