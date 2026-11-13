@@ -26,7 +26,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$KAGGLE_API_TOKEN"
-          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
           python -m py_compile tools/kaggle_eb01_v7_micro_shot.py tools/kaggle_eb01_v7_single_shot.py
           python - <<'PY'
           from tools.kaggle_eb01_v7_micro_shot import SEGMENT
