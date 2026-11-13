@@ -1,0 +1,34 @@
+name: EB01 - cancel redundant queued full-film run without touching active GPU
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_dedupe_inflight.trigger"]
+permissions:
+  contents: read
+  actions: write
+jobs:
+  cancel_only_redundant:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ACTIVE_RUN: "43396898588"
+      REDUNDANT_RUN: "43396938973"
+    steps:
+      - name: Verify exact active run and cancel only redundant pending run
+        shell: bash
+        run: |
+          set -euo pipefail
+          active="$(gh api "repos/$REPO/actions/runs/$ACTIVE_RUN" --jq '.status + ":" + .head_sha + ":" + .name')"
+          target="$(gh api "repos/$REPO/actions/runs/$REDUNDANT_RUN" --jq '.status + ":" + .head_sha + ":" + .name')"
+          echo "ACTIVE: $active"
+          echo "REDUNDANT: $target"
+          [[ "$active" == "in_progress:f460ce12f6651c64d0f42d7dcf4a79b92eb38d1c:EB01 V7 - OWNER FULL REAL WAN FILM (7 SCENES 6 RUSSIAN VOICES)" ]] || {
+            echo "::warning::Active run changed; no automatic cancellation."; exit 0;
+          }
+          [[ "$target" == "pending:1ad235b6b6f2d98ce3e9b659163732cc05d7b969:EB01 V7 - OWNER FULL REAL WAN FILM (7 SCENES 6 RUSSIAN VOICES)" ]] || {
+            echo "::warning::Target not redundant pending; no automatic cancellation."; exit 0;
+          }
+          gh api -X POST "repos/$REPO/actions/runs/$REDUNDANT_RUN/cancel"
+          echo "CANCEL_REQUESTED_FOR_REDUNDANT_PENDING_RUN=$REDUNDANT_RUN"
