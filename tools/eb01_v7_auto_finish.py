@@ -115,7 +115,7 @@ def verify_shot(shot:str,folder:Path,known_sha:str|None=None)->dict:
             "artificial_frames":0,"technical_gate":"PASS",
             "human_artistic_approved":False}
 
-def issue_single(shot:str,root:Path,revision:str,nonce:str,retake=False):
+def issue_single(shot:str,root:Path,revision:str,nonce:str,retake=False,variant:int=0):
     assert re.fullmatch("[a-f0-9]{40}",revision)
     cfg={"schema":7,"nonce":nonce,"shot":shot,"model":"wan22-5b",
          "private":True,"new_gpu_jobs":1,
@@ -123,7 +123,7 @@ def issue_single(shot:str,root:Path,revision:str,nonce:str,retake=False):
          "revision":revision,"branch":BRANCH,
          "allow_social_publish":False,
          "allow_regenerate_good_shots":False,
-         "quality_retake":retake}
+         "quality_retake":retake,"seed_variant":variant}
     assert check_configuration(cfg)==shot
     body=Path("tools/kaggle_eb01_v7_single_shot.py").read_text()
     placeholder="__EB01_V7_RESUME_SHOT_CONFIG_B64__"
@@ -132,7 +132,7 @@ def issue_single(shot:str,root:Path,revision:str,nonce:str,retake=False):
     if len(source)>70000:raise RuntimeError("Unexpected worker source size")
     slug="eb01-v7-"+shot.lower()+"-only-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]
     kernel="wolf19loner92/"+slug
-    folder=root/("launch_"+shot)
+    folder=root/("launch_"+shot+"_variant_"+str(variant))
     folder.mkdir()
     (folder/"kernel_main.py").write_text(source)
     meta={"id":kernel,"title":slug,"code_file":"kernel_main.py",
@@ -177,6 +177,7 @@ def main():
             "genuine_finished_shots":["S00","S01","S03"],
             "published":False,"human_visual_reviewed":False,
             "no_synthetic_fallback":True,"six_original_ru_voices_required":True,
+            "attempts":{},"automatic_retakes_per_failed_shot_max":1,
             "sources":{},"pending":["S04","S05","S06","S02_QUALITY_RETAKE"]}
     record(dest/"EB01_V7_STATUS.json",report)
     with tempfile.TemporaryDirectory(prefix="eb01-real-neural-") as temp:
@@ -198,21 +199,73 @@ def main():
                 if sid in report["pending"]:
                     report["pending"].remove(sid)
                 record(dest/"EB01_V7_STATUS.json",report)
-            # All remaining clips are completely independent: each verified
-            # BEFORE investment in the next GPU shot. No silent retries.
+            # Automatically recover *only* neon-latent QA failures. This is
+            # not an infinite GPU retry loop: two attempts max per scene.
+            # Previously failed S05 used variant 0: resume at variant 1.
+            attempt_plan={"S05":(1,2),"S06":(0,1),"S02":(1,2)}
             for sid in ("S05","S06","S02"):
-                retake=(sid=="S02")
-                nonce=f"eb01v7-full-owner-{args.run_id}-{sid.lower()}"+("-retake" if retake else "")
-                kernel=issue_single(sid,root,args.revision,nonce,retake=retake)
-                await_existing(kernel,sid,dest/"EB01_V7_STATUS.json")
-                folder=root/sid
-                download_kernel(kernel,folder)
-                report["sources"][sid]=verify_shot(sid,folder)
-                report["sources"][sid]["private_kernel"]=kernel
-                sources[sid]=folder
-                report["genuine_finished_shots"].append(sid)
-                report["pending"].remove("S02_QUALITY_RETAKE" if retake else sid)
-                record(dest/"EB01_V7_STATUS.json",report)
+                attempt_results=report["attempts"].setdefault(sid,[])
+                for variant in attempt_plan[sid]:
+                    is_retake=(variant>0)
+                    nonce=(f"eb01-v7-recovery-{args.run_id}-{sid.lower()}"
+                           f"-seed-variant-{variant}")
+                    kernel=issue_single(sid,root,args.revision,nonce,
+                                        retake=is_retake,variant=variant)
+                    folder=root/(sid+"_variant_"+str(variant))
+                    reason=None
+                    try:
+                        await_existing(kernel,sid,dest/"EB01_V7_STATUS.json")
+                        download_kernel(kernel,folder)
+                        report["sources"][sid]=verify_shot(sid,folder)
+                    except RuntimeError as problem:
+                        reason=str(problem)
+                        if not folder.exists():
+                            # Kaggle ERROR usually still preserves private RAW
+                            # and signed receipt. Download it before retry.
+                            download_kernel(kernel,folder)
+                        jobs=list(folder.rglob("EB01_V7_SINGLE_SHOT_JOB.json"))
+                        failure=(json.loads(jobs[0].read_text()) if len(jobs)==1
+                                 else {})
+                        preserved=list(folder.rglob(sid+".original_wan_raw.mp4"))
+                        valid_quarantine=(len(preserved)==1
+                             and failure.get("status")==
+                                 "REAL_GPU_VIDEO_PRESERVED_BUT_VISUAL_QA_FAILED"
+                             and failure.get("error_type")=="MotionBufferRejected"
+                             and failure.get("private_raw_mp4_preserved") is True
+                             and sha(preserved[0])==
+                                 failure.get("private_raw_mp4_sha256"))
+                        # Completed-but-colour-failed clip can be retried too,
+                        # but never regenerate because of a malformed proof
+                        # or changed identity SHA.
+                        valid_artifact_failure=(
+                            reason.startswith("NEON/RAINBOW RGB visual contamination ")
+                            and len(list(folder.rglob(sid+".mp4")))==1)
+                        eligible=valid_quarantine or valid_artifact_failure
+                        attempt_results.append({"variant":variant,"kernel":kernel,
+                            "status":"QA_REJECTED" if eligible else "BLOCKED_OTHER",
+                            "error":reason[:600],
+                            "preserved_original_sha256":
+                                failure.get("private_raw_mp4_sha256")})
+                        report["status"]="SCENE_RETAKE_REQUIRED" if eligible else "BLOCKED_NOT_SAFE_TO_RETRY"
+                        record(dest/"EB01_V7_STATUS.json",report)
+                        print("EB01_ACTUAL_FAILED_SCENE_DIAGNOSIS",sid,
+                              "variant",variant,"safe_qa_retry",eligible,
+                              reason[:500],flush=True)
+                        if not eligible or variant==attempt_plan[sid][-1]:
+                            raise RuntimeError(
+                                "Bounded Wan recovery exhausted/unsafe "+sid+
+                                " variant "+str(variant)+": "+reason) from problem
+                        continue
+                    attempt_results.append({"variant":variant,"kernel":kernel,
+                        "status":"TECHNICALLY_VERIFIED",
+                        "sha256":report["sources"][sid]["mp4_sha256"]})
+                    report["sources"][sid]["private_kernel"]=kernel
+                    sources[sid]=folder
+                    report["genuine_finished_shots"].append(sid)
+                    report["pending"].remove("S02_QUALITY_RETAKE" if sid=="S02" else sid)
+                    report["status"]="RUNNING_REAL_7_TAKE_PRODUCTION"
+                    record(dest/"EB01_V7_STATUS.json",report)
+                    break
             download_kernel(ORIGINAL,root/"original")
             report["sources"].update(old_s00_s01(root/"original"))
             # Exactly 7 genuine native clips, including *retake* S02, plus 6 RU voices.
