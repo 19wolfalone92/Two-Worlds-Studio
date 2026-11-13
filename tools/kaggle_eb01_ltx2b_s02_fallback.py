@@ -79,9 +79,41 @@ def main():
         for item in old:
             if code.count(item)!=1:raise RuntimeError("Official LTX source changed; cannot safely patch T4")
             code=code.replace(item,item.replace("torch.bfloat16","torch.float16"))
+        # ROOT CAUSE VERIFIED IN FIRST LTX GPU LOG: ~14.42/14.56 GiB
+        # exhausted while create_ltx_video_pipeline simultaneously places
+        # transformer, T5 and VAE on CUDA, *before* offload_to_cpu can run.
+        # Stage all original official weights on CPU. Inside the sampler,
+        # move T5 -> CPU, transformer -> CPU, VAE -> CUDA sequentially.
+        # Keep the full actual LTX inference on the real T4, no fake frames.
+        original_call="        device=device,\n        enhance_prompt=enhance_prompt,"
+        if code.count(original_call)!=1:
+            raise RuntimeError("Official LTX pipeline call changed; memory fix cannot be verified")
+        code=code.replace(original_call,
+            "        device='cpu',\n        enhance_prompt=enhance_prompt,")
         source.write_text(code)
+        stages=LTX/"ltx_video"/"pipelines"/"pipeline_ltx_video.py"
+        pipe=stages.read_text()
+        updates=[
+          ("        device = self._execution_device\n",
+           "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n"),
+          ("self.text_encoder = self.text_encoder.to(self._execution_device)",
+           "self.text_encoder = self.text_encoder.to(device)"),
+          ("self.transformer = self.transformer.to(self._execution_device)",
+           "self.transformer = self.transformer.to(device)"),
+          (").to(dtype=init_latents.dtype)\n",
+           ").to(dtype=init_latents.dtype, device=init_latents.device)\n"),
+          ("            image = vae_decode(\n",
+           "            self.vae = self.vae.to(device)\n            image = vae_decode(\n"),
+        ]
+        for previous,updated in updates:
+            if pipe.count(previous)!=1:
+                raise RuntimeError("Official LTX pipeline stage changed; unsafe GPU memory patch")
+            pipe=pipe.replace(previous,updated)
+        stages.write_text(pipe)
         patched=sha(source)
-        print("EB01_ALT_ENGINE_LTX_T4_FP16_COMPATIBILITY_SOURCE_SHA",patched,flush=True)
+        stage_sha=sha(stages)
+        print("EB01_ALT_ENGINE_ROOT_CAUSE_OOM_FIXED_SEQUENTIAL_CPU_GPU_STAGE",
+              "inference_sha",patched,"pipeline_sha",stage_sha,flush=True)
         run([sys.executable,"-m","pip","install","-q","-e",str(LTX)+"[inference]"],timeout=960)
         c=LTX/"configs"/"ltxv-2b-0.9.6-distilled.yaml"
         if not c.is_file() or "ltxv-2b-0.9.6-distilled-04-25.safetensors" not in c.read_text():
@@ -127,6 +159,7 @@ infer(settings)
            "model":"Lightricks/LTX-Video-2B-0.9.6-distilled",
            "engine":"ltx_official_fp16_t4_compatibility",
            "official_source_git_sha":LTX_SHA,"compatibility_patch_sha256":patched,
+           "pipeline_memory_patch_sha256":stage_sha,
            "studio_git_revision":cfg["revision"],
            "original_reference_sha256":source_sha(reference),
            "original_character_sha256":SRC_SHA["KOSTYA"],
