@@ -51,7 +51,7 @@ def record(path:Path,data:dict):
 
 def kernel_status(kernel:str)->str:
     out=run("kaggle","kernels","status",kernel,timeout=100)
-    states=re.findall(r"KernelWorkerStatus\\.([A-Z_]+)",out)
+    states=re.findall(r"KernelWorkerStatus\.([A-Z_]+)",out)
     if len(states)!=1:raise RuntimeError("Ambiguous private Kaggle status: "+out[-350:])
     return states[0]
 
