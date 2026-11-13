@@ -1,0 +1,70 @@
+name: EB01 FULL REAL 7-SCENE VIDEO - verified Wan + LTX and 6 Russian Qwen voices
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_full_real_russian_hybrid_master.trigger"]
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-eb01-cpu-master
+  cancel-in-progress: false
+jobs:
+  real_full_video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Strict CPU master source tests and media dependencies, no GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3' 'scipy>=1.10' 'soundfile>=0.12' 'requests>=2.31'
+          python -m py_compile tools/kaggle_eb01_ltx2b_s02_fallback.py tools/eb01_v7_finish_actual_ltx_mix.py studio/ltx_take.py studio/hybrid_master.py tools/kaggle_eb01_v7_full_entry.py
+          python -m unittest tests.test_eb01_v7_private_checkpoint tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_motion_buffer -q
+          python - <<'PY'
+          from tools.eb01_v7_finish_actual_ltx_mix import LTX,SOURCES
+          from studio.hybrid_master import CLIP_ENGINES
+          from studio.eb01_v7_storyboard import SHOTS,VOICE_SHA
+          assert 'neural_ltx' in CLIP_ENGINES
+          assert LTX=='wolf19loner92/eb01-s02-ltx2b-real-103857643f19'
+          assert len(VOICE_SHA)==6 and len(SHOTS)==7
+          assert len(SOURCES)==6
+          print('EB01_STUDIO_NATIVE_HYBRID_7_SCENE_6_RU_CPU_PREFLIGHT_GREEN')
+          PY
+      - name: Wait exact existing LTX GPU source and produce FULL real native 7-scene original Russian video using own Studio
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_v7_finish_actual_ltx_mix --output "$RUNNER_TEMP/EB01_NATIVE_REAL_OWNER_REVIEW"
+      - name: Export actual full-seven-moving-scenes MP4, 6 original Russian voice subtitles and verified source receipts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_BONES_FULL_ACTUAL_7_REAL_NEURAL_SCENES_6_RU_VOICES_MP4
+          path: |
+            ${{ runner.temp }}/EB01_NATIVE_REAL_OWNER_REVIEW/*.mp4
+            ${{ runner.temp }}/EB01_NATIVE_REAL_OWNER_REVIEW/*.srt
+            ${{ runner.temp }}/EB01_NATIVE_REAL_OWNER_REVIEW/*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Preserve factual incomplete production status on ANY error
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_FULL_NEURAL_STUDIO_STATUS_NO_FALSE_COMPLETE_CLAIM
+          path: ${{ runner.temp }}/EB01_NATIVE_REAL_OWNER_REVIEW/EB01_REAL_FULL_NEURAL_MOVIE_STATUS.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Erase all private original photos, human voices and model intermediates from runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/EB01_NATIVE_REAL_OWNER_REVIEW" "$RUNNER_TEMP/EB01_ACTUAL_FILM_*"
