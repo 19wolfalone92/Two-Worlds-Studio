@@ -1,0 +1,74 @@
+name: EB01 S02 ORIGINAL full-length Wan failed RAW source salvage (no GPU)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_s02_old_full_raw_salvage.trigger"]
+permissions:
+  contents: read
+jobs:
+  inspect_original_s02:
+    runs-on: ubuntu-latest
+    timeout-minutes: 23
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      KERNEL: wolf19loner92/eb01-v7-s02-only-7dc172a237f2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check previously produced S02 full real Wan video for reusable actual clean frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3'
+          mkdir -p "$RUNNER_TEMP/eb01-old-s02"
+          kaggle kernels status "$KERNEL"
+          kaggle kernels output "$KERNEL" -p "$RUNNER_TEMP/eb01-old-s02" --force
+          python - <<'PY'
+          import json,hashlib,os
+          from pathlib import Path
+          from studio.eb01_motion_artifact_gate import inspect_clip
+          from studio.comfy_neural import _probe
+          root=Path(os.environ['RUNNER_TEMP'])/'eb01-old-s02'
+          originals=list(root.rglob("S02.original_wan_raw.mp4"))
+          receipts=list(root.rglob("S02.original_wan_raw.receipt.json"))
+          report={'kernel':os.environ["KERNEL"],'real_gpu_restarted':False,
+                  'original_raw_count':len(originals),'original_receipt_count':len(receipts),
+                  'published':False,'owner_review_required':True}
+          if len(originals)==len(receipts)==1:
+             source=originals[0]
+             evidence=json.loads(receipts[0].read_text())
+             digest=hashlib.sha256(source.read_bytes()).hexdigest()
+             if evidence.get('clip_sha256')!=digest or evidence.get('inference_performed') is not True:
+                 raise RuntimeError("Real original private Wan proof does not match preserved MP4")
+             scan=inspect_clip(source)
+             meta=_probe(source)
+             flags=set(scan.get('flagged_frames',[]))
+             clean=[i for i in range(meta['frames']) if i not in flags]
+             ranges=[]
+             for i in clean:
+               if not ranges or ranges[-1][-1]+1!=i:ranges.append([i])
+               else:ranges[-1].append(i)
+             report.update({'sha256':digest,'frames':meta['frames'],
+              'scan_status':scan.get('status'),'flagged_frames':sorted(flags),
+              'clean_original_model_frames_count':len(clean),
+              'genuine_contiguous_unmodified_segments':[
+                {'start':r[0],'end_exclusive':r[-1]+1,'frames':len(r)} for r in ranges],
+              'original_neural_inference_proven':True})
+          print("EB01_S02_OLD_ORIGINAL_ACTUAL_GPU_FORENSIC",json.dumps(report,ensure_ascii=False),flush=True)
+          (root/'EB01_S02_OLD_SOURCE_FORENSIC.json').write_text(json.dumps(report,indent=2)+'\n')
+          PY
+      - name: Preserve source counts and actual clean frame ranges, no private raw or portraits
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_S02_OLD_WAN_ORIGINAL_NATIVE_FRAME_SALVAGE_FACTS
+          path: ${{ runner.temp }}/eb01-old-s02/EB01_S02_OLD_SOURCE_FORENSIC.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove all original private source art
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-old-s02"
