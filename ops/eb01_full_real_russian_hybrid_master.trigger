@@ -1,1 +1,4 @@
 USER GOAL URGENT: FINISHED ELIZABETH BONES СОБЕСЕДОВАНИЕ MP4. CPU-only final staging should begin NOW; wait on the already running private actual 125-frame LTX S02 Kaggle model worker wolf19loner92/eb01-s02-ltx2b-real-103857643f19. Do not regenerate any finished Wan actor scenes S00,S01,S03,S04,S05 or original S06 clips. Restore S06 from 60 genuine clean existing frames and 29 new genuine model frames. Collect original six Russian Qwen WAV, verify actual source SHA, deliver 7 moving clips, 6 voices, 6 subtitle cues, native Two Worlds Studio 576x1024 MP4. No static draft, no fabricated provenance, no publish. Preserve truthful failure audit if unavailable.
+
+resume_success_dep: 2026-11-13 exact GPU run 43456409079, revised official LTX2B staged CPU/GPU memory patch after verified T4 OOM. New Kaggle kernel wolf19loner92/eb01-s02-ltx2b-real-5ec733d0369c.
+ready_to_start_cpu_movie_without_duplicate_gpu: true
