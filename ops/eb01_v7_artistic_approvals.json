@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "episode": "Elizabeth Bones E01 Собеседование",
+  "art_review_date": "2026-11-13",
+  "status": "ARTISTIC_QUALITY_BLOCKED_DO_NOT_CALL_FULL_FILM_READY",
+  "S02": {
+    "approved_for_final_film": false,
+    "kernel": "wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c",
+    "sha256": "53ce7cf5245b194c9c6a47489db48acb957b552a687b5f05fa28fb62cc41ce4e",
+    "reviewed_full_video": false,
+    "reviewed_contact_sheet": true,
+    "identity_motion_lips_artifacts_passed": false,
+    "visual_observation": "Distinct severe bright magenta/cyan/green/yellow neon bars and spectral interference appear around the chair, background and skeleton hands across many of the 12 inspected frames. The gothic office source is supposed to have warm dark walnut/brass palette. Technical neon-tail gate gave a false negative. The actor seems to change gesture but color contamination makes it unsuitable for final release.",
+    "lowres_review_source": "GitHub Actions #43365180771 original 125-frame private Wan S02 review contact",
+    "technical": "H264 320x576 24fps 125 frames SHA matched, FFmpeg full decode passed",
+    "severity": "FAIL_REJECT_ARTISTIC_NOT_ACCEPTABLE_FOR_EPISODE",
+    "new_gpu_retries_allowed_without_new_quality_gate": false
+  },
+  "S03": {
+    "approved_for_final_film": false,
+    "reviewed_full_video": false,
+    "status": "SUBMITTED_ONCE_BEFORE_S02_ARTISTIC_REJECTION; CHECK_RESULT_BUT_DO_NOT_START_S04"
+  },
+  "production_rules": {
+    "do_not_publish": true,
+    "do_not_approve_from_ffprobe_only": true,
+    "do_not_launch_next_gpu_while_artistic_quality_blocked": true,
+    "preserve_all_originals_privately": true
+  }
+}
