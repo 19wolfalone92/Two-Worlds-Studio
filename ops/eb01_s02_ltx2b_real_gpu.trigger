@@ -6,3 +6,7 @@ retry_after_real_gpu_root_cause: original 14.56 GiB T4 used 14.42 GiB loading al
 actual_fix: patched immutable official LTX inference+pipeline to keep initial modules CPU, run separate T5/transformer/VAE sequentially on GPU
 new_independent_kernel: yes; no overwrite of old private source
 strict_limit: one new GPU attempt; verify SHA of all footage and stage patches
+
+refined_official_source_match: count validated against upstream pin 50f0aef1297574a4b29acbdb874e3a363a6d5f2e
+previous_kernel: wolf19loner92/eb01-s02-ltx2b-real-a515a2481c0e failed before inference due ambiguous upstream patch selector; new selector uniquely matches create_ltx_video_pipeline device argument and sample call not modified
+no_gpu_overwrite: true
