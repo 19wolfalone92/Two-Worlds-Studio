@@ -33,7 +33,7 @@ jobs:
           python - <<'PY'
           from tools.eb01_v7_finish_from_micro import PREVIOUS,EXPECTED_S02
           from studio.eb01_v7_native_micro_master import SOURCE_SEGMENT_COUNTS
-          assert PREVIOUS['S06_tail']=='wolf19loner92/eb01-v7-s06-tail29-3a0a1002da34'
+          assert PREVIOUS['S06_tail']=='wolf19loner92/eb01-v7-s06-tail29-17f5716049d7'
           assert tuple(EXPECTED_S02)==('S02_A41','S02_B41','S02_C45')
           assert sum(x[2] for x in SOURCE_SEGMENT_COUNTS['S02'])==125
           assert sum(x[2] for x in SOURCE_SEGMENT_COUNTS['S06'])==89
