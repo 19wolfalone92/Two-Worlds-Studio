@@ -3,9 +3,9 @@ name: EB01 - watch genuine private Wan job every 15 minutes (READ ONLY)
 # This lightweight read-only watchdog complements the ChatGPT hourly
 # production automation. It NEVER submits jobs, writes to Kaggle, publishes
 # media, or interprets a green GitHub run as a finished MP4.
+# PAUSED at user's explicit STOP (2026-11-13). Do not reactivate
+# scheduled monitoring or restart GPU without a new explicit request.
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 permissions:
