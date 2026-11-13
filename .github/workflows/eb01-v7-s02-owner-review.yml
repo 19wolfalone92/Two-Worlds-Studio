@@ -1,0 +1,90 @@
+name: EB01 S02 - download real Wan video for owner visual review (CPU only)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_v7_s02_owner_preview.trigger"]
+permissions:
+  contents: read
+jobs:
+  genuine_neural_video_review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      SOURCE_KERNEL: wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c
+      SOURCE_SHA: 53ce7cf5245b194c9c6a47489db48acb957b552a687b5f05fa28fb62cc41ce4e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ONLY download/CPU video validation tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Read actual Kaggle COMPLETE private original, no GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          status="$(kaggle kernels status "$SOURCE_KERNEL")"
+          echo "$status" | grep -q 'KernelWorkerStatus.COMPLETE'
+          mkdir -p "$RUNNER_TEMP/eb01-s02-source"
+          kaggle kernels output "$SOURCE_KERNEL" -p "$RUNNER_TEMP/eb01-s02-source" --force
+      - name: Independently check genuine SHA, 125 frames, provenance, full decode
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/eb01-s02-review"
+          python - <<'PY'
+          import os,json,hashlib,shutil,subprocess
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-s02-source"
+          dest=Path(os.environ["RUNNER_TEMP"])/"eb01-s02-review"
+          videos=list(root.rglob("S02.mp4"))
+          reports=list(root.rglob("EB01_V7_SINGLE_SHOT_JOB.json"))
+          if len(videos)!=1 or len(reports)!=1:
+              raise ValueError("No unique authentic S02 model output/receipt")
+          clip=videos[0]
+          sha=hashlib.sha256(clip.read_bytes()).hexdigest()
+          proof=json.loads(reports[0].read_text())
+          if sha!=os.environ["SOURCE_SHA"] or proof.get("clip_sha256")!=sha:
+              raise ValueError("Original actual model video mutated")
+          if proof.get("status")!="ONE_REAL_WAN_SHOT_TECHNICALLY_VERIFIED" or proof.get("neural_inference_performed") is not True:
+              raise ValueError("Model did not successfully create original video")
+          if proof.get("temporal_rgb_artifact_gate")!="NO_NEON_ARTIFACT_FOUND":
+              raise ValueError("Technical QC not passed")
+          data=json.loads(subprocess.check_output([
+              "ffprobe","-v","error","-count_frames","-select_streams","v:0",
+              "-show_entries","stream=codec_name,width,height,avg_frame_rate,nb_read_frames",
+              "-of","json",str(clip)]))
+          v=data["streams"][0]
+          assert (v["codec_name"],v["width"],v["height"],v["avg_frame_rate"],v["nb_read_frames"]) == ("h264",320,576,"24/1","125")
+          subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(clip),"-f","null","-"],
+                         check=True,timeout=180)
+          shutil.copy2(clip,dest/"ELIZABETH_BONES_S02_KOSTYA_TRUE_WAN22_REVIEW_ONLY.mp4")
+          (dest/"STATUS_AND_SHA.json").write_text(json.dumps({
+              "status":"GENUINE_S02_VIDEO_NOT_COMPLETE_FILM",
+              "model":"Wan2.2 I2V-5B","duration":125/24,
+              "frames":125,"sha256":sha,
+              "human_artistic_quality_approved":False,
+              "S00_S01_unchanged":True,
+              "S03_to_S06_included":False,
+              "six_audio_lines_included":False,
+              "published":False
+          },indent=2))
+          print("REAL_S02_5_SECONDS_FOR_REVIEW_ONLY",sha)
+          PY
+      - name: Upload just real S02 review (NOT finished episode)
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_REAL_S02_KOSTYA_5S_REVIEW_ONLY_NOT_FINAL_FILM
+          path: ${{ runner.temp }}/eb01-s02-review/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Wipe original private source and voice data
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-s02-source" "$RUNNER_TEMP/eb01-s02-review"
