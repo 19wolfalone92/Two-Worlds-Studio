@@ -11,3 +11,7 @@ social_publish: false
 
 corrected_recovery_reference: GitHub run 43443472742 source SHA exact, immutable
 cpu_preflight: success GitHub run 43443714007
+
+relaunch_after_traceback_fix: 2026-11-13 S02_A41 kernel slug included underscore; canonicalize to hyphens to avoid private Kaggle kernels.get 403
+verified_existing_s06_tail_29: github_run_43443472742_SUCCESS_SHA_LOCKED
+
