@@ -28,6 +28,7 @@ jobs:
             wolf19loner92/eb01-v7-s05-only-c36aa6d1d281 \
             wolf19loner92/eb01-v7-s06-only-e7b9c9a3725d \
             wolf19loner92/eb01-v7-s06-only-beca33b6874e \
+            wolf19loner92/eb01-v7-s06-tail29-3a0a1002da34 \
             wolf19loner92/eb01-v7-s02-only-bcc9f17c3faf; do
             printf '\nSOURCE_KERNEL: %s\n' "$kernel"
             kaggle kernels status "$kernel" 2>&1 || echo "KERNELOBJECT_NOT_FOUND_OR_UNREADABLE"
