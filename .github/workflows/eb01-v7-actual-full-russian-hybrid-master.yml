@@ -35,7 +35,7 @@ jobs:
           from studio.hybrid_master import CLIP_ENGINES
           from studio.eb01_v7_storyboard import SHOTS,VOICE_SHA
           assert 'neural_ltx' in CLIP_ENGINES
-          assert LTX=='wolf19loner92/eb01-s02-ltx2b-real-103857643f19'
+          assert LTX=='wolf19loner92/eb01-s02-ltx2b-real-5ec733d0369c'
           assert len(VOICE_SHA)==6 and len(SHOTS)==7
           assert len(SOURCES)==6
           print('EB01_STUDIO_NATIVE_HYBRID_7_SCENE_6_RU_CPU_PREFLIGHT_GREEN')
