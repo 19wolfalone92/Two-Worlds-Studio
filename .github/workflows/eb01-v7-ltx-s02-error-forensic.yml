@@ -1,0 +1,72 @@
+name: EB01 LTX S02 first alternative GPU error - diagnose real traceback
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_ltx_failure_forensic.trigger"]
+permissions:
+  contents: read
+jobs:
+  read_only_forensics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      ORIGINAL_KERNEL: wolf19loner92/eb01-s02-ltx2b-real-103857643f19
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install existing Kaggle read API only
+        run: python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Inspect existing failed S02 without resubmitting GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          kaggle kernels status "$ORIGINAL_KERNEL"
+          kaggle kernels logs "$ORIGINAL_KERNEL" 2>&1 | tail -180 || true
+          mkdir -p "$RUNNER_TEMP/eb01-s02-ltx-private"
+          kaggle kernels output "$ORIGINAL_KERNEL" -p "$RUNNER_TEMP/eb01-s02-ltx-private" --force || true
+          python - <<'PY'
+          import json,os,re,hashlib
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-s02-ltx-private"
+          output={"kernel":os.environ["ORIGINAL_KERNEL"],"GPU_restarted":False,
+                  "originals_published":False,"receipts":{},"log_diagnostics":[],"files":[]}
+          for p in sorted(root.rglob("*")):
+            if not p.is_file():continue
+            output["files"].append({"filename":p.name,"bytes":p.stat().st_size})
+            if p.name in ("EB01_S02_LTX_PRIVATE_JOB.json"):
+              try:
+                r=json.loads(p.read_text())
+                output["receipts"][p.name]={k:r.get(k) for k in
+                  ("success","status","shot","error_type","error_summary","nonce",
+                  "neural_inference_performed","clip_sha256")}
+              except Exception as e:
+                output["receipts"][p.name]={"error_type":type(e).__name__}
+            if p.suffix==".log" or p.name.endswith(".log") or "log" in p.name.lower():
+              lines=p.read_text(errors="replace").splitlines()
+              candidates=[]
+              for i,line in enumerate(lines):
+                if re.search(r"(?i)ERROR|Traceback|Exception|OOM|out of memory|CUDA|Failed|failure|No module|Stopped|Killed|SIGTERM|SIGKILL|time.?out|missing|torch|tensor|dtype|workflow|S02",line):
+                  line=re.sub(r"(?i)(hf_[a-zA-Z0-9]{12,}|sk-[a-zA-Z0-9_-]{12,})","REDACTED",line)
+                  line=re.sub(r"(?i)(KAGGLE_API_TOKEN|Authorization)[:= ]+[^ ]+",r"\\1=REDACTED",line)
+                  candidates.append({"line":i+1,"text":line[:320]})
+              output["log_diagnostics"].append({"filename":p.name,
+                   "lines_total":len(lines),"sha256":hashlib.sha256(p.read_bytes()).hexdigest(),
+                   "errors_and_related":candidates[-90:]})
+          print("EB01_LTX_S02_ACTUAL_FAILURE_DIAGNOSTIC",json.dumps(output,ensure_ascii=False)[:19000])
+          (Path(os.environ["RUNNER_TEMP"])/"eb01-s02-ltx-report.json").write_text(
+            json.dumps(output,ensure_ascii=False,indent=2))
+          PY
+      - name: Preserve only sanitized QA report, no private original
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_LTX_S02_ACTUAL_GPU_ERROR_DIAG_ONLY
+          path: ${{ runner.temp }}/eb01-s02-ltx-report.json
+          retention-days: 7
+          if-no-files-found: error
+      - name: Delete temporary private files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-s02-ltx-private" "$RUNNER_TEMP/eb01-s02-ltx-report.json"
