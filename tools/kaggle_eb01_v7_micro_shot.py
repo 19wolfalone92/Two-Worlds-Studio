@@ -69,6 +69,30 @@ def main():
          cfg.get("seed_variant")!=spec["seed_variant"] or
          cfg.get("allow_social_publish") is not False):
         raise ValueError("Segment differs from exact approved micro-shot")
+    # Kaggle runs this generated wrapper from /kaggle/src, not a checkout.
+    # Download and pin the exact immutable GitHub commit BEFORE importing
+    # the Studio modules. The underlying worker then verifies the SHA again.
+    from pathlib import Path
+    import re
+    import subprocess
+    if (cfg.get("branch")!="fix/eb01-s02-private-raw-preservation-20261113"
+            or not re.fullmatch(r"[a-f0-9]{40}",str(cfg.get("revision","")))
+            or cfg.get("source_dataset")!="wolf19loner92/eb01-v7-private-production-sources"):
+        raise ValueError("Unpinned or unapproved private Studio source")
+    root=Path("/kaggle/temp/eb01-v7-public-source")
+    if root.exists():
+        raise RuntimeError("Never trust an unexpected previous source checkout")
+    subprocess.run(["git","clone","--depth","1","--branch",cfg["branch"],
+                    "https://github.com/19wolfalone92/Two-Worlds-Studio.git",
+                    str(root)],check=True,timeout=360)
+    subprocess.run(["git","fetch","--depth","1","origin",cfg["revision"]],
+                   cwd=root,check=True,timeout=240)
+    subprocess.run(["git","checkout","--detach",cfg["revision"]],
+                   cwd=root,check=True,timeout=60)
+    actual=subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True).strip()
+    if actual!=cfg["revision"]:
+        raise RuntimeError("Micro worker Studio source Git SHA differs from submitted commit")
+    sys.path.insert(0,str(root))
     import studio.eb01_v7_storyboard as story
     rows=[]
     for row in story.SHOTS:
