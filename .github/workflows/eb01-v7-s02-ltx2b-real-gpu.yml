@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: CPU proof: no counterfeit media, original characters and six-voice SHA, safe T4 source patch
+      - name: "CPU proof - original sources and 6 Russian voices, no counterfeit output"
         run: |
           set -euo pipefail
           test -n "$KAGGLE_API_TOKEN"
