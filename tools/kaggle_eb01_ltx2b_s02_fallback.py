@@ -133,8 +133,22 @@ infer(settings)
         env=os.environ.copy()
         env.update(LTX_CONFIG=str(c),LTX_PROMPT=scene[-1],LTX_INPUT=str(reference),
                    LTX_OUTPUT=str(generated))
-        proc=subprocess.run([sys.executable,"-c",script],cwd=LTX,env=env,
-                            stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=2600)
+        # Preserve the actual sampler output even when the bounded GPU deadline
+        # expires. A timeout is not evidence that native frames were produced.
+        # Do not automatically retry the same expensive configuration.
+        try:
+            proc=subprocess.run([sys.executable,"-u","-c",script],cwd=LTX,env=env,
+                                stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                                text=True,timeout=2600)
+        except subprocess.TimeoutExpired as exc:
+            captured=exc.stdout or b""
+            if isinstance(captured,bytes):
+                captured=captured.decode("utf-8",errors="replace")
+            (OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt").write_text(captured[-40000:])
+            print("EB01_LTX_INFERENCE_TIMEOUT_2600_SECONDS_NO_AUTORETRY",
+                  captured[-3500:],flush=True)
+            raise RuntimeError("Native LTX 125-frame inference exceeded 2600s; "
+                               "inspect saved sampler output before changing GPU plan") from exc
         (OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt").write_text(proc.stdout[-40000:])
         if proc.returncode:
             print("EB01_ACTUAL_LTX_INFERENCE_FAILURE",proc.stdout[-4500:],flush=True)
