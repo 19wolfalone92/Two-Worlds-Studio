@@ -1,0 +1,4 @@
+private_kernel: wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c
+real_s02_sha256: 53ce7cf5245b194c9c6a47489db48acb957b552a687b5f05fa28fb62cc41ce4e
+mode: owner_visual_review_actual_5_second_Wan_no_GPU
+claim_full_film: false
