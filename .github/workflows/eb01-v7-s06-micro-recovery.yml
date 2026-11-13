@@ -1,0 +1,137 @@
+name: EB01 - REAL S06 short-shot recovery native Wan no previews
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_real_s06_tail29.trigger"]
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+jobs:
+  genuine_native_short_take:
+    runs-on: ubuntu-latest
+    timeout-minutes: 82
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      SEGMENT: S06_TAIL29
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate CPU production micro scene and install Kaggle client
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+          python -m py_compile tools/kaggle_eb01_v7_micro_shot.py tools/kaggle_eb01_v7_single_shot.py
+          python - <<'PY'
+          from tools.kaggle_eb01_v7_micro_shot import SEGMENT
+          from studio.eb01_v7_storyboard import SHOTS
+          assert SEGMENT['S06_TAIL29']['frames']==29
+          assert (29-1)%4==0
+          assert {row[0] for row in SHOTS}==set(['S00','S01','S02','S03','S04','S05','S06'])
+          assert SEGMENT['S06_TAIL29']['shot']=='S06'
+          print('S06_SHORT_NATIVE_GENUINE_SEGMENT_INPUT_APPROVED')
+          PY
+      - name: Submit private exact-source Wan2.2 micro-shot S06 TAIL29 only
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,json,os
+          from pathlib import Path
+          from tools.kaggle_eb01_v7_single_shot import check_configuration
+          run_id=os.environ["GITHUB_RUN_ID"]
+          commit=os.environ["GITHUB_SHA"]
+          nonce="eb01-v7-s06-tail29-"+run_id
+          slug="eb01-v7-s06-tail29-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]
+          kernel="wolf19loner92/"+slug
+          cfg={"schema":7,"nonce":nonce,"shot":"S06","segment":"S06_TAIL29",
+            "model":"wan22-5b","private":True,"new_gpu_jobs":1,
+            "source_dataset":"wolf19loner92/eb01-v7-private-production-sources",
+            "revision":commit,
+            "branch":"fix/eb01-s02-private-raw-preservation-20261113",
+            "allow_social_publish":False,
+            "allow_regenerate_good_shots":False,
+            "quality_retake":True,"seed_variant":2}
+          assert check_configuration(cfg)=="S06"
+          body=Path("tools/kaggle_eb01_v7_micro_shot.py").read_text()
+          key="__EB01_V7_MICRO_SHOT_CONFIG_B64__"
+          assert body.count(key)==1
+          body=body.replace(key,base64.b64encode(json.dumps(cfg,sort_keys=True).encode()).decode())
+          folder=Path(os.environ["RUNNER_TEMP"])/"eb01_gpu_submit"
+          folder.mkdir()
+          (folder/"kernel_main.py").write_text(body)
+          meta={"id":kernel,"title":slug,"code_file":"kernel_main.py",
+            "language":"python","kernel_type":"script","is_private":"true",
+            "enable_gpu":"true","enable_internet":"true",
+            "machine_shape":"NvidiaTeslaT4",
+            "dataset_sources":["wolf19loner92/eb01-v7-private-production-sources"],
+            "competition_sources":[],"kernel_sources":[],"model_sources":[]}
+          (folder/"kernel-metadata.json").write_text(json.dumps(meta))
+          (Path(os.environ["RUNNER_TEMP"])/"EB01_S06_SHORT_KERNEL.txt").write_text(kernel)
+          print("ACTUAL_PRIVATE_GPU_WORKER_ID",kernel,flush=True)
+          PY
+          kaggle kernels push -p "$RUNNER_TEMP/eb01_gpu_submit" --timeout 3600 --accelerator NvidiaTeslaT4
+      - name: Monitor exact genuine Wan worker every 90 sec until COMPLETE or error
+        shell: bash
+        run: |
+          set -euo pipefail
+          KERNEL="$(cat "$RUNNER_TEMP/EB01_S06_SHORT_KERNEL.txt")"
+          for attempt in $(seq 1 47); do
+            STATUS="$(kaggle kernels status "$KERNEL")"
+            echo "S06_MICRO_NATIVE_MODEL_STATUS $STATUS"
+            if [[ "$STATUS" == *'KernelWorkerStatus.COMPLETE'* ]]; then
+              mkdir -p "$RUNNER_TEMP/eb01_private_output"
+              kaggle kernels output "$KERNEL" -p "$RUNNER_TEMP/eb01_private_output" --force
+              python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"eb01_private_output"
+          receipt=json.loads((p/"EB01_V7_MICRO_SHOT_RECEIPT.json").read_text())
+          job=json.loads((p/"EB01_V7_SINGLE_SHOT_JOB.json").read_text())
+          clip=p/"S06.mp4"
+          assert receipt["segment"]=="S06_TAIL29"
+          assert job["success"] is True
+          assert job["frame_count"]==29
+          digest=hashlib.sha256(clip.read_bytes()).hexdigest()
+          assert digest==job["clip_sha256"]==receipt["source_clip_sha256"]
+          print("Genuine S06 29 native clean frames VERIFIED PRIVATE",digest)
+          result={"schema":7,"status":"TRUE_S06_NATIVE_TAIL29_VERIFIED_PRIVATE",
+                  "kernel":(Path(os.environ["RUNNER_TEMP"])/"EB01_S06_SHORT_KERNEL.txt").read_text().strip(),
+                  "segment":"S06_TAIL29","frames":29,"SHA256":digest,
+                  "needs_full_episode_assembly":True,"published":False}
+          (Path(os.environ["RUNNER_TEMP"])/"EB01_S06_SHORT_RESULT.json").write_text(json.dumps(result,indent=2))
+          PY
+              exit 0
+            fi
+            if [[ "$STATUS" == *'KernelWorkerStatus.ERROR'* || "$STATUS" == *'KernelWorkerStatus.CANCEL'* ]]; then
+              echo "::error::Real Wan short shot failed. GPU output preserved PRIVATE; not a finished film."
+              mkdir -p "$RUNNER_TEMP/eb01_private_output"
+              kaggle kernels output "$KERNEL" -p "$RUNNER_TEMP/eb01_private_output" --force || true
+              if [ -f "$RUNNER_TEMP/eb01_private_output/EB01_V7_SINGLE_SHOT_JOB.json" ]; then
+                cp "$RUNNER_TEMP/eb01_private_output/EB01_V7_SINGLE_SHOT_JOB.json" "$RUNNER_TEMP/EB01_S06_SHORT_RESULT.json"
+              fi
+              exit 1
+            fi
+            sleep 90
+          done
+          echo "::error::S06 native GPU micro-shot timed out; no fake success"
+          exit 1
+      - name: Upload truthful status ONLY; never publish private portraits or Wan raw clips
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_S06_TRUE_NATIVE_29_FRAMES_STATUS
+          path: |
+            ${{ runner.temp }}/EB01_S06_SHORT_KERNEL.txt
+            ${{ runner.temp }}/EB01_S06_SHORT_RESULT.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Securely wipe private media and Kaggle worker temporary files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01_private_output" "$RUNNER_TEMP/eb01_gpu_submit"
