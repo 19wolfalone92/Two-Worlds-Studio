@@ -10,3 +10,6 @@ social_publish: false
 
 resume_revision: 2
 fix: S03 previously finished and excluded from pending list
+
+resume_revision: 3
+recovery: S05 quarantined original preserved, new seed variant 1; bounded QA-only retry and tests
