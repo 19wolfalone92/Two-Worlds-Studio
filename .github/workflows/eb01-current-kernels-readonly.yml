@@ -27,8 +27,11 @@ jobs:
             wolf19loner92/eb01-v7-s05-only-75dbb6f053bf \
             wolf19loner92/eb01-v7-s05-only-c36aa6d1d281 \
             wolf19loner92/eb01-v7-s06-only-e7b9c9a3725d \
+            wolf19loner92/eb01-v7-s06-only-beca33b6874e \
             wolf19loner92/eb01-v7-s02-only-bcc9f17c3faf; do
             printf '\nSOURCE_KERNEL: %s\n' "$kernel"
             kaggle kernels status "$kernel" 2>&1 || echo "KERNELOBJECT_NOT_FOUND_OR_UNREADABLE"
+            kaggle kernels files "$kernel" 2>&1 | tail -30 || true
+            kaggle kernels logs "$kernel" 2>&1 | tail -100 || true
           done
           echo "No model launched, no private raw downloaded, no social posting."
