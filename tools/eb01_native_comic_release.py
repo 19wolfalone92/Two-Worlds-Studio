@@ -36,9 +36,12 @@ def scene_art(base:Image.Image,output:Path,tag:str,variant:int,title:str="",body
     cover=ImageOps.fit(img,(W-36,850),Image.Resampling.LANCZOS,
                        centering=(.51,.38 if variant==2 else .48))
     if variant==2:
-        # Authored alternative closer crop for plot insert, not an AI pose.
-        cover=ImageOps.fit(img,(W-36,850),Image.Resampling.LANCZOS,
-                           centering=(.52,.28))
+        # Distinct close camera portrait: head/eyes/shoulders rather than
+        # reusing the exact same distant shot. Still source authentic.
+        close=img.crop((int(img.width*.12), 0,
+                        int(img.width*.88), int(img.height*.58)))
+        cover=ImageOps.fit(close,(W-36,850),Image.Resampling.LANCZOS,
+                           centering=(.5,.15))
     canvas.paste(cover,(18,80))
     d=ImageDraw.Draw(canvas)
     # Simple gothic editorial borders, typography, and an intentional frame.
@@ -63,7 +66,10 @@ def card(out:Path,heading:str,lines:tuple[str,...],image:Image.Image|None=None):
     for i in range(5):
         d.rectangle((15+i*7,15+i*9,W-15-i*7,H-15-i*9),outline=(75+i*18,53+i*14,61+i*10),width=1)
     if image is not None:
-        crop=ImageOps.fit(image.convert("RGB"),(W-110,450),Image.Resampling.LANCZOS)
+        # Preserve the forehead/skull: PIL's default center crop cut off
+        # the entire upper face in intro and both dossier title cards.
+        crop=ImageOps.fit(image.convert("RGB"),(W-110,450),
+                          Image.Resampling.LANCZOS,centering=(.5,.03))
         canvas.paste(crop,(55,92))
     d=ImageDraw.Draw(canvas)
     d.text((45,60 if image is None else 575),heading,font=font(31,True),fill=(239,201,161))
