@@ -2,17 +2,17 @@
   "schema": 1,
   "film": "Elizabeth Bones E01 Собеседование",
   "source_branch": "fix/eb01-s02-private-raw-preservation-20261113",
-  "active_shot": "S03",
-  "active_kernel": "wolf19loner92/eb01-v7-s03-only-1e7b0ac41e3a",
+  "active_shot": "S04",
+  "active_kernel": "wolf19loner92/eb01-v7-s04-only-2333bba16751",
   "last_known_status": "KernelWorkerStatus.RUNNING",
-  "last_confirmed_run": 43365117680,
+  "last_confirmed_run": 43384734370,
   "finished_shots": [
     "S00",
     "S01",
-    "S02"
+    "S02",
+    "S03"
   ],
   "pending_shots": [
-    "S03",
     "S04",
     "S05",
     "S06"
@@ -35,5 +35,11 @@
   "S02_observed_visual_problem": "Bright RGB/cyan-magenta stripes in interior/background across multiple genuine frames of S02; not an acceptable cinematic final take",
   "S03_model_submitted_with_run": 43365117680,
   "S03_artistic_approved": false,
-  "S03_status_note": "Submitted as isolated private Wan GPU in Actions 43365117680; completion unknown"
+  "S03_status_note": "Submitted as isolated private Wan GPU in Actions 43365117680; completion unknown",
+  "S03_technical_sha256": "ea04508811da91b88e4ae89e7e1b704f4f8e1af63d29673df42f01d1d321bf80",
+  "S03_technical_verified": true,
+  "S03_frames": 41,
+  "S03_review_run": 43384534790,
+  "S04_model_submitted_with_run": 43384734370,
+  "S04_status_note": "Isolated T4 submitted 2026-11-13 07:19 UTC; observed RUNNING at submission; completion NOT YET VERIFIED"
 }
