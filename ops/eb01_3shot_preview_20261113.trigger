@@ -1,0 +1,8 @@
+user_asked: where_is_video
+partial_original_wan_clips: S00 S01 S02
+real_shot_sha_S00: 7ac34976cfc5086ad068bffd837893a3c41ee6a5d48cc1fcd66f50c368e8b208
+real_shot_sha_S01: fe0e45802d6df19af951dc1ebb8cfaeb396fdcce59d860d5826a62a7e7d36c87
+real_shot_sha_S02: 53ce7cf5245b194c9c6a47489db48acb957b552a687b5f05fa28fb62cc41ce4e
+russian_original_voices: S01 S02
+assembly: only_existing_private_media_without_gpu
+full_film_completed: false
