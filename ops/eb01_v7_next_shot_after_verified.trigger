@@ -1,5 +1,5 @@
-shot: S03
-previous_shot: S02
-previous_kernel: wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c
-previous_sha256: 53ce7cf5245b194c9c6a47489db48acb957b552a687b5f05fa28fb62cc41ce4e
-# S02: 125 frames, 24fps, H264 full decode and real Wan source SHA verified 2026-11-12, owner artistic review outstanding
+shot: S04
+previous_shot: S03
+previous_kernel: wolf19loner92/eb01-v7-s03-only-1e7b0ac41e3a
+previous_sha256: ea04508811da91b88e4ae89e7e1b704f4f8e1af63d29673df42f01d1d321bf80
+# S03 genuine Wan 41 frames 24fps, fully decoded and provenance verified at 2026-11-13; artistic approval pending
