@@ -1,0 +1,70 @@
+name: EB01 - DELIVER actual full Russian animated owner review NOW (no GPU)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_deliver_complete_owner_review_no_new_gpu.trigger"]
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-eb01-cpu-master
+  cancel-in-progress: false
+jobs:
+  complete_real_animated_russian_movie:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify source SHA, six original Russian voice clocks and exact 563 moving video frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3' 'scipy>=1.10' 'soundfile>=0.12' 'requests>=2.31'
+          python -m py_compile tools/eb01_finish_full_ru_reuse_review.py
+          python -m unittest tests.test_eb01_v7_private_checkpoint tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_motion_buffer -q
+          python - <<'PY'
+          from tools.eb01_finish_full_ru_reuse_review import FRAMES_TOTAL,FRAME_COUNTS,REUSE
+          from studio.eb01_v7_storyboard import SHOTS,VOICE_SHA,SRC_SHA
+          assert len(SHOTS)==7 and len(VOICE_SHA)==6 and len(SRC_SHA)==2
+          assert FRAMES_TOTAL==563
+          assert FRAME_COUNTS["S02"]==125
+          assert sum(b-a for _,a,b in REUSE)==125
+          assert all(s in {"S00","S04","S06"} for s,a,b in REUSE)
+          print("EB01_FULL_OWNER_REVIEW_7_REAL_SCENES_CPU_PREFLIGHT_PASS")
+          PY
+      - name: Assemble seven genuine moving Wan scene slots, original 6 Russian WAV, soundtrack, subtitle MP4
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_finish_full_ru_reuse_review --output "$RUNNER_TEMP/EB01_REVIEW_OWNER_ONLY"
+      - name: DELIVER actual complete watchable Russian animated MP4 plus SRT and truthful QA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_BONES_SOBESEDOVANIE_COMPLETE_RU_REAL_WAN_OWNER_REVIEW_MP4
+          path: |
+            ${{ runner.temp }}/EB01_REVIEW_OWNER_ONLY/*.mp4
+            ${{ runner.temp }}/EB01_REVIEW_OWNER_ONLY/*.srt
+            ${{ runner.temp }}/EB01_REVIEW_OWNER_ONLY/*.json
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - name: Upload truthful progress even if any original media or real motion QA blocks final export
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_WAN_ACTUAL_FULL_OWNER_REVIEW_STATUS
+          path: ${{ runner.temp }}/EB01_REVIEW_OWNER_ONLY/EB01_REVIEW_CUT_PROGRESS.json
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Secure cleanup source portraits and raw speech waveforms
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/EB01_REVIEW_OWNER_ONLY" "$RUNNER_TEMP/eb01-CPU-TRUE-FILM-*"
