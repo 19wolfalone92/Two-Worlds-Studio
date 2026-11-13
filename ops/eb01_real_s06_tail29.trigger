@@ -4,3 +4,6 @@ source_and_voice_sha: unchanged
 no_mock_frames: true
 S02_future: three short genuine native shots 41+41+45, check every real frame
 no_publication: true
+
+restart_after_root_cause_fixed: missing Pillow in GitHub CPU source-image validation
+never_duplicate_good_scenes: true
