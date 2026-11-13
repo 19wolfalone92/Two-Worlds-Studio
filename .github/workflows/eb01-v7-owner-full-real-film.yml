@@ -1,0 +1,73 @@
+name: EB01 V7 - OWNER FULL REAL WAN FILM (7 SCENES 6 RUSSIAN VOICES)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_v7_full_owner_launch.trigger"]
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+jobs:
+  finish_real_seven_shot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Strict native audio/video tools and source tests (CPU only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' \
+            'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12' \
+            'scipy>=1.10' 'requests>=2.31'
+          python -m py_compile tools/eb01_v7_auto_finish.py tools/kaggle_eb01_v7_single_shot.py
+          python -m unittest tests.test_eb01_v7_private_checkpoint tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_motion_buffer -v
+          python - <<'PY'
+          from tools.kaggle_eb01_v7_single_shot import check_configuration
+          from tools.eb01_v7_auto_finish import S04, ORIGINAL, SOURCE_DATASET
+          assert S04 == "wolf19loner92/eb01-v7-s04-only-2333bba16751"
+          assert ORIGINAL == "wolf19loner92/eb01-v7-native-full-c188f4380731"
+          assert SOURCE_DATASET == "wolf19loner92/eb01-v7-private-production-sources"
+          print("S04_ORIGINAL_IS_PRESERVED_NO_REGEN_AND_REAL_WAN_ONLY")
+          PY
+      - name: Resume existing S04; run only missing genuine Wan S05/S06/S02 retake; master full original Russian movie
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m tools.eb01_v7_auto_finish \
+            --revision "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --output "$RUNNER_TEMP/eb01-production-output"
+      - name: Upload full genuine 7-scene MP4, six RU dialogue SRT and strict audit ONLY if finished
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_V7_TRUE_FULL_SEVEN_WAN_NEURAL_SIX_RU_OWNER_REVIEW
+          path: |
+            ${{ runner.temp }}/eb01-production-output/*.mp4
+            ${{ runner.temp }}/eb01-production-output/*.srt
+            ${{ runner.temp }}/eb01-production-output/*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Always preserve truthful production status for failed or unfinished jobs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_V7_REAL_PRODUCTION_STATUS_NO_FALSE_FILM_CLAIM
+          path: ${{ runner.temp }}/eb01-production-output/EB01_V7_STATUS.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Clear all user portrait, source media, WAVs, and private output from ephemeral runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-production-output" "$RUNNER_TEMP/eb01-real-neural-*"
