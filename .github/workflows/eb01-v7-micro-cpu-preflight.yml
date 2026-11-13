@@ -1,0 +1,35 @@
+name: EB01 - CPU preflight for genuine 7-neural-scene movie assembly
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_v7_micro_cpu_preflight.trigger"]
+permissions:
+  contents: read
+jobs:
+  audit_before_expensive_gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU-only motion, audio and assembly requirements
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip -q install 'Pillow>=10,<12' 'numpy>=1.26,<3' 'scipy>=1.10' 'soundfile>=0.12'
+          python -m py_compile tools/kaggle_eb01_v7_micro_shot.py tools/eb01_v7_finish_from_micro.py studio/eb01_v7_native_micro_master.py studio/eb01_v7_cpu_final_recovery.py
+          python -m unittest tests.test_eb01_v7_private_checkpoint tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_motion_buffer tests.test_eb01_v7_bounded_quality_retakes -v
+          python - <<'PY'
+          from tools.eb01_v7_finish_from_micro import PREVIOUS, EXPECTED_S02
+          from studio.eb01_v7_native_micro_master import SOURCE_SEGMENT_COUNTS,CANONICAL_FRAMES
+          from tools.kaggle_eb01_v7_micro_shot import SEGMENT
+          assert EXPECTED_S02 == ('S02_A41','S02_B41','S02_C45')
+          assert PREVIOUS['S06_tail']=='wolf19loner92/eb01-v7-s06-tail29-3a0a1002da34'
+          for shot in ('S02','S06'):
+              assert sum(v[2] for v in SOURCE_SEGMENT_COUNTS[shot])==CANONICAL_FRAMES[shot]
+          assert [SEGMENT[s]['frames'] for s in EXPECTED_S02]==[41,41,45]
+          print('PRODUCTION_READY_CPU_TESTED_TRUE_WAN_SEGMENT_AND_VOICE_PATH')
+          PY
