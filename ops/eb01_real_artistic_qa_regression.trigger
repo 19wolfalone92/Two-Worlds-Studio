@@ -1,0 +1,1 @@
+2026-11-13 user has rejected 23.46-second review movie. No fabricated approval. Run true SHA-locked 563-frame rejected clip forensic: 76 suspicious blue/purple frames; original 320x576 and 23.458s; no true independent S02 motion, no verified vocal-driven lipsync. NO GPU launch and NO social publication.
