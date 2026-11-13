@@ -1,0 +1,88 @@
+name: EB01 S02 A41 REAL GPU source - inspect every RAW frame for safe cinematic reuse
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_s02_a41_visual_audit.trigger"]
+permissions:
+  contents: read
+jobs:
+  inspect_true_raw:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      SOURCE: wolf19loner92/eb01-v7-s02-a41-ab56303ebe6c
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Inspect original GPU raw and unapproved frames, no GPU
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3'
+          mkdir -p "$RUNNER_TEMP/eb01a41"
+          kaggle kernels output "$SOURCE" -p "$RUNNER_TEMP/eb01a41" --force
+          python - <<'PY'
+          from pathlib import Path
+          import os,json,hashlib,subprocess
+          from PIL import Image,ImageDraw
+          from io import BytesIO
+          from studio.eb01_motion_artifact_gate import inspect_clip
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01a41"
+          clip=root/"S02.original_wan_raw.mp4"
+          proof=json.loads((root/"S02.original_wan_raw.receipt.json").read_text())
+          job=json.loads((root/"EB01_V7_SINGLE_SHOT_JOB.json").read_text())
+          actual=hashlib.sha256(clip.read_bytes()).hexdigest()
+          assert actual==proof["clip_sha256"]==job["private_raw_mp4_sha256"]
+          scan=inspect_clip(clip)
+          anomaly=sorted(set(scan["flagged_frames"]))
+          preserved=[n for n in range(41) if n not in anomaly]
+          chunks=[]
+          for n in preserved:
+              if not chunks or chunks[-1][-1]+1!=n:chunks.append([n])
+              else:chunks[-1].append(n)
+          print("EB01_A41_AUTHENTIC_NATIVE_GPU_FRAME_AUDIT",
+                json.dumps({"original_mp4_sha":actual,"raw_frames":scan["decoded_frames"],
+                "flagged_model_frames":anomaly,"salvage_model_frames":len(preserved),
+                "true_unmodified_contiguous_intervals":[[x[0],x[-1]+1] for x in chunks],
+                "neural_source":True,"human_artistic_approved":False},ensure_ascii=False),flush=True)
+          frames=[0,10,18,19,20,21,22,23,24,25,30,40,43]
+          canvas=Image.new("RGB",(320*4,610*4),(15,15,20))
+          dr=ImageDraw.Draw(canvas)
+          for i,n in enumerate(frames):
+              ff=subprocess.run(["ffmpeg","-nostdin","-v","error","-i",str(clip),"-vf",
+               f"select=eq(n\\,{n})","-vsync","0","-frames:v","1",
+               "-f","image2pipe","-vcodec","png","-"],capture_output=True,timeout=30)
+              if not ff.stdout: continue
+              image=Image.open(BytesIO(ff.stdout)).convert("RGB")
+              xy=((i%4)*320,(i//4)*610)
+              canvas.paste(image,xy)
+              dr.text((xy[0]+8,xy[1]+582),f"RAW Wan S02 frame {n}",fill=(240,230,214))
+          canvas.save(root/"S02_A41_NEURAL_ORIGINAL_INSPECT_CONTACT.jpg",quality=90)
+          report={"kernel":os.environ["SOURCE"],"sha256":actual,
+                  "model_status":job.get("status"),"decoded_frames":scan["decoded_frames"],
+                  "artifact_gate":scan["status"],
+                  "all_flagged_frames":anomaly,
+                  "salvage_contiguous_intervals":[{"from":x[0],"to_exclusive":x[-1]+1,
+                  "frames":len(x)} for x in chunks],
+                  "frames_salvage_in_first_41":len(preserved),
+                  "source_neural":True,"scenes_published":False,
+                  "human_approved":False}
+          (root/"S02_A41_NEURAL_SALVAGE_QA.json").write_text(json.dumps(report,indent=2)+"\n")
+          PY
+      - name: Preserve private contact sheet and verifiable source range only
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_S02_A41_TRUE_GPU_FRAMES_PRIVATE_AUDIT
+          path: |
+            ${{ runner.temp }}/eb01a41/S02_A41_NEURAL_SALVAGE_QA.json
+            ${{ runner.temp }}/eb01a41/S02_A41_NEURAL_ORIGINAL_INSPECT_CONTACT.jpg
+          retention-days: 7
+          if-no-files-found: error
+      - name: Wipe private raw
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01a41"
