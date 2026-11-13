@@ -1,0 +1,92 @@
+name: EB01 - ACTUAL S02 five-second Wan animation for owner quality review (CPU ONLY)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_v7_owner_s02_review.trigger"]
+permissions:
+  contents: read
+jobs:
+  private_original_review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      SOURCE: wolf19loner92/eb01-v7-s02-only-fda8f32f0e7c
+      EXPECTED_SHA: 53ce7cf5245b194c9c6a47489db48acb957b552a687b5f05fa28fb62cc41ce4e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU-only Kaggle and FFmpeg, no model inference
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -qq -y ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
+      - name: Fetch only genuine prior COMPLETE S02 private neural video
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          kaggle kernels status "$SOURCE" | grep 'KernelWorkerStatus.COMPLETE'
+          mkdir -p "$RUNNER_TEMP/original-s02" "$RUNNER_TEMP/review-only"
+          kaggle kernels output "$SOURCE" -p "$RUNNER_TEMP/original-s02" --force
+          python - <<'PY'
+          from pathlib import Path
+          import os,json,hashlib,subprocess,shutil
+          base=Path(os.environ["RUNNER_TEMP"])
+          original=base/"original-s02"
+          review=base/"review-only"
+          mp4=list(original.rglob("S02.mp4"))
+          proofs=list(original.rglob("EB01_V7_SINGLE_SHOT_JOB.json"))
+          assert len(mp4)==len(proofs)==1,"Source model/receipt absent or ambiguous"
+          media=mp4[0]
+          source_hash=hashlib.sha256(media.read_bytes()).hexdigest()
+          report=json.loads(proofs[0].read_text())
+          assert (source_hash==os.environ["EXPECTED_SHA"] and
+                  report["success"] is True and
+                  report["status"]=="ONE_REAL_WAN_SHOT_TECHNICALLY_VERIFIED" and
+                  report["clip_sha256"]==source_hash and
+                  report["shot"]=="S02" and
+                  report["model"]=="wan22-5b")
+          parsed=json.loads(subprocess.check_output([
+              "ffprobe","-v","error","-count_frames","-select_streams","v:0",
+              "-show_entries","stream=codec_name,width,height,avg_frame_rate,nb_read_frames",
+              "-of","json",str(media)]))
+          streams=parsed["streams"]
+          assert len(streams)==1 and streams[0]["nb_read_frames"]=="125"
+          assert (streams[0]["avg_frame_rate"]=="24/1" and
+                  streams[0]["width"]==320 and streams[0]["height"]==576)
+          subprocess.run(["ffmpeg","-nostdin","-v","error","-xerror",
+                          "-i",str(media),"-f","null","-"],
+                         check=True,timeout=110)
+          target=review/"ELIZABETH_BONES_S02_REAL_WAN_MOTION_UNAPPROVED.mp4"
+          shutil.copy2(media,target)
+          montage=review/"ELIZABETH_BONES_S02_ACTUAL_12_FRAMES_CONTACT.jpg"
+          subprocess.run([
+            "ffmpeg","-hide_banner","-nostdin","-loglevel","error",
+            "-i",str(media),"-vf","fps=2.4,scale=144:259,tile=4x3",
+            "-frames:v","1",str(montage)
+          ],check=True,timeout=130)
+          assert montage.is_file() and montage.stat().st_size>5000
+          info={"schema":7,"private_original_kernel":os.environ["SOURCE"],
+                "shot":"S02","real_model":"Wan2.2 TI2V-5B",
+                "actual_frames":125,"fps":24,"original_mp4_sha256":source_hash,
+                "original_model_provenance_verified":True,
+                "actor_identity_artistic_approved":False,
+                "lip_sync_artistic_approved":False,
+                "complete_episode":False,"published":False}
+          (review/"ELIZABETH_BONES_S02_REVIEW_RECEIPT.json").write_text(
+            json.dumps(info,indent=2,ensure_ascii=False))
+          print("ONE_GENUINE_5_SECOND_MP4_IS_AVAILABLE_FOR_USER_ARTISTIC_REVIEW",source_hash)
+          PY
+      - name: Provide direct five-second real motion owner review (not full E01)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_BONES_S02_ACTUAL_NEURAL_MOTION_OWNER_REVIEW
+          path: ${{ runner.temp }}/review-only/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Secure cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/original-s02" "$RUNNER_TEMP/review-only"
