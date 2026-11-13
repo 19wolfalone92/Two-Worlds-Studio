@@ -1,0 +1,83 @@
+name: EB01 S06 two failed real Wan attempts - private raw forensic, NO GPU
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_s06_forensic.trigger"]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: CPU-only dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' numpy pillow
+      - name: Read original rejected native Wan sources, verify receipts, inspect representative frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          mkdir -p "$RUNNER_TEMP/s06-forensic"
+          for v in 0 1; do
+            if [ "$v" = 0 ]; then kernel="wolf19loner92/eb01-v7-s06-only-e7b9c9a3725d"; else kernel="wolf19loner92/eb01-v7-s06-only-beca33b6874e"; fi
+            mkdir -p "$RUNNER_TEMP/s06-forensic/$v"
+            kaggle kernels status "$kernel"
+            kaggle kernels output "$kernel" -p "$RUNNER_TEMP/s06-forensic/$v" --force
+          done
+          python - <<'PY'
+          from pathlib import Path
+          import os,json,hashlib,subprocess
+          from studio.eb01_motion_artifact_gate import inspect_clip
+          root=Path(os.environ["RUNNER_TEMP"])/"s06-forensic"
+          result={"schema":7,"scene":"S06","no_new_gpu":True,"published":False,"variants":[]}
+          for v in ("0","1"):
+              folder=root/v
+              receipts=list(folder.rglob("EB01_V7_SINGLE_SHOT_JOB.json"))
+              raws=list(folder.rglob("S06.original_wan_raw.mp4"))
+              row={"variant":v,"receipt_count":len(receipts),"original_raw_count":len(raws)}
+              if len(receipts)==1:
+                  data=json.loads(receipts[0].read_text())
+                  row["receipt"]={k:data.get(k) for k in ("status","success","shot","error_type","error_summary","private_raw_mp4_preserved","private_raw_mp4_sha256")}
+              if len(raws)==1:
+                  raw=raws[0]
+                  h=hashlib.sha256(raw.read_bytes()).hexdigest()
+                  row["sha256"]=h
+                  row["matches_receipt"]=h==row.get("receipt",{}).get("private_raw_mp4_sha256")
+                  scan=inspect_clip(raw)
+                  row["scan"]={k:scan.get(k) for k in ("status","decoded_frames","flagged_frames","spectral_intrusion_flagged_frames","horizontal_neon_band_flagged_frames","spectral_intrusion_threshold")}
+                  frames=sorted(set([0,12,13,20,40,58,65,70,75,80,85,88,92]))
+                  from PIL import Image,ImageDraw
+                  sheet=Image.new("RGB",(320*4,576*4),(20,20,20))
+                  for i,n in enumerate(frames):
+                      p=subprocess.run(["ffmpeg","-v","error","-i",str(raw),"-vf",f"select=eq(n\\,{n})","-vsync","0","-frames:v","1","-f","image2pipe","-vcodec","png","-"],capture_output=True)
+                      if p.returncode or not p.stdout: continue
+                      from io import BytesIO
+                      im=Image.open(BytesIO(p.stdout)).convert("RGB")
+                      sheet.paste(im,((i%4)*320,(i//4)*576))
+                      ImageDraw.Draw(sheet).text(((i%4)*320+8,(i//4)*576+8),f"v{v} frame {n}",fill="white",stroke_width=2,stroke_fill="black")
+                  sheet.save(root/f"S06_VARIANT_{v}_PRIVATE_CONTACT_ONLY.jpg",quality=80)
+              result["variants"].append(row)
+          (root/"S06_FORENSIC.json").write_text(json.dumps(result,ensure_ascii=False,indent=2)+"\n")
+          print("EB01_S06_FORENSIC_RESULT",json.dumps(result,ensure_ascii=False)[:15000])
+          PY
+      - name: Upload only private forensic report and review sheets (never RAW)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_S06_PRIVATE_NEON_ROOTCAUSE_REVIEW_NO_GPU
+          path: |
+            ${{ runner.temp }}/s06-forensic/S06_FORENSIC.json
+            ${{ runner.temp }}/s06-forensic/*PRIVATE_CONTACT_ONLY.jpg
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Wipe original private raw media
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/s06-forensic"
