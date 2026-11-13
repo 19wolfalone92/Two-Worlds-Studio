@@ -1,0 +1,71 @@
+name: EB01 - ACTUAL 7-neural-scene Russian master with short Wan S02 takes
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_v7_finish_real_seven_native.trigger"]
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+jobs:
+  true_full_wan_mp4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install genuine source and studio tooling, verify compiler and strict contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg fonts-dejavu-core
+          python -m pip install -q 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12' 'scipy>=1.10' 'requests>=2.31'
+          python -m py_compile studio/eb01_v7_native_micro_master.py tools/eb01_v7_finish_from_micro.py tools/kaggle_eb01_v7_micro_shot.py
+          python -m unittest tests.test_eb01_v7_private_checkpoint tests.test_eb01_v7_real_sha_contract tests.test_eb01_v7_isolated_resume tests.test_eb01_v7_motion_buffer tests.test_eb01_v7_bounded_quality_retakes -q
+          python - <<'PY'
+          from tools.eb01_v7_finish_from_micro import PREVIOUS,EXPECTED_S02
+          from studio.eb01_v7_native_micro_master import SOURCE_SEGMENT_COUNTS
+          assert PREVIOUS['S06_tail']=='wolf19loner92/eb01-v7-s06-tail29-3a0a1002da34'
+          assert tuple(EXPECTED_S02)==('S02_A41','S02_B41','S02_C45')
+          assert sum(x[2] for x in SOURCE_SEGMENT_COUNTS['S02'])==125
+          assert sum(x[2] for x in SOURCE_SEGMENT_COUNTS['S06'])==89
+          print('NATIVE_7_SCENE_REAL_FILM_CONTRACT_VALIDATED')
+          PY
+      - name: Inspect actual clean S06 micro inference, generate 3 true S02 short Wan shots sequentially, master seven scenes with original Russian WAV
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_v7_finish_from_micro \
+            --revision "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --output "$RUNNER_TEMP/eb01-v7-real-finish"
+      - name: Supply full TRUE neural studio MP4 only after seven original source proofs and six Russian tracks pass
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ELIZABETH_BONES_E01_ACTUAL_7_SCENES_6_RU_WAN_NEURAL_MASTER
+          path: |
+            ${{ runner.temp }}/eb01-v7-real-finish/complete_movie/*.mp4
+            ${{ runner.temp }}/eb01-v7-real-finish/complete_movie/*.srt
+            ${{ runner.temp }}/eb01-v7-real-finish/complete_movie/*.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Always upload truthful progress and exact scene failures, never claim preview is full film
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_TRUE_NATIVE_7_SCENE_PROGRESS_AND_FAILURE_AUDIT
+          path: ${{ runner.temp }}/eb01-v7-real-finish/EB01_REAL_PROGRESS.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Wipe all private original actor portraits, Russian voice files and unapproved GPU clip intermediates
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-v7-real-finish" "$RUNNER_TEMP/eb01-GENUINE-native-*"
