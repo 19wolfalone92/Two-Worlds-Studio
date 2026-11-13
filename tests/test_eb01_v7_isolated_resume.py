@@ -43,6 +43,20 @@ class PerShotResumeTests(unittest.TestCase):
             with self.subTest(patch=patch):
                 with self.assertRaises(ValueError):
                     check_configuration({**BASE,**patch})
+    def test_bounded_quality_retake_configuration(self):
+        for sid in ("S02","S05","S06"):
+            for variant in (1,2):
+                self.assertEqual(check_configuration(dict(BASE,shot=sid,
+                    quality_retake=True,seed_variant=variant)),sid)
+        for bad in [
+            dict(BASE,shot="S03",quality_retake=True,seed_variant=1),
+            dict(BASE,shot="S05",quality_retake=False,seed_variant=1),
+            dict(BASE,shot="S05",quality_retake=True,seed_variant=3),
+            dict(BASE,shot="S05",quality_retake=True,seed_variant=True),
+        ]:
+            with self.assertRaises(ValueError):
+                check_configuration(bad)
+
     def test_single_shot_model_budget(self):
         shots={s[0]:s for s in SHOTS}
         # Strict four native guard frames and 3600s Kaggle limit.
