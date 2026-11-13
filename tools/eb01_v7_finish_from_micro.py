@@ -113,7 +113,11 @@ def issue(segment:str,root:Path,rev:str,run_id:str)->str:
     spec=SEGMENT[segment]
     if segment not in EXPECTED_S02:raise RuntimeError("Scene not in hard-coded recovery plan")
     nonce="eb01-v7-S02-native-micro-"+run_id+"-"+segment
-    slug="eb01-v7-"+segment.lower()+"-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]
+    # Kaggle normalizes underscores in kernel slugs; always use canonical hyphens.
+    # Otherwise push succeeds but kernels.get immediately fails with a 403.
+    slug="eb01-v7-"+segment.lower().replace("_","-")+"-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]
+    if not re.fullmatch(r"[a-z0-9-]{1,80}",slug):
+        raise RuntimeError("Private Kaggle kernel slug is not canonical")
     kernel="wolf19loner92/"+slug
     cfg={"schema":7,"nonce":nonce,"shot":spec["shot"],"segment":segment,
          "model":"wan22-5b","private":True,"new_gpu_jobs":1,
