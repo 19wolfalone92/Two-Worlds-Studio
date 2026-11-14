@@ -1,1 +1,3 @@
 Compare every real memory and stage telemetry patch against official upstream SHA 50f0aef1297574a4b29acbdb874e3a363a6d5f2e, py_compile fully patched code and 8-step config, no GPU, no image or voices. Fail closed before brother GPU use.
+
+2026-11-14 audited revised bounded process monitor, test assertions synchronized with authoritative model code, now verify real official upstream patches and Python compilation.
