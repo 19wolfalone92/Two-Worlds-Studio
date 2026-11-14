@@ -1,0 +1,61 @@
+name: Two Worlds Studio EB01 - core quality rebuild CPU tests
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths:
+      - studio/eb01_cinematic_delivery_gate.py
+      - studio/comfy_neural.py
+      - tests/test_comfy_neural.py
+      - tests/test_eb01_cinematic_delivery_gate.py
+      - tools/eb01_finish_full_ru_reuse_review.py
+      - ops/eb01_studio_quality_rebuild_test.trigger
+permissions:
+  contents: read
+jobs:
+  no_false_green_release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build and test offline cinematic policy, actual video parser and original ComfyUI model graph
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'numpy>=1.26,<3' 'Pillow>=10,<12' 'scipy>=1.10' 'soundfile>=0.12' 'requests>=2.31'
+          python -m py_compile studio/eb01_cinematic_delivery_gate.py studio/comfy_neural.py tools/eb01_finish_full_ru_reuse_review.py
+          python -m unittest tests.test_eb01_cinematic_delivery_gate tests.test_comfy_neural -v
+      - name: Prove rejected 23s duplicate-shot export is no longer rerunnable, even with credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          export KAGGLE_API_TOKEN="CPU_TEST_DUMMY_NO_NETWORK_USE"
+          output="$RUNNER_TEMP/eb01-deprecated-attempt"
+          set +e
+          python -m tools.eb01_finish_full_ru_reuse_review --output "$output" >"$RUNNER_TEMP/rejected.log" 2>&1
+          exit_code=$?
+          set -e
+          test "$exit_code" -ne 0
+          grep -q "Old 23s repeated-scene owner-rejected workflow forbidden" "$RUNNER_TEMP/rejected.log"
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          path=Path(os.environ["RUNNER_TEMP"])/"eb01-deprecated-attempt"
+          record=json.loads((path/"EB01_REVIEW_CUT_PROGRESS.json").read_text())
+          assert record["status"]=="BLOCKED_REJECTED_23S_CINEMATIC_ARCHITECTURE"
+          assert "S02_FOOTAGE_REUSE_OR_NO_ORIGINAL_INFERENCE" in record["blocked_by"]
+          assert record["video_ready"] is False and record["published"] is False
+          assert not list(path.glob("*.mp4"))
+          print("EB01_OLD_BAD_MOVIE_REPLAY_INTEGRATION_BLOCKED_ZERO_GPU")
+          PY
+      - name: Upload only offline QA result, never source actor images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_STUDIO_REBUILD_QUALITY_PREGATE_CPU_TEST
+          path: ${{ runner.temp }}/eb01-deprecated-attempt/EB01_REVIEW_CUT_PROGRESS.json
+          if-no-files-found: warn
+          retention-days: 14
