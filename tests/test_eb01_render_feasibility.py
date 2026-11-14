@@ -84,6 +84,12 @@ class ResourceAwareCinematicTests(unittest.TestCase):
         self.assertIn("INVALID_GPU_CAPACITY",result["reasons"])
         self.assertIn("INVALID_JOB_GEOMETRY_OR_TIMEOUT",result["reasons"])
 
+    def test_boolean_gpu_capacity_cannot_bypass_verified_numerical_hardware_gate(self):
+        for fake in (True,False):
+            report=check_candidate(q(vram=fake,mode="pilot",frames=33))
+            self.assertIn("INVALID_GPU_CAPACITY",report["reasons"])
+            self.assertEqual(report["status"],"BLOCKED")
+
     def test_wan_5b_16pixel_only_geometry_is_rejected(self):
         result=check_candidate(q(vram=24,width=592,height=1008,frames=17,mode="pilot"))
         self.assertIn("WAN_5B_REQUIRES_32PX_SPATIAL_AND_4N_PLUS_1_TEMPORAL_ALIGNMENT",
