@@ -6,6 +6,8 @@ from studio.eb01_render_feasibility import (
 
 def q(model=MODEL_WAN, vram=14.56,width=320,height=576,frames=125,
       steps=21,mode="production",license_confirmed=True,paid_service=False):
+    if model == MODEL_LTX_LEGACY and steps == 21:
+        steps = 8
     return RenderRequest(model=model,gpu_vram_gib=vram,width=width,
        height=height,frames=frames,steps=steps,mode=mode,
        license_confirmed=license_confirmed,paid_service=paid_service)
@@ -35,6 +37,15 @@ class ResourceAwareCinematicTests(unittest.TestCase):
         self.assertFalse(result["production_approved"])
         self.assertFalse(result["quality_is_proven"])
         self.assertFalse(result["gpu_launched"])
+
+    def test_distilled_actual_eight_steps_allowed_but_misleading_twenty_blocked(self):
+        eight=check_candidate(q(model=MODEL_LTX_LEGACY,frames=33,mode="pilot",steps=8))
+        self.assertEqual(eight["status"],"PILOT_ALLOWED_NOT_QUALITY_APPROVED")
+        wrong=check_candidate(q(model=MODEL_LTX_LEGACY,frames=33,mode="pilot",steps=20))
+        self.assertIn("LTX_2B_DISTILLED_REQUIRES_ACTUAL_8_STEPS",wrong["reasons"])
+        self.assertEqual(wrong["status"],"BLOCKED")
+        bad=check_candidate(q(model=MODEL_WAN,frames=33,mode="pilot",steps=8))
+        self.assertIn("NON_DISTILLED_MODEL_REQUIRES_MINIMUM_10_STEPS",bad["reasons"])
 
     def test_bad_legacy_ltx_pilot_size_rejected(self):
         result=check_candidate(q(model=MODEL_LTX_LEGACY,frames=125,mode="pilot"))
