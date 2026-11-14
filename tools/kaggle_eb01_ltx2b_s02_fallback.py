@@ -3,7 +3,7 @@ Uses source-locked original portrait, official LTX 2B, transparent T4-FP16 patch
 No paid model, no mock video, no auto-publish, no false movie claims.
 """
 from __future__ import annotations
-import base64,hashlib,json,os,re,shutil,subprocess,sys,traceback
+import base64,hashlib,json,os,re,shutil,subprocess,sys,traceback,time
 from pathlib import Path
 
 CONFIG_B64="__EB01_LTX2B_CONFIG_B64__"
@@ -11,7 +11,7 @@ ROOT=Path("/kaggle/temp/eb01-ltx-studio")
 LTX=Path("/kaggle/temp/eb01-LTX-Video")
 INPUT=Path("/kaggle/temp/eb01-ltx-locked-input")
 OUT=Path("/kaggle/working")
-JOB=OUT/"EB01_S02_LTX_PRIVATE_JOB.json"
+JOB=OUT/"EB01_S02_LTX_PILOT33_JOB.json"
 LTX_SHA="50f0aef1297574a4b29acbdb874e3a363a6d5f2e"
 
 def run(args,timeout=360,cwd=None):
@@ -34,10 +34,15 @@ def main():
     if not (cfg.get("schema")==7 and cfg.get("shot")=="S02"
         and cfg.get("private") is True and cfg.get("no_paid_services") is True
         and cfg.get("new_gpu_jobs")==1 and cfg.get("allow_social_publish") is False
+        and cfg.get("mode")=="pilot" and cfg.get("pilot_frames")==33
         and cfg.get("source_dataset")=="wolf19loner92/eb01-v7-private-production-sources"
         and cfg.get("branch")=="fix/eb01-s02-private-raw-preservation-20261113"
         and re.fullmatch(r"[a-f0-9]{40}",str(cfg.get("revision","")))):
         raise RuntimeError("Unsafe/changed original private I2V request")
+    # Only a genuinely short 33-frame (<1.4-second) native pilot is
+    # permitted on free T4. Old 125-frame CUDA OOM / 2600s timeout is
+    # intentionally forbidden. No quality approval can be inferred.
+    pilot_frames=33
     try:
         import torch
         if not torch.cuda.is_available() or torch.cuda.get_device_properties(0).total_memory<14*2**30:
@@ -123,11 +128,11 @@ def main():
         script="""from ltx_video.inference import infer,InferenceConfig
 import os
 settings=InferenceConfig(pipeline_config=os.environ['LTX_CONFIG'],prompt=os.environ['LTX_PROMPT'],
-  seed=202611132,height=576,width=320,num_frames=125,frame_rate=24,
+  seed=202611132,height=576,width=320,num_frames=33,frame_rate=24,
   offload_to_cpu=True,conditioning_media_paths=[os.environ['LTX_INPUT']],
   conditioning_start_frames=[0],image_cond_noise_scale=0.025,
   output_path=os.environ['LTX_OUTPUT'])
-print('EB01_LTX_REAL_NATIVE_125_FRAME_I2V_INFERENCE_START',flush=True)
+print('EB01_LTX_REAL_NATIVE_33_FRAME_PILOT_START',flush=True)
 infer(settings)
 """
         env=os.environ.copy()
@@ -136,26 +141,28 @@ infer(settings)
         # Preserve the actual sampler output even when the bounded GPU deadline
         # expires. A timeout is not evidence that native frames were produced.
         # Do not automatically retry the same expensive configuration.
+        pilot_t0=time.monotonic()
         try:
             proc=subprocess.run([sys.executable,"-u","-c",script],cwd=LTX,env=env,
                                 stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                                text=True,timeout=2600)
+                                text=True,timeout=1400)
         except subprocess.TimeoutExpired as exc:
             captured=exc.stdout or b""
             if isinstance(captured,bytes):
                 captured=captured.decode("utf-8",errors="replace")
             (OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt").write_text(captured[-40000:])
-            print("EB01_LTX_INFERENCE_TIMEOUT_2600_SECONDS_NO_AUTORETRY",
+            print("EB01_LTX_PILOT_TIMEOUT_1400_SECONDS_NO_AUTORETRY",
                   captured[-3500:],flush=True)
-            raise RuntimeError("Native LTX 125-frame inference exceeded 2600s; "
+            raise RuntimeError("Native LTX 33-frame PILOT inference exceeded 1400s; "
                                "inspect saved sampler output before changing GPU plan") from exc
+        pilot_seconds=round(time.monotonic()-pilot_t0,2)
         (OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt").write_text(proc.stdout[-40000:])
         if proc.returncode:
             print("EB01_ACTUAL_LTX_INFERENCE_FAILURE",proc.stdout[-4500:],flush=True)
             raise RuntimeError("Native LTX 2B inference process failed exit "+str(proc.returncode))
         clips=list(generated.rglob("*.mp4"))
         if len(clips)!=1:raise RuntimeError("No unique actual generated video "+str(len(clips)))
-        video=OUT/"S02.mp4"
+        video=OUT/"S02_PILOT33.mp4"
         shutil.copy2(clips[0],video)
         from studio.comfy_neural import _probe
         from studio.eb01_motion_artifact_gate import inspect_clip
@@ -164,12 +171,12 @@ infer(settings)
         run(["ffmpeg","-v","error","-xerror","-i",video,"-f","null","-"],timeout=180)
         print("EB01_ALT_REAL_GPU_ACTUAL_MODEL_FRAMES",meta["frames"],
               "artifact_gate",qc["status"],flush=True)
-        if (meta["frames"]!=125 or meta["fps"]!="24" or
+        if (meta["frames"]!=pilot_frames or meta["fps"]!="24" or
             meta["width"]!=320 or meta["height"]!=576 or
-            qc["decoded_frames"]!=125 or qc["status"]!="NO_NEON_ARTIFACT_FOUND"):
+            qc["decoded_frames"]!=pilot_frames or qc["status"]!="NO_NEON_ARTIFACT_FOUND"):
             raise RuntimeError("Authentic LTX S02 failed required video frame/color QA")
         proof={"schema":7,"shot":"S02","success":True,
-           "status":"ONE_REAL_LTX2B_S02_TECHNICALLY_VERIFIED_OWNER_REVIEW_REQUIRED",
+           "status":"REAL_LTX2B_SHORT_33FRAME_GPU_PILOT_ARTISTIC_REVIEW_REQUIRED",
            "model":"Lightricks/LTX-Video-2B-0.9.6-distilled",
            "engine":"ltx_official_fp16_t4_compatibility",
            "official_source_git_sha":LTX_SHA,"compatibility_patch_sha256":patched,
@@ -178,12 +185,15 @@ infer(settings)
            "original_reference_sha256":source_sha(reference),
            "original_character_sha256":SRC_SHA["KOSTYA"],
            "six_original_russian_voice_sha256":VOICE_SHA,
-           "clip_sha256":source_sha(video),"frame_count":125,"fps":24,
+           "clip_sha256":source_sha(video),"frame_count":pilot_frames,"fps":24,
+           "actual_gpu_seconds":pilot_seconds,"mode":"pilot",
            "width":320,"height":576,"true_gpu_neural_inference":True,
            "invideo_used":False,"paid_inference_used":False,
-           "human_artistic_approved":False,"whole_movie_ready":False,"published":False}
+           "human_artistic_approved":False,"whole_movie_ready":False,"published":False,
+           "audio_conditioned_lipsync_verified":False,
+           "skel_bone_jaw_animation_art_verified":False,}
         JOB.write_text(json.dumps(proof,ensure_ascii=False,indent=2)+"\n")
-        print("EB01_ACTUAL_LTX_S02_FULL_NATIVE_VIDEO_PRODUCED",proof["clip_sha256"],flush=True)
+        print("EB01_ACTUAL_LTX_33FRAME_PILOT_ONLY_PRODUCED",proof["clip_sha256"],flush=True)
     except BaseException as exc:
         JOB.write_text(json.dumps({"schema":7,"shot":"S02",
           "status":"REAL_ALTERNATIVE_GPU_BLOCKED_NO_FALSE_FILM_CLAIM",
