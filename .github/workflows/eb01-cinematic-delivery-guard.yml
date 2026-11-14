@@ -1,0 +1,90 @@
+name: EB01 - real cinematic delivery guard regression (CPU-only)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths:
+      - studio/eb01_cinematic_delivery_gate.py
+      - tests/test_eb01_cinematic_delivery_gate.py
+      - ops/eb01_cinematic_gate_real_rejected.trigger
+permissions:
+  contents: read
+  actions: read
+jobs:
+  reject_false_good_actual_movie:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OWNER_REJECTED_RUN: "43490411848"
+      ARTIFACT_QA_RUN: "43501000350"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run all 10 independent fail-closed production policy regressions
+        run: |
+          set -euo pipefail
+          python -m py_compile studio/eb01_cinematic_delivery_gate.py
+          python -m unittest tests.test_eb01_cinematic_delivery_gate -v
+      - name: Inspect REAL rejected MP4 and separately measured 76 corrupted frames, no GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/actual_review" "$RUNNER_TEMP/actual_forensic"
+          gh run download "$OWNER_REJECTED_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name ELIZABETH_BONES_SOBESEDOVANIE_COMPLETE_RU_REAL_WAN_OWNER_REVIEW_MP4 \
+            --dir "$RUNNER_TEMP/actual_review"
+          gh run download "$ARTIFACT_QA_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name EB01_REJECTED_23_SECOND_MOVIE_CINEMATIC_QA_FACTS \
+            --dir "$RUNNER_TEMP/actual_forensic"
+          python - <<'PY'
+          import json,os,hashlib
+          from pathlib import Path
+          from studio.eb01_cinematic_delivery_gate import assess
+          art=Path(os.environ["RUNNER_TEMP"])/"actual_review"
+          forensic=Path(os.environ["RUNNER_TEMP"])/"actual_forensic"
+          videos=list(art.glob("*.mp4"))
+          report_files=list(art.glob("EB01_TRUE_RU_EDITORIAL_REVIEW_QA.json"))
+          audited=list(forensic.glob("EB01_REAL_REJECTED_MOVIE_QA.json"))
+          assert len(videos)==len(report_files)==len(audited)==1
+          film=videos[0]
+          original=json.loads(report_files[0].read_text())
+          actual=json.loads(audited[0].read_text())
+          digest=hashlib.sha256(film.read_bytes()).hexdigest()
+          assert digest==original["sha256"]==actual["full_video_sha256"]
+          assert actual["actual_input_frames"]==563
+          assert actual["suspected_colored_neon_frames"]>=70
+          assert original["S02_temporarily_reuses_existing_Kostya_neural_footage"] is True
+          report={**original,
+             "resolution":[320,576],"fps":24,
+             "suspected_colored_neon_frames":actual["suspected_colored_neon_frames"],
+             "full_visual_frame_qa_status":"BLOCKED"}
+          result=assess(report,evidence=original["scene_source_provenance"])
+          assert result["status"]=="BLOCKED"
+          assert "DURATION_SHORTER_THAN_40_SECONDS" in result["reasons"]
+          assert "NEON_COLOR_SPECTRAL_ARTIFACTS" in result["reasons"]
+          assert "S02_FOOTAGE_REUSE_OR_NO_ORIGINAL_INFERENCE" in result["reasons"]
+          assert result["cinematic_delivery_approved"] is False
+          out=Path(os.environ["RUNNER_TEMP"])/"EB01_REAL_REJECTED_FILM_RELEASE_GATE.json"
+          out.write_text(json.dumps({
+             **result,"actual_film_sha256_independently_rechecked":digest,
+             "actual_model_frames":actual["actual_input_frames"],
+             "flagged_neon_frames":actual["suspected_colored_neon_frames"],
+             "real_film_input_used":True,
+             "no_gpu_inference_performed":True,
+             "no_social_publish":True},ensure_ascii=False,indent=2)+"\n")
+          print("EB01_CINEMATIC_REAL_FILM_CORRECTLY_BLOCKED",
+                result["status"], len(result["reasons"]),
+                actual["suspected_colored_neon_frames"])
+          PY
+      - name: Preserve verified BLOCK verdict, not publish rejected video
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_REAL_CINEMATIC_RELEASE_REJECTED_SHA_LOCKED
+          path: ${{ runner.temp }}/EB01_REAL_REJECTED_FILM_RELEASE_GATE.json
+          retention-days: 14
+          if-no-files-found: error
+      - name: Wipe original private movie and QA sources
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/actual_review" "$RUNNER_TEMP/actual_forensic"
