@@ -14,3 +14,5 @@ read_only_2026_11_13_ltx_s02: wolf19loner92/eb01-s02-ltx2b-real-5ec733d0369c
 reason: check whether live real 125-frame I2V LTX CUDA GPU inference has reached COMPLETE or ERROR, no GPU restart.
 
 2026-11-13T18:05Z: forensic read-only check after LTX S02 worker ERROR; no GPU launch, inspect Kaggle log.
+
+2026-11-14 NEW changed root LTX config: read-only LIVE kernel wolf19loner92/eb01-ltx2b-pilot33-60202f594b77 from GH run 43579646805, inspect stage and hardware. No private files downloaded, no rerun GPU. 
