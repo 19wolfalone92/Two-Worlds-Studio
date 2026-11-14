@@ -1,0 +1,45 @@
+name: EB01 — independent Kaggle brother token secure connection audit (NO GPU)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_kaggle2_auth_probe.trigger]
+permissions:
+  contents: read
+concurrency:
+  group: eb01-readonly-two-account-auth-probe
+  cancel-in-progress: false
+jobs:
+  verify_independent_secret2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Offline verifier tests, no API credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_eb01_kaggle2_auth_probe -v
+      - name: Install official Kaggle API client, NO GPU or studio originals
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Connect two existing protected repository secrets and verify independence
+        shell: bash
+        env:
+          PRIMARY_KAGGLE_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          BROTHER_KAGGLE_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+          GITHUB_OUTPUT_REPORT: ${{ runner.temp }}/EB01_BROTHER_KAGGLE_AUTH_STATUS_SAFE.json
+        run: |
+          set -euo pipefail
+          # Probe uses exactly one read-only API request per valid secret.
+          # NEVER echo tokens, account handles, dataset IDs or Kaggle responses.
+          python -m tools.eb01_kaggle2_auth_probe
+      - name: Persist only account-ready booleans, no private metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_BROTHER_KAGGLE_AUTH_STATUS_SAFE_NO_SECRETS
+          path: ${{ runner.temp }}/EB01_BROTHER_KAGGLE_AUTH_STATUS_SAFE.json
+          retention-days: 7
+          if-no-files-found: warn
