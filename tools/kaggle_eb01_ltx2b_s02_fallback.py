@@ -103,8 +103,14 @@ def main():
            "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n\n        self.video_scale_factor"),
           ("self.text_encoder = self.text_encoder.to(self._execution_device)",
            "self.text_encoder = self.text_encoder.to(device)"),
+          # ROOT FIX 2: I2V input photo encoding invokes vae_encode()
+          # *before* denoising. The previous "memory fix" left VAE on
+          # CPU in FP16 and shifted the transformer to CUDA too early,
+          # causing slow/unsupported FP16 CPU VAE and GPU residency overlap.
+          # Encode the original reference on CUDA using just VAE, then
+          # offload VAE and load the transformer for 8-step sampling.
           ("self.transformer = self.transformer.to(self._execution_device)",
-           "self.transformer = self.transformer.to(device)"),
+           "self.vae = self.vae.to(device)"),
           (").to(dtype=init_latents.dtype)\n",
            ").to(dtype=init_latents.dtype, device=init_latents.device)\n"),
           ("            image = vae_decode(\n",
@@ -114,6 +120,19 @@ def main():
             if pipe.count(previous)!=1:
                 raise RuntimeError("Official LTX pipeline stage changed; unsafe GPU memory patch")
             pipe=pipe.replace(previous,updated)
+        # After the conditioning/photo VAE encoding completes, transfer it
+        # back to RAM before moving 2B transformer to GPU. Then after
+        # transformer sampling the existing decode-stage patch moves VAE
+        # back to GPU. Never keep all T5+VAE+transformer on T4 at once.
+        stage_after="        # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline"
+        if pipe.count(stage_after)!=1:
+            raise RuntimeError("Official LTX after-conditioning boundary changed; cannot safely stage CUDA VAE")
+        pipe=pipe.replace(stage_after,
+            "        if offload_to_cpu:\n"
+            "            self.vae = self.vae.cpu()\n"
+            "            torch.cuda.empty_cache()\n"
+            "        self.transformer = self.transformer.to(device)\n\n"
+            +stage_after)
         stages.write_text(pipe)
         patched=sha(source)
         stage_sha=sha(stages)
