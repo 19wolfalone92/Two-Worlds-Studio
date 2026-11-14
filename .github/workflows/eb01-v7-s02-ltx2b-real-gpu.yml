@@ -42,6 +42,27 @@ jobs:
           assert len(SRC_SHA)==2 and len(VOICE_SHA)==6
           print("EB01_REAL_LTX_GPU_PRIVATE_SOURCE_CPU_PREFLIGHT_PASS")
           PY
+      - name: Reject empirically failed 125-frame T4 LTX job before consuming any GPU
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from studio.eb01_render_feasibility import check_candidate,RenderRequest,MODEL_LTX_LEGACY
+          candidate=RenderRequest(
+              model=MODEL_LTX_LEGACY,gpu_vram_gib=14.56,
+              width=320,height=576,frames=125,steps=21,
+              mode="production",max_gpu_seconds=2600,
+              license_confirmed=True,paid_service=False)
+          result=check_candidate(candidate)
+          print("EB01_PREVENT_KNOWN_EXPENSIVE_LTX_GPU_FAILURE",
+                json.dumps(result),flush=True)
+          if result["status"] != "BLOCKED":
+              raise RuntimeError("Old 125frame T4 fail-safe missing")
+          assert "REPEATING_KNOWN_TIMED_OUT_125F_T4_JOB_FORBIDDEN" in result["reasons"]
+          raise RuntimeError("Intentionally block retired GPU job. "
+                             "LTX 125 frames previously timed out after 2600s; "
+                             "a short verified pilot and new hardware are required.")
+          PY
       - name: Submit exactly one private authentic LTX2B GPU generation, never an image slideshow
         shell: bash
         run: |
