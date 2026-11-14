@@ -1,0 +1,35 @@
+name: EB01 — real upstream LTX SHA source patch contract and stage simulation CPU
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_ltx_true_upstream_patched_static_audit.trigger]
+permissions:
+  contents: read
+jobs:
+  original_model_compatibility_before_spending_gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify bounded GPU process terminates, stage markers are strict, no secrets involved
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tests.test_eb01_bounded_inference tests.test_eb01_ltx_no_hidden_prompt_3b tests.test_eb01_render_feasibility -v
+      - name: Download EXACT PINNED official upstream LTX git revision, no model weights
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --filter=blob:none --no-checkout https://github.com/Lightricks/LTX-Video.git "$RUNNER_TEMP/official-LTX"
+          git -C "$RUNNER_TEMP/official-LTX" fetch -q --depth 1 origin 50f0aef1297574a4b29acbdb874e3a363a6d5f2e
+          git -C "$RUNNER_TEMP/official-LTX" checkout -q --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/official-LTX" rev-parse HEAD)" = 50f0aef1297574a4b29acbdb874e3a363a6d5f2e
+      - name: Apply ALL real GPU in-worker patches to upstream source and compile with Python
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_ltx_official_compatibility_audit --ltx-root "$RUNNER_TEMP/official-LTX"
+          echo EB01_TRUE_UPSTREAM_PATCH_AND_TELEMETRY_STAGE_SYNTAX_VERIFIED_NO_GPU
