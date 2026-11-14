@@ -124,6 +124,67 @@ jobs:
           done
           echo "::error::Pilot budget exhausted with no true MP4; no retry"
           exit 1
+      - name: Immediately classify failed REAL Kaggle model or unallocated GPU without revealing private source
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json,os,subprocess
+          from tools.eb01_gpu_watchdog import parse_state,classify_failure
+          from tools.eb01_bounded_inference import latest_stage
+          root=Path(os.environ["RUNNER_TEMP"])
+          job=root/"actual-kernel.txt"
+          report={"schema":1,"published":False,"full_movie_ready":False,
+                  "private_originals_uploaded_to_public_github":False,
+                  "new_gpu_attempt_in_this_step":False}
+          if not job.is_file():
+              report.update(state="NOT_SUBMITTED",category="PRE_GPU_PREFLIGHT_FAILED")
+          else:
+              kernel=job.read_text().strip()
+              if not kernel.startswith("wolf19loner92/eb01-ltx2b-pilot33-"):
+                  raise RuntimeError("Unknown/private kernel identity; readback forbidden")
+              p=subprocess.run(["kaggle","kernels","status",kernel],
+                  capture_output=True,text=True,timeout=45)
+              state=parse_state(p.stdout) if p.returncode==0 else "UNKNOWN"
+              report["state"]=state
+              if state=="QUEUED":
+                  report["category"]="GPU_NOT_ALLOCATED_KAGGLE_RESOURCE_QUEUE"
+              elif state=="RUNNING":
+                  report["category"]="GPU_INFERENCE_RUNNING_AFTER_GITHUB_MONITOR_DEADLINE"
+              elif state in ("ERROR","CANCEL","COMPLETE"):
+                  out=root/"eb01-pilot-video"
+                  out.mkdir(exist_ok=True)
+                  if not (out/"EB01_S02_LTX_PILOT33_JOB.json").is_file():
+                      subprocess.run(["kaggle","kernels","output",kernel,
+                          "-p",str(out),"--force"],capture_output=True,timeout=90)
+                  receipt=None
+                  record=out/"EB01_S02_LTX_PILOT33_JOB.json"
+                  if record.is_file():
+                      try: receipt=json.loads(record.read_text(encoding="utf-8"))
+                      except (ValueError,UnicodeDecodeError): receipt=None
+                  log=out/"EB01_LTX_PRIVATE_GPU_LOG.txt"
+                  data=log.read_text(errors="replace")[-40000:] if log.is_file() else ""
+                  report["last_verified_gpu_stage"]=latest_stage(log)
+                  report["category"]=(
+                      classify_failure(data,receipt) if state in ("ERROR","CANCEL")
+                      else "KERNEL_COMPLETE_PRIVATE_MP4_QA_REJECTED_OR_UNREADABLE")
+                  report["verified_failure_receipt_present"]=bool(receipt)
+              else:
+                  report["category"]="KAGGLE_STATUS_UNAVAILABLE"
+          (root/"eb01-safe-terminal-failure.json").write_text(
+              json.dumps(report,indent=2)+"\\n",encoding="utf-8")
+          print("EB01_SAFE_ROOT_DIAGNOSIS",json.dumps(report,sort_keys=True))
+          PY
+      - name: Archive IMMEDIATE ROOT CAUSE CATEGORY and last native GPU stage ONLY
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_LTX_PRIVATE_GPU_ROOT_DIAGNOSIS_NO_RAW_DATA
+          path: ${{ runner.temp }}/eb01-safe-terminal-failure.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Keep authentic 33-frame GPU footage PRIVATE for full artistic inspection, not claim full film
         if: ${{ success() && github.event.repository.private }}
         uses: actions/upload-artifact@v4
