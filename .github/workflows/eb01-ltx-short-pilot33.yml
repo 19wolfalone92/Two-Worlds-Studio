@@ -219,7 +219,7 @@ jobs:
           name: EB01_LTX_SHORT_PILOT_VERIFIED_STATUS_OR_FAILURE
           path: |
             ${{ runner.temp }}/actual-kernel.txt
-            ${{ runner.temp }}/eb01-pilot-video/EB01_S02_LTX_PILOT33_JOB.json
+            ${{ runner.temp }}/eb01-safe-terminal-failure.json
           retention-days: 7
           if-no-files-found: warn
       - name: Wipe all private source imagery and video from runner
