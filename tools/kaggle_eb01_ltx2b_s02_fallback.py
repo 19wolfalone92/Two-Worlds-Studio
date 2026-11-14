@@ -268,6 +268,14 @@ infer(settings)
             "spectral_flags":qc.get("spectral_intrusion_flagged_frames",[])[:100],
             "horizontal_band_flags":qc.get("horizontal_neon_band_flagged_frames",[])[:100],
             "narrow_neon_flags":qc.get("narrow_neon_suspected_frames",[])[:100],
+            # Bounded per-frame NUMERIC evidence distinguishes persistent scene
+            # palette from abrupt corruption without releasing private pixels.
+            # The current absolute neon flag is conservative, not proof of
+            # actual stripe geometry; NEVER auto-approve from these traces.
+            "narrow_neon_fraction_by_frame":[round(float(x),6) for x in qc.get("narrow_neon_fraction_trace",[])[:100]],
+            "spectral_fraction_by_frame":qc.get("spectral_intrusion_trace",[])[:100],
+            "horizontal_band_fraction_by_frame":qc.get("horizontal_neon_band_trace",[])[:100],
+            "bottom_bright_fraction_by_frame":qc.get("frame_saturation_trace",[])[:100],
             "owner_artistic_approved":False,
             "whole_movie_ready":False,"published":False,
         }
