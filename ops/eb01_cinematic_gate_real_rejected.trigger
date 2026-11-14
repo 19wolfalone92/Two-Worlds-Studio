@@ -1,0 +1,1 @@
+EB01: Run real previously owner-rejected MP4 cinematic quality gating, compare the exact SHA of original 23.458s Russian final (GH 43490411848) to frame-forensic 76 RGB intrusions (GH 43501000350), reject original scene S02 reuse, and confirm 10 independent policy tests. No GPU, no release, no social posting.
