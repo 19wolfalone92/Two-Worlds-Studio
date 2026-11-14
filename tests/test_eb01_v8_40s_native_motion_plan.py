@@ -21,10 +21,11 @@ def all_fake_receipts_that_are_only_FOR_UNIT_TESTS():
             last=f"{n+310000:064x}"
             item={
                 "mp4_sha256":f"{n:064x}",
-                "first_frame_sha256":first,
-                "last_frame_sha256":last,
+                "conditioning_input_frame_sha256":first,
+                "last_decoded_frame_sha256":last,
                 "native_frames":33,"native_fps":24,
                 "actual_model_inference":True,
+                "canonical_actor_sha256":row["canonical_reference_sha256"],
                 "rgb_neon_qc":"PASS",
                 "identity_artistic_qc":"PASS",
             }
@@ -91,7 +92,7 @@ class ElizabethNative40sTimelineTests(unittest.TestCase):
 
     def test_jumping_to_unrelated_skull_frame_breaks_physical_continuity(self):
         evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
-        evidence["S02"][2]["first_frame_sha256"]="f"*64
+        evidence["S02"][2]["conditioning_input_frame_sha256"]="f"*64
         result=verify_real_neural_sources(evidence)
         self.assertIn("S02_2_CONDITIONING_FRAME_CONTINUITY_BROKEN",result["reasons"])
 
