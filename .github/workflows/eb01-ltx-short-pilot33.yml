@@ -29,12 +29,12 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
           python -m py_compile tools/kaggle_eb01_ltx2b_s02_fallback.py
-          python -m unittest tests.test_eb01_render_feasibility tests.test_eb01_ltx_no_hidden_prompt_3b -v
+          python -m unittest tests.test_eb01_render_feasibility tests.test_eb01_ltx_no_hidden_prompt_3b tests.test_eb01_bounded_inference tests.test_eb01_ltx_t4_streamed_diagnostics -v
           python - <<'PY'
           from studio.eb01_render_feasibility import RenderRequest,MODEL_LTX_LEGACY,check_candidate
           from studio.eb01_v7_storyboard import VOICE_SHA,SRC_SHA,SHOTS
           request=RenderRequest(model=MODEL_LTX_LEGACY,gpu_vram_gib=14.56,
-             width=320,height=576,frames=33,steps=20,mode="pilot",
+             width=320,height=576,frames=33,steps=8,mode="pilot",
              max_gpu_seconds=1400,paid_service=False,license_confirmed=True)
           result=check_candidate(request)
           assert result["status"]=="PILOT_ALLOWED_NOT_QUALITY_APPROVED",result
