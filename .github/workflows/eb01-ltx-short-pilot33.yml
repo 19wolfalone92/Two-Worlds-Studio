@@ -174,7 +174,7 @@ jobs:
               else:
                   report["category"]="KAGGLE_STATUS_UNAVAILABLE"
           (root/"eb01-safe-terminal-failure.json").write_text(
-              json.dumps(report,indent=2)+"\\n",encoding="utf-8")
+              json.dumps(report,indent=2)+"\n",encoding="utf-8")
           print("EB01_SAFE_ROOT_DIAGNOSIS",json.dumps(report,sort_keys=True))
           PY
       - name: Archive IMMEDIATE ROOT CAUSE CATEGORY and last native GPU stage ONLY
