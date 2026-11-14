@@ -1,0 +1,1 @@
+2026-11-14 dual provider authorized credential check. KAGGLE_API_TOKEN2 belongs to user's brother who gave permission, no token printing or private media transfer, no GPU use. Determine if it exists in this specific repository's GitHub Actions secrets and actually authenticates as separate account. Both same-account and missing-secret results must block new jobs.
