@@ -9,7 +9,7 @@ from pathlib import Path
 
 HANDLE=re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,29}$")
 def config_name(output: str) -> str | None:
-    m=re.search(r"(?im)^\\s*-?\\s*username\\s*:\\s*([A-Za-z0-9_-]{2,30})\\s*$",output)
+    m=re.search(r"(?im)^\s*-?\s*username\s*:\s*([A-Za-z0-9_-]{2,30})\s*$",output)
     return m.group(1).lower() if m and HANDLE.fullmatch(m.group(1)) else None
 
 def query(token: str, runner=subprocess.run) -> tuple[str,str|None]:
