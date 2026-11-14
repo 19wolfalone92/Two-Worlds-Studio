@@ -2,3 +2,4 @@
 2026-11-14T11:09Z automated read-only recheck: inspect existing S02 kernel, preserve sanitized evidence, do not resubmit GPU or publish.
 2026-11-14T12:47Z autonomous read-only recheck of existing Kaggle kernel; no GPU resubmission, no publishing.
 2026-11-14 RESUME after user STOP: check ONLY existing new post-audit owner GPU kernel wolf19loner92/eb01-ltx2b-pilot33-fd6d11a64bd6, GH monitor 43600628791 ended because 36 read-only status observations were all QUEUED. Do not submit new job. On real COMPLETE verify all MP4 frames/SHA; on ERROR perform root-cause triage.
+2026-11-14T14:34Z autonomous read-only watchdog recheck: FD6D11 existing private kernel only; capture real status and sanitized evidence, no GPU submission.
