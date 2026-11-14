@@ -11,7 +11,7 @@ import subprocess
 import time
 from pathlib import Path
 
-_STAGE = re.compile(r"(?m)^EB01_STAGE_([A-Z0-9_]{2,64})(?:\\s|$)")
+_STAGE = re.compile(r"(?m)^EB01_STAGE_([A-Z0-9_]{2,64})(?:\s|$)")
 _STAGE_ALLOWED = frozenset({
     "BEGIN_MODEL_LOAD","END_MODEL_LOAD","BEGIN_PROMPT_ENCODE",
     "END_PROMPT_ENCODE","BEGIN_CONDITIONING_VAE",
