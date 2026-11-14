@@ -132,7 +132,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import json,os,subprocess
-          from tools.eb01_gpu_watchdog import parse_state,classify_failure
+          from tools.eb01_gpu_watchdog import parse_state,classify_failure,private_numeric_qa_summary
           from tools.eb01_bounded_inference import latest_stage
           root=Path(os.environ["RUNNER_TEMP"])
           job=root/"actual-kernel.txt"
@@ -171,8 +171,24 @@ jobs:
                       classify_failure(data,receipt) if state in ("ERROR","CANCEL")
                       else "KERNEL_COMPLETE_PRIVATE_MP4_QA_REJECTED_OR_UNREADABLE")
                   report["verified_failure_receipt_present"]=bool(receipt)
+                  report["native_video_frame_qa"]=private_numeric_qa_summary(out)
               else:
-                  report["category"]="KAGGLE_STATUS_UNAVAILABLE"
+                  # Terminal state APIs can become temporarily unavailable
+                  # while the real GPU output already exists in this runner.
+                  out=root/"eb01-pilot-video"
+                  if out.exists():
+                      report["native_video_frame_qa"]=private_numeric_qa_summary(out)
+                      receipt_file=out/"EB01_S02_LTX_PILOT33_JOB.json"
+                      if receipt_file.is_file():
+                          try:
+                              actual=json.loads(receipt_file.read_text(encoding="utf-8"))
+                              report["category"]=classify_failure("",actual)
+                          except (UnicodeError,ValueError):
+                              report["category"]="KAGGLE_STATUS_UNAVAILABLE_INVALID_RECEIPT"
+                      else:
+                          report["category"]="KAGGLE_STATUS_UNAVAILABLE"
+                  else:
+                      report["category"]="KAGGLE_STATUS_UNAVAILABLE"
           (root/"eb01-safe-terminal-failure.json").write_text(
               json.dumps(report,indent=2)+"\n",encoding="utf-8")
           print("EB01_SAFE_ROOT_DIAGNOSIS",json.dumps(report,sort_keys=True))
