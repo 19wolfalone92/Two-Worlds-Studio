@@ -60,9 +60,18 @@ def check_candidate(request: RenderRequest, pilot: dict[str, Any] | None = None)
            (request.width, request.height, request.frames, request.steps,request.max_gpu_seconds)):
         block("INVALID_JOB_GEOMETRY_OR_TIMEOUT")
     elif (request.width < 256 or request.height < 448 or
-          request.frames < 9 or request.steps < 10 or
+          request.frames < 9 or request.steps < 1 or
           request.max_gpu_seconds < 120 or request.max_gpu_seconds > 3600):
         block("INVALID_JOB_GEOMETRY_OR_TIMEOUT")
+
+    # Distilled LTX 2B config in pinned official source runs exactly 8
+    # inference steps. Before this fix the preflight falsely claimed 20
+    # steps while the actual model ran 8, invalidating resource estimates.
+    if request.model == MODEL_LTX_LEGACY:
+        if type(request.steps) is not int or request.steps != 8:
+            block("LTX_2B_DISTILLED_REQUIRES_ACTUAL_8_STEPS")
+    elif type(request.steps) is not int or request.steps < 10:
+        block("NON_DISTILLED_MODEL_REQUIRES_MINIMUM_10_STEPS")
 
     if request.paid_service is not False:
         block("PAID_SERVICE_NOT_AUTHORIZED")
