@@ -155,7 +155,8 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
     """Reject fake scenes, same-source repeats or unproved 1-frame continuity.
 
     Needs SHA-authentic 33-frame native MP4 receipts, source input SHA and
-    boundary frame SHA for each GPU result. An expected plan alone passes
+    exact conditioning input-frame SHA and last decoded frame SHA for each
+    GPU result. First decoded frame need NOT match input due VAE. Plan passes
     NOTHING. Only S00-S06 actors and native original 33f takes are valid.
     """
     p=plan()
@@ -176,10 +177,15 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                 reasons.append(f"{sid}_{idx}_NO_GPU_RECEIPT")
                 continue
             sha=proof.get("mp4_sha256")
-            first=proof.get("first_frame_sha256")
-            last=proof.get("last_frame_sha256")
+            # The VAE's first OUTPUT frame may differ pixel-by-pixel from
+            # the input reference. Exact overlap must be enforced on the
+            # conditioning SOURCE file SHA, not decoded output RGB bytes.
+            first=proof.get("conditioning_input_frame_sha256")
+            last=proof.get("last_decoded_frame_sha256")
+            actor_sha=proof.get("canonical_actor_sha256")
             if (not all(isinstance(x,str) and HEX64.fullmatch(x)
-                        for x in (sha,first,last))
+                        for x in (sha,first,last,actor_sha))
+                or actor_sha!=row["canonical_reference_sha256"]
                 or sha in sha_seen
                 or proof.get("native_frames")!=33
                 or proof.get("native_fps")!=24
