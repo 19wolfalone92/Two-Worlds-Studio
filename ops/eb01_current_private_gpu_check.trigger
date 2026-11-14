@@ -16,3 +16,5 @@ reason: check whether live real 125-frame I2V LTX CUDA GPU inference has reached
 2026-11-13T18:05Z: forensic read-only check after LTX S02 worker ERROR; no GPU launch, inspect Kaggle log.
 
 2026-11-14 NEW changed root LTX config: read-only LIVE kernel wolf19loner92/eb01-ltx2b-pilot33-60202f594b77 from GH run 43579646805, inspect stage and hardware. No private files downloaded, no rerun GPU. 
+
+2026-11-14 latest requested status check after failed GitHub monitoring 43579646805: confirm if already submitted private Kaggle kernel eb01-ltx2b-pilot33-60202f594b77 moved beyond QUEUED, read-only no paid GPU/new kernel launch.
