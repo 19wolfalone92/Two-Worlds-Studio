@@ -73,6 +73,22 @@ class CinematicReleaseGateTests(unittest.TestCase):
         self.assertEqual(assess(r,evidence=scenes,owner_artistic_approval=True)["status"],
                          "BLOCKED")
 
+    def test_missing_full_film_sha_cannot_be_approved_even_when_actor_receipts_good(self):
+        r,scenes=good()
+        del r["sha256"]
+        self.assertIn("REAL_FILM_FILE_SHA256_NOT_PROVEN",
+                      assess(r,evidence=scenes,owner_artistic_approval=True)["reasons"])
+
+    def test_missing_or_wrong_type_rgb_count_never_means_zero_bad_frames(self):
+        for value in (None,False,"0",-1):
+            r,scenes=good()
+            if value is None:
+                del r["suspected_colored_neon_frames"]
+            else:
+                r["suspected_colored_neon_frames"]=value
+            self.assertIn("NEON_COLOR_SPECTRAL_ARTIFACTS",
+                          assess(r,evidence=scenes)["reasons"])
+
     def test_no_lipsync_cannot_be_green_video(self):
         r,scenes=good()
         scenes["S05"]["audio_conditioned_lipsync"]="UNKNOWN"
