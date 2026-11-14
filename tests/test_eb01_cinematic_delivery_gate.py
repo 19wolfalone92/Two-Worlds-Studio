@@ -17,6 +17,8 @@ def good():
     scenes={}
     for idx,sid in enumerate(SCENES):
         scenes[sid]={
+            "actor_id":("ELIZABETH" if sid in ("S01","S03","S05") else "KOSTYA"),
+            "skeleton_anatomy_preserved":("N/A" if sid in ("S01","S03","S05") else "PASS"),
             "source_sha256":f"{idx+1:064x}",
             "model_receipt_sha256":f"{idx+8:064x}",
             "canonical_character_reference_sha256":f"{idx+16:064x}",
@@ -32,6 +34,7 @@ def good():
                 "original_qwen_voice_sha256":f"{idx+24:064x}",
                 "audio_conditioned_lipsync":"PASS",
                 "mouth_jaw_cheek_motion_review":"PASS",
+                "bone_jaw_hinge_motion_review":"PASS",
             })
     return report,scenes
 
@@ -113,6 +116,32 @@ class CinematicReleaseGateTests(unittest.TestCase):
         scenes["S03"]["model_receipt_sha256"]="not-real"
         self.assertEqual(assess(r,evidence=scenes,owner_artistic_approval=True)["status"],
                          "BLOCKED")
+
+    def test_skeleton_cannot_pass_on_human_mouth_only(self):
+        r,scenes=good()
+        scenes["S02"]["bone_jaw_hinge_motion_review"]="UNKNOWN"
+        scenes["S02"]["mouth_jaw_cheek_motion_review"]="PASS"
+        self.assertIn("S02_NO_VERIFIED_AUDIO_DRIVEN_LIPSYNC",
+                      assess(r,evidence=scenes)["reasons"])
+
+    def test_skeleton_cannot_grow_human_flesh_or_lose_suit(self):
+        r,scenes=good()
+        scenes["S06"]["skeleton_anatomy_preserved"]="FAILED"
+        self.assertIn("S06_BONE_ANATOMY_OR_SUIT_DRIFT_UNVERIFIED",
+                      assess(r,evidence=scenes)["reasons"])
+
+    def test_elizabeth_cannot_pass_on_skeleton_jaw_only(self):
+        r,scenes=good()
+        scenes["S03"]["mouth_jaw_cheek_motion_review"]="UNKNOWN"
+        scenes["S03"]["bone_jaw_hinge_motion_review"]="PASS"
+        self.assertIn("S03_NO_VERIFIED_AUDIO_DRIVEN_LIPSYNC",
+                      assess(r,evidence=scenes)["reasons"])
+
+    def test_skeletal_actor_cannot_be_replaced_by_different_character(self):
+        r,scenes=good()
+        scenes["S04"]["actor_id"]="ELIZABETH"
+        self.assertIn("S04_ACTOR_IDENTITY_PROVENANCE_MISSING",
+                      assess(r,evidence=scenes)["reasons"])
 
 if __name__=="__main__":
     unittest.main()
