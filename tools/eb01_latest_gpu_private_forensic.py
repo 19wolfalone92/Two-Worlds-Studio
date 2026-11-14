@@ -24,7 +24,7 @@ def redact(text):
 def main():
     report={"schema":1,"original_kernel":KERNEL,"read_only":True,"gpu_restarted":False,"published":False,"whole_film_ready":False}
     code,status,stderr=run(["kaggle","kernels","status",KERNEL])
-    match=re.search(r"KernelWorkerStatus\\.(QUEUED|RUNNING|COMPLETE|ERROR|CANCEL)",status)
+    match=re.search(r"KernelWorkerStatus\.(QUEUED|RUNNING|COMPLETE|ERROR|CANCEL)",status)
     report["state"]=match.group(1) if match else "UNKNOWN"
     if report["state"] not in ("ERROR","COMPLETE","CANCEL"):
         print("EB01_PRIVATE_FORENSIC",json.dumps(report,sort_keys=True))
