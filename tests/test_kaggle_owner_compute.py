@@ -77,7 +77,7 @@ class IndependentKagglePreflightTests(unittest.TestCase):
     def test_cpu_notebook_runs_offline_and_receipt_validates(self):
         notebook = Path(__file__).resolve().parents[1] / "notebooks/TWO_WORLDS_KAGGLE_OWNER_CPU_GPU_CHECK.ipynb"
         data = json.loads(notebook.read_text(encoding="utf-8"))
-        code = "".join(c["source"] for c in data["cells"] if c["cell_type"] == "code")
+        code = "".join("".join(c["source"]) for c in data["cells"] if c["cell_type"] == "code")
         previous = Path.cwd()
         with tempfile.TemporaryDirectory() as tmp:
             try:
