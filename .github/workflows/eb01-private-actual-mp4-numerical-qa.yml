@@ -1,0 +1,43 @@
+name: EB01 — first TRUE native GPU MP4 private numerical post-failure QC (NO GPU)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_real_gpu_mp4_numeric_qa.trigger]
+permissions:
+  contents: read
+concurrency:
+  group: eb01-only-real-native-clip-artistic-qa
+  cancel-in-progress: false
+jobs:
+  real_native_33frames_private_source_qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Offline native QA preflight (no GPU)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/eb01_true_gpu_clip_numbers.py
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q 'kaggle>=2.2.4' 'Pillow>=10,<12' 'numpy>=1.26,<3'
+      - name: Fetch ACTUAL Kaggle original neural MP4 privately and measure real frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_true_gpu_clip_numbers
+      - name: Publish ONLY numerical QA report with no actor imagery, model input, video or secret
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_REAL_T4_GPU_NATIVE_33F_NUMERIC_QA_SAFE_ONLY
+          path: ${{ runner.temp }}/EB01_REAL_GPU_NUMERIC_FRAME_QA_ONLY.json
+          retention-days: 7
+          if-no-files-found: warn
