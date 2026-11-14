@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Read only exact native Wan S05 S06 S02 kernel states
+      - name: Read only current source-pinned 33 frame true LTX I2V GPU pilot status
         shell: bash
         run: |
           set -euo pipefail
@@ -24,14 +24,7 @@ jobs:
           python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
           python -c 'import kaggle, six; print("KAGGLE_CLIENT_DEPENDENCIES_VERIFIED")'
           for kernel in \
-            wolf19loner92/eb01-v7-s05-only-75dbb6f053bf \
-            wolf19loner92/eb01-v7-s05-only-c36aa6d1d281 \
-            wolf19loner92/eb01-v7-s06-only-e7b9c9a3725d \
-            wolf19loner92/eb01-v7-s06-only-beca33b6874e \
-            wolf19loner92/eb01-v7-s06-tail29-3a0a1002da34 \
-            wolf19loner92/eb01-v7-s06-tail29-17f5716049d7 \
-            wolf19loner92/eb01-s02-ltx2b-real-5ec733d0369c \
-            wolf19loner92/eb01-v7-s02-only-bcc9f17c3faf; do
+            wolf19loner92/eb01-ltx2b-pilot33-60202f594b77; do
             printf '\nSOURCE_KERNEL: %s\n' "$kernel"
             kaggle kernels status "$kernel" 2>&1 || echo "KERNELOBJECT_NOT_FOUND_OR_UNREADABLE"
             kaggle kernels files "$kernel" 2>&1 | tail -30 || true
