@@ -35,7 +35,20 @@ def parse_state(raw: str) -> str:
 
 
 def classify_failure(text: str, receipt: dict | None) -> str:
-    evidence = (text + "\n" + str((receipt or {}).get("error_summary", ""))).lower()
+    # Prefer the actual terminal GPU receipt over benign library warnings.
+    # Incident 2026-11-14: real T4 generated a MP4 in ~330s but the
+    # frame/color QA rejected it. A warning about CPU/FP16 was emitted
+    # earlier during safe weight offloading; it was NOT the fatal error.
+    terminal = str((receipt or {}).get("error_summary", "")).lower()
+    if "video frame/color qa" in terminal or "frame/color qa" in terminal:
+        return "GENUINE_GPU_VIDEO_GENERATED_BUT_VISUAL_COLOR_OR_GEOMETRY_QA_FAILED"
+    if "no unique actual generated video" in terminal:
+        return "NEURAL_INFERENCE_FINISHED_NO_UNIQUE_MP4"
+    if "pilot inference exceeded" in terminal or "model stalled at" in terminal:
+        return "MODEL_INFERENCE_BUDGET_EXCEEDED"
+    evidence = (text + "\n" + terminal).lower()
+    if "video frame/color qa" in evidence:
+        return "GENUINE_GPU_VIDEO_GENERATED_BUT_VISUAL_COLOR_OR_GEOMETRY_QA_FAILED"
     if "timeout" in evidence or "timed out" in evidence:
         if "float16" in evidence and "cpu" in evidence:
             return "INFERENCE_TIMEOUT_WITH_UNSUPPORTED_FP16_CPU_PATH"
