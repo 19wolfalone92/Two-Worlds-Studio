@@ -1,0 +1,1 @@
+2026-11-14 deep studio audit. Run actual offline all-source compilation, entire unittest discovery, source privacy, GPU feasibility, brother's distinct Kaggle auth; never publish art/voices or start GPU. Identify and fix all root test failures.
