@@ -24,8 +24,17 @@ def redact(text):
 def main():
     report={"schema":1,"original_kernel":KERNEL,"read_only":True,"gpu_restarted":False,"published":False,"whole_film_ready":False}
     code,status,stderr=run(["kaggle","kernels","status",KERNEL])
-    match=re.search(r"KernelWorkerStatus\.(QUEUED|RUNNING|COMPLETE|ERROR|CANCEL)",status)
+    # Kaggle CLI may emit status text on stderr instead of stdout.
+    match=re.search(r"KernelWorkerStatus\.(QUEUED|RUNNING|COMPLETE|ERROR|CANCEL)",status+"\n"+stderr)
     report["state"]=match.group(1) if match else "UNKNOWN"
+    report["status_cli_exit_code"]=code
+    if report["state"]=="UNKNOWN":
+        hint=(status+"\n"+stderr).lower()
+        report["status_api_error_category"]=(
+            "RATE_LIMITED" if "429" in hint else
+            "AUTH_FAILED" if any(x in hint for x in ("401","403","unauthorized","forbidden")) else
+            "KAGGLE_STATUS_CLI_UNAVAILABLE")
+    
     if report["state"] not in ("ERROR","COMPLETE","CANCEL"):
         print("EB01_PRIVATE_FORENSIC",json.dumps(report,sort_keys=True))
         return
