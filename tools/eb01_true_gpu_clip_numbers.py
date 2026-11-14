@@ -17,13 +17,32 @@ from fractions import Fraction
 KERNEL = "wolf19loner92/eb01-ltx2b-pilot33-fd6d11a64bd6"
 
 
+def error_family_only(raw: str) -> str:
+    """Classify Kaggle CLI failures WITHOUT logging server error body."""
+    value = raw.lower()
+    if any(part in value for part in ("429", "too many requests", "rate limit", "quota exceeded")):
+        return "HTTP_429_KAGGLE_RATE_LIMIT_PAUSE_REQUESTS"
+    if any(part in value for part in ("401", "unauthorized", "invalid token", "expired token")):
+        return "KAGGLE_TOKEN_UNAUTHORIZED"
+    if any(part in value for part in ("403", "forbidden", "permission denied", "permissionerror")):
+        return "KAGGLE_DATASET_OR_KERNEL_ACL_DENIED"
+    if any(part in value for part in ("404", "not found", "notfound")):
+        return "KAGGLE_PRIVATE_KERNEL_OR_OUTPUT_NOT_FOUND"
+    if any(part in value for part in ("503", "502", "504", "500", "internal server error")):
+        return "KAGGLE_API_SERVER_UNAVAILABLE"
+    if any(part in value for part in ("tls", "ssl", "connection", "timeout", "timed out")):
+        return "KAGGLE_NETWORK_OR_TLS_FAILURE"
+    return "KAGGLE_NONZERO_EXIT_UNCLASSIFIED"
+
+
 def process(args: list[str], timeout: int = 180) -> tuple[int, str]:
     try:
         p = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                            text=True, timeout=timeout, check=False)
-        # Intentionally DO NOT return raw stdout/stderr: private file names and prompt
-        # fragments may be present. Success/failure is sufficient for public report.
-        return p.returncode, ("OK" if p.returncode == 0 else "CLI_COMMAND_FAILED")
+        # Only return a predefined ERROR CLASS, never private paths, prompt
+        # fragments, original Kaggle account identifiers, or service tokens.
+        return p.returncode, ("OK" if p.returncode == 0 else
+            error_family_only((p.stderr or "") + "\n" + (p.stdout or "")))
     except (OSError, subprocess.TimeoutExpired):
         return 99, "CLIENT_TIMEOUT_OR_UNAVAILABLE"
 
