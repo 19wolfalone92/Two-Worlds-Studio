@@ -1,0 +1,35 @@
+name: EB01 — fresh genuine GPU ERROR private diagnostic NO GPU push
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_new_gpu_error_forensic.trigger]
+permissions:
+  contents: read
+jobs:
+  real_kernel_failure_forensic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Syntax check and Kaggle CLI, no GPU or media
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/eb01_latest_gpu_private_forensic.py
+          test -n "$KAGGLE_API_TOKEN"
+          python -m pip -q install 'kaggle>=2.2.4'
+      - name: Read latest FAILED Kaggle pilot's private native stages and receipt, redacted
+        run: python -m tools.eb01_latest_gpu_private_forensic
+      - name: Save only redacted diagnostic summary (no original media)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_REAL_LATEST_T4_FAILURE_REDACTED_ONLY
+          path: ${{ runner.temp }}/EB01_NEW_GPU_REAL_ERROR_SUMMARY.json
+          retention-days: 7
+          if-no-files-found: warn
