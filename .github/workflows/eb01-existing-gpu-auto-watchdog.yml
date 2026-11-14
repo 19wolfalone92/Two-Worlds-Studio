@@ -40,7 +40,7 @@ jobs:
           set -euo pipefail
           # Only status/logs/output; never "kaggle kernels push".
           python -m tools.eb01_gpu_watchdog \
-            --kernel wolf19loner92/eb01-ltx2b-pilot33-60202f594b77 \
+            --kernel wolf19loner92/eb01-ltx2b-pilot33-fd6d11a64bd6 \
             --folder "$RUNNER_TEMP/eb01-real-kaggle-supervisor" \
             --max-polls 5 --poll-seconds 40
       - name: Preserve exact current resource status / categorized error for immediate correction
