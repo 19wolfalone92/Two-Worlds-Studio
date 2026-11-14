@@ -95,6 +95,19 @@ def main():
             raise RuntimeError("Official LTX pipeline call changed; memory fix cannot be verified")
         code=code.replace(original_call,
             "        sampler=sampler,\n        device='cpu',\n        enhance_prompt=enhance_prompt,")
+        # Emit only predefined stage labels, not private actor prompts.
+        upstream_events=[
+          ("    pipeline = create_ltx_video_pipeline(",
+           "    print('EB01_STAGE_BEGIN_MODEL_LOAD',flush=True)\\n    pipeline = create_ltx_video_pipeline("),
+          ('    if pipeline_config.get("pipeline_type", None) == "multi-scale":',
+           '    print("EB01_STAGE_END_MODEL_LOAD",flush=True)\\n    if pipeline_config.get("pipeline_type", None) == "multi-scale":'),
+          ('        logger.warning(f"Output saved to {output_filename}")',
+           '        print("EB01_STAGE_NATIVE_VIDEO_OUTPUT_READY",flush=True)\\n        logger.warning(f"Output saved to {output_filename}")'),
+        ]
+        for original,updated in upstream_events:
+            if code.count(original)!=1:
+                raise RuntimeError("Pinned official LTX inference stage changed")
+            code=code.replace(original,updated)
         source.write_text(code)
         stages=LTX/"ltx_video"/"pipelines"/"pipeline_ltx_video.py"
         pipe=stages.read_text()
@@ -102,7 +115,7 @@ def main():
           ("        device = self._execution_device\n\n        self.video_scale_factor",
            "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n\n        self.video_scale_factor"),
           ("self.text_encoder = self.text_encoder.to(self._execution_device)",
-           "self.text_encoder = self.text_encoder.to(device)"),
+           "print('EB01_STAGE_BEGIN_PROMPT_ENCODE',flush=True)\\n            self.text_encoder = self.text_encoder.to(device)"),
           # ROOT FIX 2: I2V input photo encoding invokes vae_encode()
           # *before* denoising. The previous "memory fix" left VAE on
           # CPU in FP16 and shifted the transformer to CUDA too early,
@@ -110,16 +123,32 @@ def main():
           # Encode the original reference on CUDA using just VAE, then
           # offload VAE and load the transformer for 8-step sampling.
           ("self.transformer = self.transformer.to(self._execution_device)",
-           "self.vae = self.vae.to(device)"),
+           "print('EB01_STAGE_BEGIN_CONDITIONING_VAE',flush=True)\\n        self.vae = self.vae.to(device)"),
           (").to(dtype=init_latents.dtype)\n",
            ").to(dtype=init_latents.dtype, device=init_latents.device)\n"),
           ("            image = vae_decode(\n",
-           "            self.vae = self.vae.to(device)\n            image = vae_decode(\n"),
+           "            print('EB01_STAGE_BEGIN_DECODE',flush=True)\n            self.vae = self.vae.to(device)\n            image = vae_decode(\n"),
         ]
         for previous,updated in updates:
             if pipe.count(previous)!=1:
                 raise RuntimeError("Official LTX pipeline stage changed; unsafe GPU memory patch")
             pipe=pipe.replace(previous,updated)
+        stage_events=[
+          ('        if offload_to_cpu and self.text_encoder is not None:',
+           '        print("EB01_STAGE_END_PROMPT_ENCODE",flush=True)\\n        if offload_to_cpu and self.text_encoder is not None:'),
+          ("            for i, t in enumerate(timesteps):",
+           "            for i, t in enumerate(timesteps):\\n                print('EB01_STAGE_DENOISE_STEP_START',i+1,flush=True)"),
+          ("                # call the callback, if provided",
+           "                print('EB01_STAGE_DENOISE_STEP_END',i+1,flush=True)\\n                # call the callback, if provided"),
+          ("        if offload_to_cpu:\\n            self.transformer = self.transformer.cpu()",
+           "        print('EB01_STAGE_END_TRANSFORMER',flush=True)\\n        if offload_to_cpu:\\n            self.transformer = self.transformer.cpu()"),
+          ("            image = self.image_processor.postprocess(image, output_type=output_type)",
+           "            image = self.image_processor.postprocess(image, output_type=output_type)\\n            print('EB01_STAGE_END_DECODE',flush=True)"),
+        ]
+        for original,updated in stage_events:
+            if pipe.count(original)!=1:
+                raise RuntimeError("Pinned official LTX pipeline stage instrumentation changed")
+            pipe=pipe.replace(original,updated)
         # After the conditioning/photo VAE encoding completes, transfer it
         # back to RAM before moving 2B transformer to GPU. Then after
         # transformer sampling the existing decode-stage patch moves VAE
@@ -131,7 +160,9 @@ def main():
             "        if offload_to_cpu:\n"
             "            self.vae = self.vae.cpu()\n"
             "            torch.cuda.empty_cache()\n"
-            "        self.transformer = self.transformer.to(device)\n\n"
+            "        print('EB01_STAGE_END_CONDITIONING_VAE',flush=True)\n"
+            "        self.transformer = self.transformer.to(device)\n"
+            "        print('EB01_STAGE_BEGIN_TRANSFORMER',flush=True)\n\n"
             +stage_after)
         stages.write_text(pipe)
         patched=sha(source)
