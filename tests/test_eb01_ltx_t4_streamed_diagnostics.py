@@ -27,12 +27,19 @@ class TestLtxT4StageContract(unittest.TestCase):
         self.assertIn("distilled_native_steps",self.code)
 
     def test_live_diagnostics_and_bounded_gpu(self):
-        self.assertIn("subprocess.Popen(",self.code)
-        self.assertIn("selectors.DefaultSelector()",self.code)
-        self.assertIn('log_path.open("wb")',self.code)
-        self.assertIn("EB01_LTX_INFERENCE_HEARTBEAT",self.code)
-        self.assertIn("deadline=pilot_t0+1400",self.code)
-        self.assertIn("proc.kill()",self.code)
+        # Superseded earlier selector loop which leaked raw model log chunks
+        # to the public Github console; the new helper is strictly private.
+        self.assertIn("run_native_bounded(",self.code)
+        self.assertIn("deadline_seconds=1400",self.code)
+        self.assertIn("EB01_STAGE_",self.code)
+        self.assertNotIn("print(chunk.decode",self.code)
+        helper=(ROOT/"tools"/"eb01_bounded_inference.py").read_text()
+        self.assertIn("subprocess.Popen(",helper)
+        self.assertIn("start_new_session=True",helper)
+        self.assertIn("os.killpg",helper)
+        self.assertIn("latest_stage(",helper)
+        self.assertIn('log_path.open("wb")',helper)
+        self.assertIn("InferenceTimeBudgetExpired",helper)
 
     def test_no_auto_retry_or_publish(self):
         self.assertIn('cfg.get("new_gpu_jobs")==1',self.code)
