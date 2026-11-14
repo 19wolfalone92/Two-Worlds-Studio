@@ -72,7 +72,7 @@ jobs:
           PY
         id: owner_review
       - name: Preserve REAL unapproved short acting pilot privately — NEVER as finished film
-        if: steps.owner_review.outputs.pilot_exists == 'true'
+        if: ${{ github.event.repository.private && steps.owner_review.outputs.pilot_exists == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: EB01_TRUE_S02_33FRAME_OWNER_ONLY_ARTISTIC_REVIEW_NOT_FILM
