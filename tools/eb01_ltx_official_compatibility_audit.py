@@ -52,7 +52,7 @@ def audit_official_patch(ltx_root: Path,worker: Path = WORKER) -> dict:
             f"T4_dtype_cast_{i}")
     original=parameters["original_call"]
     source=_replace_once(source,original,
-        "        sampler=sampler,\\n        device='cpu',\\n        enhance_prompt=enhance_prompt,",
+        "        sampler=sampler,\n        device='cpu',\n        enhance_prompt=enhance_prompt,",
         "staged_CPU_loading")
     for i,(old,new) in enumerate(parameters["upstream_events"]):
         source=_replace_once(source,old,new,f"inference_stage_{i}")
@@ -62,12 +62,12 @@ def audit_official_patch(ltx_root: Path,worker: Path = WORKER) -> dict:
         pipe=_replace_once(pipe,old,new,f"sampler_stage_{i}")
     after=parameters["stage_after"]
     replacement=(
-        "        if offload_to_cpu:\\n"
-        "            self.vae = self.vae.cpu()\\n"
-        "            torch.cuda.empty_cache()\\n"
-        "        print('EB01_STAGE_END_CONDITIONING_VAE',flush=True)\\n"
-        "        self.transformer = self.transformer.to(device)\\n"
-        "        print('EB01_STAGE_BEGIN_TRANSFORMER',flush=True)\\n\\n"
+        "        if offload_to_cpu:\n"
+        "            self.vae = self.vae.cpu()\n"
+        "            torch.cuda.empty_cache()\n"
+        "        print('EB01_STAGE_END_CONDITIONING_VAE',flush=True)\n"
+        "        self.transformer = self.transformer.to(device)\n"
+        "        print('EB01_STAGE_BEGIN_TRANSFORMER',flush=True)\n\n"
         +after
     )
     pipe=_replace_once(pipe,after,replacement,"VAE_then_transformer_only")
