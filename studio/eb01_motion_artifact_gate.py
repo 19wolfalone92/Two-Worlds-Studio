@@ -200,6 +200,7 @@ def inspect_clip(path: Path) -> dict:
         result["status"] = "REJECT_PERSISTENT_NARROW_NEON_STRIPES_REVIEW_REQUIRED"
         result["safe_frame_count"] = 0
         result["flagged_frames"] = sorted(set(result["flagged_frames"] + suspicious))
+    result["narrow_neon_fraction_trace"] = [round(v, 6) for v in narrow_neon_trace]
     result["narrow_neon_suspected_frames"] = suspicious
     result["narrow_neon_suspicion_threshold"] = .0015
     result["narrow_neon_scan_note"] = "Conservative manual review flag, not an aesthetic approval"
