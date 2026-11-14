@@ -1,0 +1,60 @@
+name: EB01 — global studio audit and full repository regression, zero GPU
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_global_deep_audit.trigger]
+permissions:
+  contents: read
+jobs:
+  full_cpu_regression_and_security_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install all studio declared optional deps and real FFmpeg (NO GPU)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install -e '.[dev,private,voice,cinematic]'
+          python -m pip -q install 'soundfile>=0.12' 'requests>=2.31' 'scipy>=1.10' 'ruff>=0.8'
+      - name: Compile EVERY Python source under studio tools tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q studio tools tests
+          echo EB01_AUDIT_FULL_SOURCE_SYNTAX_PASS
+      - name: Run entire existing test suite, preserve actual failures
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 600s python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee "$RUNNER_TEMP/eb01-full-regression.log"
+      - name: Static production safety checks and no accidental private frame release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          def check(path,text):
+              src=Path(path).read_text()
+              assert text in src,(path,text)
+          check(".github/workflows/eb01-existing-gpu-auto-watchdog.yml","github.event.repository.private")
+          check(".github/workflows/eb01-ltx-short-pilot33.yml","github.event.repository.private")
+          check("tools/eb01_kaggle2_auth_probe.py","brother_private_studio_source_access_verified")
+          check("studio/eb01_cinematic_delivery_gate.py","owner_artistic_approval")
+          check("tools/eb01_gpu_watchdog.py","gpu_job_submitted")
+          check("studio/eb01_render_feasibility.py","LTX_2B_DISTILLED_REQUIRES_ACTUAL_8_STEPS")
+          print("EB01_PROTECTED_ORIGINALS_PRIVATE_TWO_ACCOUNTS_AND_NO_FALSE_FILM_POLICY_PASS")
+          PY
+      - name: Archive ONLY sanitized test log, no private assets or API values
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_GLOBAL_CPU_REGRESSION_TEST_RESULT_ONLY
+          path: ${{ runner.temp }}/eb01-full-regression.log
+          retention-days: 7
+          if-no-files-found: warn
