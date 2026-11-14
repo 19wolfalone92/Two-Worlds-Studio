@@ -35,11 +35,21 @@ def scan(path: Path) -> dict:
     count = 0
     try:
         while True:
-            raw = proc.stdout.read(frame_bytes)
-            if not raw:
+            # Pipes may return short reads even when the decoder is healthy.
+            # Accumulate a complete frame before deciding it is truncated.
+            chunks = []
+            remaining = frame_bytes
+            while remaining:
+                part = proc.stdout.read(remaining)
+                if not part:
+                    break
+                chunks.append(part)
+                remaining -= len(part)
+            if remaining == frame_bytes:
                 break
-            if len(raw) != frame_bytes:
-                raise ArtifactRejected(f"Truncated RGB frame {count}")
+            if remaining:
+                raise ArtifactRejected(f"Truncated RGB frame {count}: missing {remaining} bytes")
+            raw = b"".join(chunks)
             frame = np.frombuffer(raw, dtype=np.uint8).reshape(height, width, 3)
             if narrow_neon_intrusion_fraction(frame) > THRESHOLD:
                 flagged.append(count)
