@@ -39,6 +39,11 @@ class RenderRequest:
 def check_candidate(request: RenderRequest, pilot: dict[str, Any] | None = None) -> dict:
     """Return audited verdict. All automatic decisions FAIL CLOSED."""
     reasons = []
+    vram = (request.gpu_vram_gib if type(request.gpu_vram_gib) in (int,float)
+            and math.isfinite(request.gpu_vram_gib) else 0)
+    width = request.width if type(request.width) is int else 0
+    height = request.height if type(request.height) is int else 0
+    frames = request.frames if type(request.frames) is int else 0
 
     def block(msg: str) -> None:
         if msg not in reasons:
@@ -64,29 +69,29 @@ def check_candidate(request: RenderRequest, pilot: dict[str, Any] | None = None)
     if request.license_confirmed is not True:
         block("MODEL_LICENCE_NOT_CONFIRMED")
     if request.model == MODEL_WAN:
-        if request.width % 32 or request.height % 32 or (request.frames-1)%4:
+        if width % 32 or height % 32 or (frames-1)%4:
             block("WAN_5B_REQUIRES_32PX_SPATIAL_AND_4N_PLUS_1_TEMPORAL_ALIGNMENT")
         if request.mode == "production":
-            if request.gpu_vram_gib < 24:
+            if vram < 24:
                 block("WAN_720P_OFFLOAD_REQUIRES_AT_LEAST_24GIB_REVIEWED_GPU")
-            if request.width < 704 or request.height < 1280:
+            if width < 704 or height < 1280:
                 block("WAN_PREVIOUS_LOW_RES_320X576_WAS_ARTISTICALLY_REJECTED")
         else:
-            if request.frames > 49:
+            if frames > 49:
                 block("PROOF_OF_QUALITY_FIRST_LIMIT_PILOT_TO_49_NATIVE_FRAMES")
     elif request.model == MODEL_LTX_LEGACY:
         if request.mode == "production":
-            if request.gpu_vram_gib < 24:
+            if vram < 24:
                 block("LTX_125F_T4_2600S_TIMEOUT_KNOWN_NEEDS_NEW_HARDWARE_OR_BENCHMARK")
-            if request.frames > 49 and request.gpu_vram_gib < 24:
+            if frames > 49 and vram < 24:
                 block("REPEATING_KNOWN_TIMED_OUT_125F_T4_JOB_FORBIDDEN")
         else:
-            if request.frames > 33:
+            if frames > 33:
                 block("LEGACY_LTX_UNBENCHMARKED_GPU_PILOT_MAX_33_FRAMES")
     elif request.model == MODEL_LTX_NEW:
-        if request.gpu_vram_gib < 24:
+        if vram < 24:
             block("LTX25_PRODUCTION_HARDWARE_BELOW_PUBLISHED_DESKTOP_FLOOR")
-        if request.mode == "pilot" and request.frames > 49:
+        if request.mode == "pilot" and frames > 49:
             block("LTX25_PILOT_MUST_BE_SHORT")
 
     if request.mode == "production":
