@@ -212,60 +212,29 @@ infer(settings)
         # Preserve the actual sampler output even when the bounded GPU deadline
         # expires. A timeout is not evidence that native frames were produced.
         # Do not automatically retry the same expensive configuration.
-        pilot_t0=time.monotonic()
-        # Stream real model stdout to disk while inference runs, rather than
-        # losing all evidence if Kaggle kills the parent or the deadline fires.
-        # This does NOT authorize another GPU job; it only instruments one.
-        import selectors
-        log_path=OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt"
-        deadline=pilot_t0+1400
-        proc=subprocess.Popen([sys.executable,"-u","-c",script],cwd=LTX,env=env,
-                              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                              bufsize=0)
-        selector=selectors.DefaultSelector()
-        selector.register(proc.stdout,selectors.EVENT_READ)
-        captured=bytearray()
-        last_heartbeat=0
+        # Safe real-time kernel supervision; prior selector implementation
+        # printed 3000 bytes of raw model stdout to a PUBLIC GH job log.
+        # NEVER emit user portrait paths, voice names, full prompts or tokens.
+        # Child subprocess stdout remains private on Kaggle, only vetted
+        # EB01_STAGE_* tokens and elapsed seconds appear in CI console.
+        from tools.eb01_bounded_inference import (
+            run_native_bounded,InferenceTimeBudgetExpired
+        )
         try:
-            with log_path.open("wb") as log:
-                while True:
-                    now=time.monotonic()
-                    if now>=deadline:
-                        raise subprocess.TimeoutExpired(proc.args,1400,bytes(captured[-40000:]))
-                    if now-last_heartbeat>=30:
-                        print("EB01_LTX_INFERENCE_HEARTBEAT",
-                              "elapsed_seconds",round(now-pilot_t0,1),
-                              "process_alive",proc.poll() is None,flush=True)
-                        last_heartbeat=now
-                    events=selector.select(timeout=min(5,max(0,deadline-now)))
-                    for key,_ in events:
-                        chunk=os.read(key.fd,65536)
-                        if chunk:
-                            log.write(chunk)
-                            log.flush()
-                            captured.extend(chunk)
-                            if len(captured)>80000: del captured[:-40000]
-                            print(chunk.decode("utf-8",errors="replace")[-3000:],end="",flush=True)
-                        else:
-                            selector.unregister(key.fileobj)
-                    if proc.poll() is not None and not selector.get_map():
-                        break
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=20)
+            observed=run_native_bounded([sys.executable,"-u","-c",script],
+                cwd=LTX,env=env,
+                log_path=OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt",
+                deadline_seconds=1400,heartbeat_seconds=20)
+        except InferenceTimeBudgetExpired as exc:
             print("EB01_LTX_PILOT_TIMEOUT_1400_SECONDS_NO_AUTORETRY",
-                  bytes(captured[-3500:]).decode("utf-8",errors="replace"),flush=True)
-            raise RuntimeError("Native LTX 33-frame pilot exceeded 1400s; "
-                               "inspect continuously saved stage output before any new GPU plan")
-        finally:
-            selector.close()
-            if proc.stdout: proc.stdout.close()
-        pilot_seconds=round(time.monotonic()-pilot_t0,2)
-        if proc.returncode:
-            print("EB01_ACTUAL_LTX_INFERENCE_FAILURE",
-                  bytes(captured[-4500:]).decode("utf-8",errors="replace"),flush=True)
-            raise RuntimeError("Native LTX 2B inference process failed exit "+str(proc.returncode))
+                  "actual_last_stage",exc.last_stage,
+                  "elapsed_seconds",exc.elapsed_seconds,flush=True)
+            raise RuntimeError("Authentic 33-frame model stalled at "+
+                               exc.last_stage+" beyond safe GPU budget") from exc
+        pilot_seconds=observed["elapsed_seconds"]
+        print("EB01_GPU_NATIVE_MODEL_INFERENCE_COMPLETED",
+              "stage",observed["last_stage"],
+              "elapsed",pilot_seconds,flush=True)
         clips=list(generated.rglob("*.mp4"))
         if len(clips)!=1:raise RuntimeError("No unique actual generated video "+str(len(clips)))
         video=OUT/"S02_PILOT33.mp4"
