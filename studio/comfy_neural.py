@@ -187,6 +187,10 @@ class ComfyLocal:
 def wan22_workflow(image_name: str, prompt: str, seed: int, *, width: int = 576,
                    height: int = 1024, frames: int = 121, steps: int = 50) -> dict:
     """Native ComfyUI API-format graph derived from Comfy-Org Wan2.2 5B template.
+    
+    Wan2.2 TI2V-5B uses an unusual VAE (z_dim=48) that requires both
+    dimensions divisible by 32. Other video models accept /16, but here
+    /16-only dimensions can silently cause invalid latent geometry.
 
     Official UI template:
     https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_5B_ti2v.json
@@ -196,7 +200,7 @@ def wan22_workflow(image_name: str, prompt: str, seed: int, *, width: int = 576,
             or not isinstance(prompt, str) or not 12 <= len(prompt.strip()) <= 1800
             or type(seed) is not int or not 0 <= seed < 2**32
             or type(width) is not int or type(height) is not int
-            or width < 256 or height < 448 or width % 16 or height % 16
+            or width < 256 or height < 448 or width % 32 or height % 32
             or abs(width / height - 9 / 16) > .02
             or type(frames) is not int or not 9 <= frames <= 241 or (frames - 1) % 4
             or type(steps) is not int or not 12 <= steps <= 50):
