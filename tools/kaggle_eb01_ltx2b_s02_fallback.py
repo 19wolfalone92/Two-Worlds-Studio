@@ -182,23 +182,58 @@ infer(settings)
         # expires. A timeout is not evidence that native frames were produced.
         # Do not automatically retry the same expensive configuration.
         pilot_t0=time.monotonic()
+        # Stream real model stdout to disk while inference runs, rather than
+        # losing all evidence if Kaggle kills the parent or the deadline fires.
+        # This does NOT authorize another GPU job; it only instruments one.
+        import selectors
+        log_path=OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt"
+        deadline=pilot_t0+1400
+        proc=subprocess.Popen([sys.executable,"-u","-c",script],cwd=LTX,env=env,
+                              stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                              bufsize=0)
+        selector=selectors.DefaultSelector()
+        selector.register(proc.stdout,selectors.EVENT_READ)
+        captured=bytearray()
+        last_heartbeat=0
         try:
-            proc=subprocess.run([sys.executable,"-u","-c",script],cwd=LTX,env=env,
-                                stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                                text=True,timeout=1400)
-        except subprocess.TimeoutExpired as exc:
-            captured=exc.stdout or b""
-            if isinstance(captured,bytes):
-                captured=captured.decode("utf-8",errors="replace")
-            (OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt").write_text(captured[-40000:])
+            with log_path.open("wb") as log:
+                while True:
+                    now=time.monotonic()
+                    if now>=deadline:
+                        raise subprocess.TimeoutExpired(proc.args,1400,bytes(captured[-40000:]))
+                    if now-last_heartbeat>=30:
+                        print("EB01_LTX_INFERENCE_HEARTBEAT",
+                              "elapsed_seconds",round(now-pilot_t0,1),
+                              "process_alive",proc.poll() is None,flush=True)
+                        last_heartbeat=now
+                    events=selector.select(timeout=min(5,max(0,deadline-now)))
+                    for key,_ in events:
+                        chunk=os.read(key.fd,65536)
+                        if chunk:
+                            log.write(chunk)
+                            log.flush()
+                            captured.extend(chunk)
+                            if len(captured)>80000: del captured[:-40000]
+                            print(chunk.decode("utf-8",errors="replace")[-3000:],end="",flush=True)
+                        else:
+                            selector.unregister(key.fileobj)
+                    if proc.poll() is not None and not selector.get_map():
+                        break
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=20)
             print("EB01_LTX_PILOT_TIMEOUT_1400_SECONDS_NO_AUTORETRY",
-                  captured[-3500:],flush=True)
-            raise RuntimeError("Native LTX 33-frame PILOT inference exceeded 1400s; "
-                               "inspect saved sampler output before changing GPU plan") from exc
+                  bytes(captured[-3500:]).decode("utf-8",errors="replace"),flush=True)
+            raise RuntimeError("Native LTX 33-frame pilot exceeded 1400s; "
+                               "inspect continuously saved stage output before any new GPU plan")
+        finally:
+            selector.close()
+            if proc.stdout: proc.stdout.close()
         pilot_seconds=round(time.monotonic()-pilot_t0,2)
-        (OUT/"EB01_LTX_PRIVATE_GPU_LOG.txt").write_text(proc.stdout[-40000:])
         if proc.returncode:
-            print("EB01_ACTUAL_LTX_INFERENCE_FAILURE",proc.stdout[-4500:],flush=True)
+            print("EB01_ACTUAL_LTX_INFERENCE_FAILURE",
+                  bytes(captured[-4500:]).decode("utf-8",errors="replace"),flush=True)
             raise RuntimeError("Native LTX 2B inference process failed exit "+str(proc.returncode))
         clips=list(generated.rglob("*.mp4"))
         if len(clips)!=1:raise RuntimeError("No unique actual generated video "+str(len(clips)))
