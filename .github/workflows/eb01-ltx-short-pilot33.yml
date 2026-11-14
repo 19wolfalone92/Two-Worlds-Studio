@@ -1,0 +1,150 @@
+name: EB01 - 33 FRAME REAL LTX GPU QUALITY PILOT ONLY, T4 budget limited
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: ["ops/eb01_ltx_s02_pilot33_authorized.trigger"]
+permissions:
+  contents: read
+concurrency:
+  group: two-worlds-kaggle-account
+  cancel-in-progress: false
+jobs:
+  locked_studio_real_33frame_i2v_model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 54
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify safe pilot budget, licence, original character and 6 Russian Qwen source hashes, no GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<12'
+          python -m py_compile tools/kaggle_eb01_ltx2b_s02_fallback.py
+          python -m unittest tests.test_eb01_render_feasibility -v
+          python - <<'PY'
+          from studio.eb01_render_feasibility import RenderRequest,MODEL_LTX_LEGACY,check_candidate
+          from studio.eb01_v7_storyboard import VOICE_SHA,SRC_SHA,SHOTS
+          request=RenderRequest(model=MODEL_LTX_LEGACY,gpu_vram_gib=14.56,
+             width=320,height=576,frames=33,steps=20,mode="pilot",
+             max_gpu_seconds=1400,paid_service=False,license_confirmed=True)
+          result=check_candidate(request)
+          assert result["status"]=="PILOT_ALLOWED_NOT_QUALITY_APPROVED",result
+          assert result["quality_is_proven"] is False and result["gpu_launched"] is False
+          assert len(SRC_SHA)==2 and len(VOICE_SHA)==6
+          assert next(r[2] for r in SHOTS if r[0]=="S02")==125
+          print("EB01_ACTUAL_T4_S02_SHORT_PILOT_SAFE_NO_FULL_MOVIE_CLAIM")
+          PY
+      - name: Submit ONE and ONLY ONE bounded private 33-frame GPU model pilot
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import json,base64,hashlib,os
+          nonce="eb01-ltx2b-genuine-pilot33-"+os.environ["GITHUB_RUN_ID"]
+          slug="eb01-ltx2b-pilot33-"+hashlib.sha256(nonce.encode()).hexdigest()[:12]
+          kernel=os.environ["KAGGLE_USERNAME"]+"/"+slug
+          cfg={"schema":7,"shot":"S02","private":True,"no_paid_services":True,
+               "new_gpu_jobs":1,"allow_social_publish":False,"mode":"pilot",
+               "pilot_frames":33,"source_dataset":"wolf19loner92/eb01-v7-private-production-sources",
+               "branch":"fix/eb01-s02-private-raw-preservation-20261113",
+               "revision":os.environ["GITHUB_SHA"],"nonce":nonce}
+          script=Path("tools/kaggle_eb01_ltx2b_s02_fallback.py").read_text()
+          tag="__EB01_LTX2B_CONFIG_B64__"
+          assert script.count(tag)==1
+          script=script.replace(tag,base64.b64encode(json.dumps(cfg,sort_keys=True).encode()).decode())
+          folder=Path(os.environ["RUNNER_TEMP"])/"eb01-short-gpu"
+          folder.mkdir()
+          (folder/"kernel_main.py").write_text(script)
+          metadata={"id":kernel,"title":slug,"code_file":"kernel_main.py",
+                    "language":"python","kernel_type":"script","is_private":"true",
+                    "enable_gpu":"true","enable_internet":"true",
+                    "machine_shape":"NvidiaTeslaT4",
+                    "dataset_sources":[cfg["source_dataset"]],
+                    "competition_sources":[],"kernel_sources":[],"model_sources":[]}
+          (folder/"kernel-metadata.json").write_text(json.dumps(metadata))
+          (Path(os.environ["RUNNER_TEMP"])/"actual-kernel.txt").write_text(kernel)
+          print("EB01_REAL_GPU_33FRAME_ONLY_KERNEL",kernel)
+          PY
+          kaggle kernels push -p "$RUNNER_TEMP/eb01-short-gpu" --timeout 3600 --accelerator NvidiaTeslaT4
+      - name: Watch one original real GPU model inference; fail closed on timeouts or contaminated frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          kernel="$(cat "$RUNNER_TEMP/actual-kernel.txt")"
+          for cycle in $(seq 1 36); do
+            status="$(kaggle kernels status "$kernel")"
+            echo "EB01_PILOT33_ACTUAL_PRIVATE_GPU_STATUS $status"
+            if [[ "$status" == *'KernelWorkerStatus.COMPLETE'* ]]; then
+              mkdir -p "$RUNNER_TEMP/eb01-pilot-video"
+              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-pilot-video" --force
+              python - <<'PY'
+          from pathlib import Path
+          import hashlib,json,os,subprocess
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-pilot-video"
+          receipt=json.loads((root/"EB01_S02_LTX_PILOT33_JOB.json").read_text())
+          src=root/"S02_PILOT33.mp4"
+          assert receipt["success"] is True
+          assert receipt["status"]=="REAL_LTX2B_SHORT_33FRAME_GPU_PILOT_ARTISTIC_REVIEW_REQUIRED"
+          assert receipt["mode"]=="pilot" and receipt["frame_count"]==33
+          assert receipt["actual_gpu_seconds"]<1400
+          assert receipt["human_artistic_approved"] is False
+          assert receipt["whole_movie_ready"] is False and receipt["published"] is False
+          assert receipt["audio_conditioned_lipsync_verified"] is False
+          assert hashlib.sha256(src.read_bytes()).hexdigest()==receipt["clip_sha256"]
+          details=json.loads(subprocess.check_output(["ffprobe","-v","error",
+             "-count_frames","-select_streams","v:0",
+             "-show_entries","stream=nb_read_frames,width,height,avg_frame_rate",
+             "-of","json",str(src)]))
+          video=details["streams"][0]
+          assert video["nb_read_frames"]=="33" and video["avg_frame_rate"]=="24/1"
+          assert video["width"]==320 and video["height"]==576
+          print("EB01_LTX_REAL_PILOT33_SOURCE_HASH_AND_FRAMES_VERIFIED",
+                receipt["clip_sha256"],"TIME",receipt["actual_gpu_seconds"])
+          PY
+              exit 0
+            fi
+            if [[ "$status" == *'KernelWorkerStatus.ERROR'* ||
+                  "$status" == *'KernelWorkerStatus.CANCEL'* ]]; then
+              mkdir -p "$RUNNER_TEMP/eb01-pilot-video"
+              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-pilot-video" --force || true
+              echo "::error::Actual 33-frame LTX GPU pilot failed. No fake production video."
+              exit 1
+            fi
+            sleep 75
+          done
+          echo "::error::Pilot budget exhausted with no true MP4; no retry"
+          exit 1
+      - name: Keep authentic 33-frame GPU footage PRIVATE for full artistic inspection, not claim full film
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_REAL_GPU_LTX2B_33FRAME_PILOT_ONLY_NOT_MOVIE
+          path: |
+            ${{ runner.temp }}/eb01-pilot-video/S02_PILOT33.mp4
+            ${{ runner.temp }}/eb01-pilot-video/EB01_S02_LTX_PILOT33_JOB.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Preserve original short GPU attempt status if blocked without publishing private frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_LTX_SHORT_PILOT_VERIFIED_STATUS_OR_FAILURE
+          path: |
+            ${{ runner.temp }}/actual-kernel.txt
+            ${{ runner.temp }}/eb01-pilot-video/EB01_S02_LTX_PILOT33_JOB.json
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Wipe all private source imagery and video from runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-short-gpu" "$RUNNER_TEMP/eb01-pilot-video"
