@@ -21,7 +21,9 @@ class DistilledGPUActorPilotTests(unittest.TestCase):
     def test_native_distilled_short_gpu_pilot_is_bounded_and_not_full_movie(self):
         text=inspect.getsource(pilot.main)
         self.assertIn('num_frames=33',text)
-        self.assertIn('timeout=1400',text)
+        self.assertIn('deadline_seconds=1400',text)
+        self.assertIn('run_native_bounded',text)
+        self.assertNotIn('print(chunk.decode',text)
         self.assertIn('"mode":"pilot"',text)
         self.assertIn('"whole_movie_ready":False',text)
         self.assertIn('"human_artistic_approved":False',text)
