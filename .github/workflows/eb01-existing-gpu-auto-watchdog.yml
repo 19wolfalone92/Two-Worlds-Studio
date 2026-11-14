@@ -1,0 +1,87 @@
+name: EB01 — autonomous GPU status, immediate failure triage and real video QA (NO RESTART)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths:
+      - ops/eb01_gpu_watchdog_now.trigger
+permissions:
+  contents: read
+concurrency:
+  group: eb01-existing-private-kaggle-source-watch
+  cancel-in-progress: false
+jobs:
+  automatic_real_source_supervisor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 19
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Preflight — 9+ real state-machine regression tests, source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m py_compile tools/eb01_gpu_watchdog.py
+          python -m unittest tests.test_eb01_gpu_watchdog -v
+      - name: Install existing read-only Kaggle client and private frame-based QA dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'numpy>=1.26,<3'
+      - name: Observe ACTUAL existing locked S02 GPU kernel and immediately diagnose ERROR
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only status/logs/output; never "kaggle kernels push".
+          python -m tools.eb01_gpu_watchdog \
+            --kernel wolf19loner92/eb01-ltx2b-pilot33-60202f594b77 \
+            --folder "$RUNNER_TEMP/eb01-real-kaggle-supervisor" \
+            --max-polls 5 --poll-seconds 40
+      - name: Preserve exact current resource status / categorized error for immediate correction
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_EXISTING_KAGGLE_GPU_AUTOMATIC_SOURCE_STATUS
+          path: ${{ runner.temp }}/eb01-real-kaggle-supervisor/EB01_S02_EXISTING_KERNEL_WATCHDOG_REPORT.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Only if REAL 33-frame native neural MP4 passed SHA, ffprobe and every-frame RGB safety
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])/"eb01-real-kaggle-supervisor"
+          report=json.loads((root/"EB01_S02_EXISTING_KERNEL_WATCHDOG_REPORT.json").read_text())
+          if report["status"]=="TRUE_PILOT_TECHNICAL_QA_PASS_HUMAN_REVIEW_REQUIRED":
+              video=root/"private_download"/"S02_PILOT33.mp4"
+              assert video.is_file() and report["clip_verification"]["decoded_true_neural_frames"]==33
+              with open(os.environ["GITHUB_OUTPUT"],"a") as output:
+                  output.write("pilot_exists=true\n")
+              print("PRIVATE_OWNER_ONLY_TRUE_MOVING_S02_33_FRAME_PILOT_REQUIRES_ARTISTIC_QA")
+          else:
+              print("NO_FRESH_PILOT",report["status"],"NO_PARTIAL_FULL_MOVIE")
+          PY
+        id: owner_review
+      - name: Preserve REAL unapproved short acting pilot privately — NEVER as finished film
+        if: steps.owner_review.outputs.pilot_exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_TRUE_S02_33FRAME_OWNER_ONLY_ARTISTIC_REVIEW_NOT_FILM
+          path: |
+            ${{ runner.temp }}/eb01-real-kaggle-supervisor/private_download/S02_PILOT33.mp4
+            ${{ runner.temp }}/eb01-real-kaggle-supervisor/private_download/EB01_S02_LTX_PILOT33_JOB.json
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
+      - name: Remove private speech, portraits and media from runner
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/eb01-real-kaggle-supervisor"
