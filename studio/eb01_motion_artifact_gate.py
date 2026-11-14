@@ -168,8 +168,17 @@ def inspect_clip(path: Path) -> dict:
             proc.kill()
             proc.wait()
     result = classify(values)
+    # FAIL-CLOSED except when an anomaly is proven to be restricted to the
+    # already-detected corrupt terminal suffix. In that narrow case the
+    # absolute/spectral scanners must NOT override the safe trim decision:
+    # trimming deletes ALL flagged frames and the clean output is independently
+    # re-decoded. Interior streaks remain rejected, never "restored".
+    terminal_cutoff=(result["safe_frame_count"] if
+        result["status"]=="TRIM_ONLY_TERMINAL_ARTIFACTS" else None)
+    def reject_beyond_terminal(flags: list[int]) -> bool:
+        return terminal_cutoff is None or any(i<terminal_cutoff for i in flags)
     band_frames = [i for i, v in enumerate(horizontal_trace) if v >= .012]
-    if len(band_frames) >= 2:
+    if len(band_frames) >= 2 and reject_beyond_terminal(band_frames):
         result["status"] = "REJECT_HORIZONTAL_NEON_BANDS_REVIEW_REQUIRED"
         result["safe_frame_count"] = 0
         result["flagged_frames"] = sorted(set(result["flagged_frames"] + band_frames))
@@ -178,7 +187,7 @@ def inspect_clip(path: Path) -> dict:
     spectral_baseline = float(np.median(spectral_trace[:max(5, round(len(spectral_trace)*.35))]))
     spectral_threshold = max(.006, spectral_baseline + .004)
     spectral_bad = [i for i, v in enumerate(spectral_trace) if v > spectral_threshold]
-    if len(spectral_bad) >= 2:
+    if len(spectral_bad) >= 2 and reject_beyond_terminal(spectral_bad):
         result["status"] = "REJECT_SPECTRAL_NEON_IN_WARM_SCENE"
         result["safe_frame_count"] = 0
         result["flagged_frames"] = sorted(set(result["flagged_frames"] + spectral_bad))
@@ -187,7 +196,7 @@ def inspect_clip(path: Path) -> dict:
     # baseline-relative gate marking source clips as clean. False positives
     # require human visual review; never treat this as automated repair.
     suspicious = [i for i, v in enumerate(narrow_neon_trace) if v > .0015]
-    if len(suspicious) > 5:
+    if len(suspicious) > 5 and reject_beyond_terminal(suspicious):
         result["status"] = "REJECT_PERSISTENT_NARROW_NEON_STRIPES_REVIEW_REQUIRED"
         result["safe_frame_count"] = 0
         result["flagged_frames"] = sorted(set(result["flagged_frames"] + suspicious))
