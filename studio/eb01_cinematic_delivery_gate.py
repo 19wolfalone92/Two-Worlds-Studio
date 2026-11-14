@@ -103,6 +103,8 @@ def assess(
         if not ok:
             reasons.append(why)
 
+    require(_valid_digest(report.get("sha256")),
+            "REAL_FILM_FILE_SHA256_NOT_PROVEN")
     seconds = report.get("duration_seconds")
     require(type(seconds) in (int, float) and MIN_SECONDS <= seconds < 300,
             "DURATION_SHORTER_THAN_40_SECONDS")
@@ -128,7 +130,7 @@ def assess(
     # A scan may detect suspicious frames; a negative scan is NOT proof of
     # photoreal acting quality or facial/wardrobe identity.
     suspect = report.get("suspected_colored_neon_frames")
-    require(_positive_int(suspect) == 0 and (suspect is None or type(suspect) is int),
+    require(type(suspect) is int and suspect == 0,
             "NEON_COLOR_SPECTRAL_ARTIFACTS")
     require(report.get("full_visual_frame_qa_status") == "PASS",
             "INDEPENDENT_FULL_FRAME_VISUAL_QA_MISSING")
