@@ -53,7 +53,7 @@ def check_candidate(request: RenderRequest, pilot: dict[str, Any] | None = None)
         block("UNSUPPORTED_UNREVIEWED_MODEL")
     if request.mode not in ("pilot", "production"):
         block("UNKNOWN_RUN_MODE")
-    if not isinstance(request.gpu_vram_gib, (int,float)) or (
+    if type(request.gpu_vram_gib) not in (int,float) or (
         not math.isfinite(request.gpu_vram_gib) or request.gpu_vram_gib < 1):
         block("INVALID_GPU_CAPACITY")
     if any(type(x) is not int for x in
