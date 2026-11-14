@@ -311,6 +311,28 @@ def main():
            "original_seven_independent_shots_ready":False,
            "video_ready":False,"published":False}
     progress.write_text(json.dumps(state,indent=2)+"\n")
+    # ROOT-CAUSE FIX: this script produced the 23s film the owner rejected.
+    # Stop before downloading private media / invoking FFmpeg. Reusing 125
+    # frames from S00/S04/S06 is not a new original S02 performance and the
+    # 23.458s review cannot meet the approved 40+ second cinematic target.
+    from studio.eb01_cinematic_delivery_gate import assess
+    prescan=assess({
+        "duration_seconds":FRAMES_TOTAL/FPS, "resolution":[320,576],
+        "fps":FPS,"scenes_on_timeline":len(SHOTS),"russian_voice_lines":len(VOICE_SHA),
+        "russian_subtitle_cues":len(DIALOGUES),
+        "full_visual_frame_qa_status":"UNVERIFIED",
+        "suspected_colored_neon_frames":76,
+        "original_artistic_quality_approved":False,
+    },evidence={
+        "S02":{"original_native_ai_inference":False,
+               "reused_frames_from_S00_S04_S06":True}})
+    if prescan["status"]=="BLOCKED":
+        state.update({"status":"BLOCKED_REJECTED_23S_CINEMATIC_ARCHITECTURE",
+                      "blocked_by":prescan["reasons"],
+                      "video_ready":False,"published":False})
+        progress.write_text(json.dumps(state,indent=2)+"\n")
+        raise RuntimeError("Old 23s repeated-scene owner-rejected workflow forbidden: "
+                           +", ".join(prescan["reasons"][:5]))
     with tempfile.TemporaryDirectory(prefix="eb01-CPU-TRUE-FILM-") as folder:
         try:
             stage,lock,lines=stage_sources(Path(folder))
