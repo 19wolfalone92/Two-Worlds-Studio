@@ -99,6 +99,50 @@ def run_cli(args: list[str], timeout: int = 90) -> tuple[int, str]:
         return 127, "CLIENT_UNAVAILABLE " + type(e).__name__
 
 
+def private_numeric_qa_summary(root: Path) -> dict:
+    """Keep only the ORIGINAL GPU frame-clock + anomaly measurements.
+
+    Reconstruct from the real MP4 if the GPU worker was old and had no QA
+    receipt. Never include source portrait bytes, audio, prompt or raw log.
+    """
+    saved = root / "EB01_S02_NATIVE_GPU_FRAME_QA_SAFE.json"
+    fields = (
+        "rgb_gate_status", "frame_flags", "spectral_flags",
+        "horizontal_band_flags", "narrow_neon_flags", "checks",
+        "actual_native_gpu_generated", "actual_gpu_seconds"
+    )
+    if saved.is_file():
+        try:
+            data=json.loads(saved.read_text(encoding="utf-8"))
+            if data.get("schema")==1 and data.get("shot")=="S02":
+                return {"source":"PRIVATE_WORKER_ORIGINAL_QA_RECEIPT",
+                        **{k:data.get(k) for k in fields if k in data}}
+        except (ValueError,UnicodeError):
+            return {"source":"INVALID_GPU_QA_RECEIPT"}
+    video=root/"S02_PILOT33.mp4"
+    if video.is_file():
+        try:
+            from studio.eb01_motion_artifact_gate import inspect_clip
+            from studio.comfy_neural import _probe
+            meta=_probe(video)
+            qa=inspect_clip(video)
+            return {
+                "source":"RECONSTRUCTED_FROM_ACTUAL_PRIVATE_MP4",
+                "native_frame_count":meta["frames"],
+                "fps":meta["fps"],"width":meta["width"],"height":meta["height"],
+                "rgb_gate_status":qa["status"],
+                "frame_flags":qa.get("flagged_frames",[])[:100],
+                "spectral_flags":qa.get("spectral_intrusion_flagged_frames",[])[:100],
+                "horizontal_band_flags":qa.get("horizontal_neon_band_flagged_frames",[])[:100],
+                "narrow_neon_flags":qa.get("narrow_neon_suspected_frames",[])[:100],
+                "original_video_gpu_generated":True,
+            }
+        except Exception as exc:
+            return {"source":"PRIVATE_VIDEO_QA_RECONSTRUCTION_FAILED",
+                    "failure_class":type(exc).__name__}
+    return {"source":"PRIVATE_GPU_OUTPUT_HAS_NO_NATIVE_VIDEO_OR_QA_RECEIPT"}
+
+
 def file_sha(path: Path) -> str:
     result = hashlib.sha256()
     with path.open("rb") as fp:
@@ -226,6 +270,12 @@ def inspect(kernel: str, root: Path, *, max_polls: int = 4,
             report["failure_category"] = classify_failure(evidence, receipt)
             report["diagnostic_lines_redacted"] = sanitize(evidence)
             report["gpu_receipt_success"] = (receipt or {}).get("success")
+            # Future failures report ACTUAL independent frame reasons rather
+            # than collapsing a visual-QA rejection into a benign FP16 warning.
+            report["real_native_video_qa"] = private_numeric_qa_summary(out)
+            from tools.eb01_bounded_inference import latest_stage
+            report["last_real_gpu_stage"] = latest_stage(disk_log)
+
             report["next_action"] = "ROOT_CAUSE_PATCH_AND_TEST_FIRST_NO_AUTORETRY"
             break
         report["status"] = "KAGGLE_STATUS_UNREADABLE"
