@@ -19,6 +19,14 @@ from typing import Any
 
 SCENES = ("S00", "S01", "S02", "S03", "S04", "S05", "S06")
 DIALOGUE = ("S01", "S02", "S03", "S04", "S05", "S06")
+# A human face needs cheek/jaw lip-sync; a skeleton has *no cheeks*.
+# A generic human-face animation model could add skin to Kostya, violating
+# the original character identity despite good audio correlation.
+ACTOR_BY_SCENE = {
+    "S00":"KOSTYA","S01":"ELIZABETH","S02":"KOSTYA",
+    "S03":"ELIZABETH","S04":"KOSTYA","S05":"ELIZABETH",
+    "S06":"KOSTYA",
+}
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 MIN_SECONDS = 40.0
 MIN_WIDTH = 576
@@ -132,7 +140,12 @@ def assess(
         if not isinstance(row, dict):
             row = {}
         require(_no_reuse(row, sid), f"{sid}_FOOTAGE_REUSE_OR_NO_ORIGINAL_INFERENCE")
+        require(row.get("actor_id") == ACTOR_BY_SCENE[sid],
+                f"{sid}_ACTOR_IDENTITY_PROVENANCE_MISSING")
         require(_is_proven_actor(row, sid), f"{sid}_ORIGINAL_VIDEO_IDENTITY_MOTION_UNVERIFIED")
+        if ACTOR_BY_SCENE[sid] == "KOSTYA":
+            require(row.get("skeleton_anatomy_preserved") == "PASS",
+                    f"{sid}_BONE_ANATOMY_OR_SUIT_DRIFT_UNVERIFIED")
         media_sha = row.get("source_sha256", row.get("sha256"))
         if _valid_digest(media_sha):
             require(media_sha not in unique_sources, f"{sid}_DUPLICATE_SOURCE_CLIP")
@@ -140,8 +153,12 @@ def assess(
         if sid in DIALOGUE:
             require(_valid_digest(row.get("original_qwen_voice_sha256")),
                     f"{sid}_VOICE_ORIGINAL_NOT_LOCKED")
+            human_expression = row.get("mouth_jaw_cheek_motion_review") == "PASS"
+            bone_expression = row.get("bone_jaw_hinge_motion_review") == "PASS"
+            appropriate_expression = (human_expression if ACTOR_BY_SCENE[sid] == "ELIZABETH"
+                                      else bone_expression)
             require(row.get("audio_conditioned_lipsync") == "PASS"
-                    and row.get("mouth_jaw_cheek_motion_review") == "PASS",
+                    and appropriate_expression,
                     f"{sid}_NO_VERIFIED_AUDIO_DRIVEN_LIPSYNC")
     # Owner approval cannot override actual broken content/provenance.
     if reasons:
