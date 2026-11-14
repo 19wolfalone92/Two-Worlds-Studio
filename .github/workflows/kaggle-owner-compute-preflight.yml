@@ -1,0 +1,44 @@
+name: TWO WORLDS - independent owner Kaggle CPU/GPU readiness (NO SECRETS)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "notebooks/TWO_WORLDS_KAGGLE_OWNER_CPU_GPU_CHECK.ipynb"
+      - "tools/verify_compute_preflight.py"
+      - "tests/test_kaggle_owner_compute.py"
+      - "docs/KAGGLE_SECOND_OWNER_CPU_GPU_PREPARATION_RU.md"
+      - ".github/workflows/kaggle-owner-compute-preflight.yml"
+  push:
+    branches:
+      - "feature/independent-kaggle-cpu-gpu-preflight-20261114"
+    paths:
+      - "notebooks/TWO_WORLDS_KAGGLE_OWNER_CPU_GPU_CHECK.ipynb"
+      - "tools/verify_compute_preflight.py"
+      - "tests/test_kaggle_owner_compute.py"
+      - "docs/KAGGLE_SECOND_OWNER_CPU_GPU_PREPARATION_RU.md"
+      - ".github/workflows/kaggle-owner-compute-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  cpu_only_offline_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check Python syntax (no network or model weights)
+        run: |
+          python -m py_compile tools/verify_compute_preflight.py tests/test_kaggle_owner_compute.py
+      - name: Execute actual CPU notebook smoke test and validate GPU-denial gates
+        run: |
+          python -m unittest discover -s tests -p 'test_kaggle_owner_compute.py' -v
+      - name: Record honest runtime boundary
+        run: |
+          echo "PASS: offline CPU probe and safety contract tests."
+          echo "NO Kaggle authentication, NO API_TOKEN2 access, NO Kaggle GPU allocated."
+          echo "Brother must run GPU check in his own private Kaggle Notebook."
