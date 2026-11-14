@@ -81,6 +81,20 @@ class KaggleGPUWatchdogTests(unittest.TestCase):
             "float16 operations on cpu are unsupported, subprocess.TimeoutExpired after 1400s",None),
             "INFERENCE_TIMEOUT_WITH_UNSUPPORTED_FP16_CPU_PATH")
 
+    def test_real_terminal_t4_330s_generated_mp4_then_color_qa_failed(self):
+        # Original GPU logs showed a misleading FP16 CPU warning followed
+        # by terminal frame/color QA failure; NEVER mislabel model FP16 crash.
+        logs="Pipelines loaded with dtype=torch.float16 cannot run with cpu device"
+        receipt={"success":False,"status":"REAL_ALTERNATIVE_GPU_BLOCKED_NO_FALSE_FILM_CLAIM",
+                 "error_summary":"Authentic LTX S02 failed required video frame/color QA"}
+        self.assertEqual(classify_failure(logs,receipt),
+            "GENUINE_GPU_VIDEO_GENERATED_BUT_VISUAL_COLOR_OR_GEOMETRY_QA_FAILED")
+        self.assertEqual(classify_failure(
+            logs+"\nRuntimeError: Authentic LTX S02 failed required video frame/color QA",None),
+            "GENUINE_GPU_VIDEO_GENERATED_BUT_VISUAL_COLOR_OR_GEOMETRY_QA_FAILED")
+        self.assertEqual(classify_failure(logs,None),
+                         "UNSUPPORTED_CPU_HALF_PRECISION_VAE_OR_ENCODER")
+
     def test_private_secrets_and_source_paths_redacted(self):
         logs=("Traceback private /kaggle/input/wolf/ELIZABETH.png\n"
               "ERROR Authorization:BearerABC hf_12345678901234567890")
