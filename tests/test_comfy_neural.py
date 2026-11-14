@@ -43,6 +43,19 @@ class GraphAndNetworkTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 wan22_workflow("ref.png", prompt, 42, width=bad[0], height=bad[1], frames=bad[2])
 
+    def test_wan22_ti2v_5b_requires_32_pixel_vae_alignment(self):
+        prompt = "The original skeleton naturally turns his entire head, with moving collar and shoulders."
+        # Both dimensions must be multiples of 32, unlike 16-pixel
+        # latent alignment supported by other models. 592 and 1008
+        # are divisible by 16 but NOT by 32.
+        for w,h in ((592,1024), (576,1008), (336,576)):
+            with self.subTest(geometry=(w,h)), self.assertRaises(ValueError):
+                wan22_workflow("original.png", prompt, 42,
+                               width=w, height=h, frames=17, steps=30)
+        good = wan22_workflow("original.png", prompt, 42,
+                              width=576, height=1024, frames=17, steps=30)
+        self.assertEqual(good["55"]["inputs"]["width"],576)
+
     def test_incomplete_comfy_history_cannot_count_as_a_finished_video(self):
         from unittest.mock import Mock
         client = ComfyLocal("http://127.0.0.1:8188")
