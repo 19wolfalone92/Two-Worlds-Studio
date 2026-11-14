@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 14
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
-      ORIGINAL_KERNEL: wolf19loner92/eb01-ltx2b-pilot33-6294bc81d46a
+      ORIGINAL_KERNEL: wolf19loner92/eb01-ltx2b-pilot33-60202f594b77
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
