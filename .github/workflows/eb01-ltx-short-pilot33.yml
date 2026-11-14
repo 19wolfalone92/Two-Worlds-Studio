@@ -125,7 +125,7 @@ jobs:
           echo "::error::Pilot budget exhausted with no true MP4; no retry"
           exit 1
       - name: Keep authentic 33-frame GPU footage PRIVATE for full artistic inspection, not claim full film
-        if: success()
+        if: ${{ success() && github.event.repository.private }}
         uses: actions/upload-artifact@v4
         with:
           name: EB01_REAL_GPU_LTX2B_33FRAME_PILOT_ONLY_NOT_MOVIE
