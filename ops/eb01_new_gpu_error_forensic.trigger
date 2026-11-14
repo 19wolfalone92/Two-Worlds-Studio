@@ -1,1 +1,3 @@
 2026-11-14 20:43Z: latest REAL owner GPU kernel wolf19loner92/eb01-ltx2b-pilot33-fd6d11a64bd6 now ERROR after free GPU QUEUED; watchdog GH 43634475448 says UNSUPPORTED_CPU_HALF_PRECISION_VAE_OR_ENCODER but has no actual traceback. Fetch original locked private GPU output + stage heartbeats and discover exact fail cause. No new GPU, no raw prompt/media in GH.
+
+2026-11-14 20:48Z: fixed live Kaggle stderr status visibility; rerun read-only true underlying error for terminal FD6D11; no new GPU.
