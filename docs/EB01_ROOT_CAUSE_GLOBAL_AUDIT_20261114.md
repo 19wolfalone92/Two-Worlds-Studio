@@ -46,3 +46,51 @@ It is only a **GPU validation pilot**, not the film. The workflow must verify or
 - 40+ seconds, >=576×1024, real independent QA and human artistic signoff, final MP4 GitHub link.
 
 These require a truly completed GPU pilot first, GPU performance feasibility and human visual review. Not asserted solved by the CPU suite.
+
+## Corrective evidence update — 2026-11-14 21:15 UTC
+
+The earlier section describing the post-audit GPU pilot as **not executed** is now
+superseded by this evidence. This is a significant correction to the incident
+root cause and MUST be applied to follow-up automation:
+
+- Native original S02 pilot **DID** execute on Tesla T4 and wrote a real
+  `S02_PILOT33.mp4` before failing source-video QA, finishing at
+  **329.805 seconds**. Source: the actual retained terminal GPU worker
+  trace in the private Kaggle readback, safely archived by GitHub
+  watchdog run `43634475448` artifact `14129681357`.
+- Exact fatal traceback: **`RuntimeError: Authentic LTX S02 failed required
+  video frame/color QA`**. The 1400 second inference timeout previously seen
+  in other kernels did **NOT** recur in this third corrected run.
+- Old watchdog incorrectly selected
+  `UNSUPPORTED_CPU_HALF_PRECISION_VAE_OR_ENCODER` because it matched
+  a nonfatal library warning **before examining the terminal receipt**. This
+  was a misleading diagnosis, now corrected in
+  `tools/eb01_gpu_watchdog.py` (receipt-first prioritization) and tested.
+  CPU/FP16 warnings were present, but actual model synthesis completed.
+- True reason for visual rejection is **not yet localized to frame geometry
+  vs neon RGB**, because the original worker discarded frame-specific numeric
+  QA and overwrote its receipt on error. This gap is repaired in future
+  workers: `tools/kaggle_eb01_ltx2b_s02_fallback.py` now saves
+  `EB01_S02_NATIVE_GPU_FRAME_QA_SAFE.json` with actual FFprobe clocks,
+  relevant RGB suspicion frame indices, and exact reject checks, without
+  weakening safety.
+- The existing private GPU output is being examined, *without* resubmitting
+  inference, by the new temporary-runner-only
+  `tools/eb01_true_gpu_clip_numbers.py` and GH workflow
+  `.github/workflows/eb01-private-actual-mp4-numerical-qa.yml`.
+  One readback GH run `43641333448` was blocked by temporary
+  Kaggle API **nonzero exit**, not by video inference. Server HTTP error
+  class was not yet recoverable; do NOT infer exact 429/403 without proof.
+- Kaggle API diagnostics now classify only explicit 429 (back off),
+  401/403, 404, 5xx and connection categories, without printing any private
+  original photos, six Qwen voices, token, or model prompts.
+- Full actual suite **581 passed, 4 skipped**, run `43641583177`.
+  This verifies CPU code/regression/privacy, **not cinematic quality**.
+- Repo is PUBLIC, therefore never upload original image-derived
+  `S02_PILOT33.mp4` to a GitHub Actions artifact, release, commit, issue, or
+  externally visible file without owner approval. All diagnosis uploads
+  are sanitized numerical JSON only. The source video remains private.
+- Next: obtain original 33-frame numerical QA once Kaggle private output
+  API is available; identify nonartistic geometry mismatch vs real neon
+  contamination; solve actual root before launching a different GPU model;
+  then apply full 7 distinct scenes/6 audio lip sync/40+ sec film QA.
