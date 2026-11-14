@@ -244,12 +244,43 @@ infer(settings)
         meta=_probe(video)
         qc=inspect_clip(video)
         run(["ffmpeg","-v","error","-xerror","-i",video,"-f","null","-"],timeout=180)
+        # ROOT FIX: first ACTUAL GPU 33-frame MP4 completed in ~330 sec;
+        # the old code raised this same generic error on either geometry,
+        # FFprobe FPS or RGB intrusion, discarded the exact QA metrics, and
+        # the watchdog then mistook a BENIGN FP16 CPU warning as root cause.
+        # Keep numerical proof PRIVATE in Kaggle output; never downgrade
+        # REJECT to PASS or claim that 33 frames are a finished movie.
+        quality_checks={
+            "native_frames_33":meta["frames"]==pilot_frames,
+            "native_24fps":meta["fps"]=="24",
+            "native_320x576":meta["width"]==320 and meta["height"]==576,
+            "all_33_decoded":qc["decoded_frames"]==pilot_frames,
+            "no_neon":qc["status"]=="NO_NEON_ARTIFACT_FOUND",
+        }
+        quality_safe={
+            "schema":1,"shot":"S02","actual_native_gpu_generated":True,
+            "movie_sha256":source_sha(video),
+            "movie_bytes":video.stat().st_size,
+            "actual_gpu_seconds":pilot_seconds,
+            "probe":meta,"checks":quality_checks,
+            "rgb_gate_status":qc["status"],
+            "frame_flags":qc.get("flagged_frames",[])[:100],
+            "spectral_flags":qc.get("spectral_intrusion_flagged_frames",[])[:100],
+            "horizontal_band_flags":qc.get("horizontal_neon_band_flagged_frames",[])[:100],
+            "narrow_neon_flags":qc.get("narrow_neon_suspected_frames",[])[:100],
+            "owner_artistic_approved":False,
+            "whole_movie_ready":False,"published":False,
+        }
+        (OUT/"EB01_S02_NATIVE_GPU_FRAME_QA_SAFE.json").write_text(
+            json.dumps(quality_safe,ensure_ascii=False,indent=2)+"\n")
         print("EB01_ALT_REAL_GPU_ACTUAL_MODEL_FRAMES",meta["frames"],
-              "artifact_gate",qc["status"],flush=True)
-        if (meta["frames"]!=pilot_frames or meta["fps"]!="24" or
-            meta["width"]!=320 or meta["height"]!=576 or
-            qc["decoded_frames"]!=pilot_frames or qc["status"]!="NO_NEON_ARTIFACT_FOUND"):
-            raise RuntimeError("Authentic LTX S02 failed required video frame/color QA")
+              "all_numeric_checks_ok",all(quality_checks.values()),
+              "color_status",qc["status"],flush=True)
+        if not all(quality_checks.values()):
+            rejected=",".join(k for k,v in quality_checks.items() if not v)
+            raise RuntimeError("Authentic LTX S02 generated original MP4 but "
+                               "required video frame/color QA rejected: "+rejected
+                               +" rgb="+str(qc["status"]))
         proof={"schema":7,"shot":"S02","success":True,
            "status":"REAL_LTX2B_SHORT_33FRAME_GPU_PILOT_ARTISTIC_REVIEW_REQUIRED",
            "model":"Lightricks/LTX-Video-2B-0.9.6-distilled",
