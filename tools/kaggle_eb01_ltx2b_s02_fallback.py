@@ -123,6 +123,27 @@ def main():
         c=LTX/"configs"/"ltxv-2b-0.9.6-distilled.yaml"
         if not c.is_file() or "ltxv-2b-0.9.6-distilled-04-25.safetensors" not in c.read_text():
             raise RuntimeError("Expected authentic LTX 2B model not configured")
+        # CONFIRMED ROOT CAUSE OF BOTH GPU TIMEOUTS: official config uses
+        # prompt_enhancement_words_threshold=120. The original 70-word
+        # EB01 actor prompt therefore silently loads Florence-2-large AND
+        # Llama-3.2-3B, then runs 3B prompt enhancement on CPU under the
+        # memory-offload patch. This is neither the LTX 2B distilled video
+        # sampler nor necessary for the original human-approved scene prompt.
+        # Disable the unsolicited extra 3B caption+LLM pipeline, preserving
+        # the original scene motion wording, official 2B video weights and
+        # EXACT 8-step distilled scheduler. Never change reference images.
+        original_config=c.read_text(encoding="utf-8")
+        threshold="prompt_enhancement_words_threshold: 120"
+        if original_config.count(threshold)!=1:
+            raise RuntimeError("Official LTX prompt-enhancer config changed; cannot remove unapproved 3B CPU bottleneck")
+        c.write_text(original_config.replace(
+            threshold,"prompt_enhancement_words_threshold: 0"
+        ),encoding="utf-8")
+        print("EB01_REAL_LTX_2B_STAGING_ONLY_NO_FLORENCE_LLAMA_3B",
+              "original_config_sha256",hashlib.sha256(original_config.encode()).hexdigest(),
+              "patched_config_sha256",sha(c),
+              "distilled_native_steps",8,
+              "exact_approved_prompt_unmodified",True,flush=True)
         generated=OUT/"EB01_S02_LTX_REAL_GENERATION_PRIVATE"
         generated.mkdir(exist_ok=False)
         script="""from ltx_video.inference import infer,InferenceConfig
@@ -181,6 +202,8 @@ infer(settings)
            "engine":"ltx_official_fp16_t4_compatibility",
            "official_source_git_sha":LTX_SHA,"compatibility_patch_sha256":patched,
            "pipeline_memory_patch_sha256":stage_sha,
+           "prompt_enhancement_disabled":True,
+           "original_prompt_passed_unchanged":True,
            "studio_git_revision":cfg["revision"],
            "original_reference_sha256":source_sha(reference),
            "original_character_sha256":SRC_SHA["KOSTYA"],
