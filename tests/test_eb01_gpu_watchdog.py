@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 from tools.eb01_gpu_watchdog import (
-    KERNEL, parse_state, classify_failure, sanitize, inspect
+    KERNEL, parse_state, classify_failure, sanitize, inspect, private_numeric_qa_summary
 )
 
 
@@ -94,6 +94,32 @@ class KaggleGPUWatchdogTests(unittest.TestCase):
             "GENUINE_GPU_VIDEO_GENERATED_BUT_VISUAL_COLOR_OR_GEOMETRY_QA_FAILED")
         self.assertEqual(classify_failure(logs,None),
                          "UNSUPPORTED_CPU_HALF_PRECISION_VAE_OR_ENCODER")
+
+    def test_real_gpu_private_frame_qa_summary_extracted_without_actor_secrets(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            receipt={"schema":1,"shot":"S02",
+                "rgb_gate_status":"REJECT_PERSISTENT_NARROW_NEON_STRIPES_REVIEW_REQUIRED",
+                "frame_flags":[1,6,19],
+                "checks":{"native_frames_33":True,"no_neon":False},
+                "private_user_prompt":"DO NOT LEAK THIS",
+                "six_original_russian_wav_bytes":"DO NOT LEAK WAV"}
+            (root/"EB01_S02_NATIVE_GPU_FRAME_QA_SAFE.json").write_text(json.dumps(receipt))
+            result=private_numeric_qa_summary(root)
+            self.assertEqual(result["source"],"PRIVATE_WORKER_ORIGINAL_QA_RECEIPT")
+            self.assertEqual(result["frame_flags"],[1,6,19])
+            self.assertFalse(result["checks"]["no_neon"])
+            self.assertNotIn("private_user_prompt",str(result))
+            self.assertNotIn("six_original_russian_wav_bytes",str(result))
+
+    def test_missing_and_broken_native_qa_never_count_as_good_video(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp)
+            result=private_numeric_qa_summary(root)
+            self.assertEqual(result["source"],"PRIVATE_GPU_OUTPUT_HAS_NO_NATIVE_VIDEO_OR_QA_RECEIPT")
+            (root/"EB01_S02_NATIVE_GPU_FRAME_QA_SAFE.json").write_text("{ invalid json")
+            result=private_numeric_qa_summary(root)
+            self.assertEqual(result["source"],"INVALID_GPU_QA_RECEIPT")
 
     def test_private_secrets_and_source_paths_redacted(self):
         logs=("Traceback private /kaggle/input/wolf/ELIZABETH.png\n"
