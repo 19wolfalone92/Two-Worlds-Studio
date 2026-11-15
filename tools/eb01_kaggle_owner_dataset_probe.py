@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import io
 import json
 import os
@@ -55,13 +56,41 @@ def parse_owner_dataset_csv(raw: str) -> dict:
         "page_full": len(refs) >= PAGE_SIZE,
     }
 
+def safe_command_diagnostic(result, *, phase: str, page: int | None = None) -> dict:
+    """Expose only bounded lengths, exit code and hashes; never raw CLI output."""
+    stdout = result.stdout or ""
+    stderr = result.stderr or ""
+    out_bytes = stdout.encode("utf-8", errors="replace")
+    err_bytes = stderr.encode("utf-8", errors="replace")
+    code = result.returncode if type(result.returncode) is int else None
+    return {
+        "phase": phase,
+        "page": page,
+        "exit_code": code,
+        "stdout_bytes": len(out_bytes),
+        "stderr_bytes": len(err_bytes),
+        "stdout_sha256": hashlib.sha256(out_bytes).hexdigest(),
+        "stderr_sha256": hashlib.sha256(err_bytes).hexdigest(),
+    }
+
+
 def classify_owner_list_failure(evidence: str) -> str:
     """Return a safe list-probe category; never expose raw CLI diagnostics."""
     text = str(evidence).lower()
     if re.search(r"\b403\b", text) or "forbidden" in text or "permission denied" in text:
         return "OWNER_DATASET_LIST_ACCESS_DENIED"
-    if re.search(r"\b401\b", text) or "unauthorized" in text:
+    if re.search(r"\b401\b", text) or "unauthorized" in text or "invalid api token" in text:
         return "OWNER_DATASET_LIST_AUTH_DENIED"
+    if re.search(r"\b429\b", text) or "too many requests" in text or "rate limit" in text:
+        return "OWNER_DATASET_LIST_RATE_LIMITED"
+    if re.search(r"\b5\d\d\b", text) or "service unavailable" in text or "internal server error" in text:
+        return "OWNER_DATASET_LIST_REMOTE_SERVER_ERROR"
+    if any(marker in text for marker in (
+        "connectionerror", "connection reset", "name resolution",
+        "temporary failure in name resolution", "network is unreachable",
+        "sslerror", "max retries exceeded",
+    )):
+        return "OWNER_DATASET_LIST_NETWORK_ERROR"
     if "no results found" in text or "no datasets found" in text:
         return "OWNER_DATASET_LIST_OK_EXACT_SLUG_NOT_FOUND"
     if "unrecognized arguments" in text or "no such option" in text:
@@ -96,7 +125,8 @@ def inspect_owner_dataset_visibility(runner=subprocess.run) -> dict:
         return {**base, "status": "OWNER_DATASET_LIST_CLIENT_" + type(exc).__name__}
     help_text = (help_result.stdout or "") + " " + (help_result.stderr or "")
     if help_result.returncode != 0:
-        return {**base, "status": classify_owner_list_failure(help_text)}
+        return {**base, "status": classify_owner_list_failure(help_text),
+                "diagnostic": safe_command_diagnostic(help_result, phase="help")}
     required = ("--mine", "--page", "--csv")
     missing = [flag for flag in required if flag not in help_text]
     if missing:
@@ -123,12 +153,14 @@ def inspect_owner_dataset_visibility(runner=subprocess.run) -> dict:
         if result.returncode != 0:
             failure = classify_owner_list_failure(
                 (result.stdout or "") + " " + (result.stderr or ""))
+            diagnostic = safe_command_diagnostic(result, phase="owner_dataset_list", page=page)
             if failure == "OWNER_DATASET_LIST_OK_EXACT_SLUG_NOT_FOUND":
                 return {**base, "status": failure, "exact_dataset_visible": False,
                         "rows_examined": rows_examined, "pages_scanned": page,
-                        "scan_complete": True}
+                        "scan_complete": True, "diagnostic": diagnostic}
             return {**base, "status": failure,
-                    "rows_examined": rows_examined, "pages_scanned": page - 1}
+                    "rows_examined": rows_examined, "pages_scanned": page - 1,
+                    "diagnostic": diagnostic}
 
         parsed = parse_owner_dataset_csv(result.stdout or "")
         if parsed["status"] == "OWNER_DATASET_LIST_OUTPUT_UNPARSEABLE":
