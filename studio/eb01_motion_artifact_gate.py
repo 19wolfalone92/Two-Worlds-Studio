@@ -142,7 +142,9 @@ def neon_streak_line_geometry(frame: np.ndarray) -> float:
             vertical=np.mean(mask[
                 [y-2,y-1,y+1,y+2],left:right
             ])
-            if vertical<.22:
+            # A genuine 2-pixel streak has one of four adjacent rows
+            # occupied (25%); .22 wrongly missed every real 2-row test.
+            if vertical<.35:
                 thin_rows+=1
                 break
     return round(thin_rows/height,6)
