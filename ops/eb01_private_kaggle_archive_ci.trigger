@@ -1,1 +1,1 @@
-2026-11-15 verify owner PRIVATE Kaggle datasets safe-by-default SHA-bound remote original video archiver with no OAuth/GPU, only unit/static tests, no actual upload. User production goal durable private proof and 40sec film; never public GH actor footage.
+2026-11-15 20:32 UTC — offline-only regression pass after V8 pre-scale gate hardening and Kaggle CLI privacy-safe diagnostic fingerprints. Run archive security/idempotency + owner-list parsing + V8 native pilot authorization tests. No Kaggle API, no GPU, no media, no external account access, no public media artifacts.
