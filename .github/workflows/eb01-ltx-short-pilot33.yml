@@ -86,7 +86,12 @@ jobs:
             echo "EB01_PILOT33_ACTUAL_PRIVATE_GPU_STATUS $status"
             if [[ "$status" == *'KernelWorkerStatus.COMPLETE'* ]]; then
               mkdir -p "$RUNNER_TEMP/eb01-pilot-video"
-              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-pilot-video" --force
+              if kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-pilot-video" --force >"$RUNNER_TEMP/eb01-kaggle-output-PRIVATE.log" 2>&1; then
+                echo "EB01_PRIVATE_NEURAL_RESULT_RETRIEVED_NO_ART_PATHS_IN_PUBLIC_CI_LOG"
+              else
+                echo "::error::Private Kaggle output unavailable; sensitive generated filenames withheld."
+                exit 1
+              fi
               python - <<'PY'
           from pathlib import Path
           import hashlib,json,os,subprocess
@@ -116,7 +121,11 @@ jobs:
             if [[ "$status" == *'KernelWorkerStatus.ERROR'* ||
                   "$status" == *'KernelWorkerStatus.CANCEL'* ]]; then
               mkdir -p "$RUNNER_TEMP/eb01-pilot-video"
-              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-pilot-video" --force || true
+              if kaggle kernels output "$kernel" -p "$RUNNER_TEMP/eb01-pilot-video" --force >"$RUNNER_TEMP/eb01-kaggle-output-PRIVATE.log" 2>&1; then
+                echo "EB01_PRIVATE_FAILURE_DIAGNOSIS_RETRIEVED_SAFE"
+              else
+                echo "::warning::Failed private result download; generated prompt/paths never printed."
+              fi
               echo "::error::Actual 33-frame LTX GPU pilot failed. No fake production video."
               exit 1
             fi
@@ -224,4 +233,4 @@ jobs:
           if-no-files-found: warn
       - name: Wipe all private source imagery and video from runner
         if: always()
-        run: rm -rf "$RUNNER_TEMP/eb01-short-gpu" "$RUNNER_TEMP/eb01-pilot-video"
+        run: rm -rf "$RUNNER_TEMP/eb01-short-gpu" "$RUNNER_TEMP/eb01-pilot-video" "$RUNNER_TEMP/eb01-kaggle-output-PRIVATE.log"
