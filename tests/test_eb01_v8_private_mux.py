@@ -16,7 +16,7 @@ from studio.eb01_v8_private_mux import (
     PrivateMovieBlocked, safe_private_path, prepare_private_output_parent,
     secure_private_file, segment_filter, transcode_one, native33,
     final_frame_rgb_sha, ffprobe, assemble_private_v8, audio_mix,
-    validate_voice_timing
+    validate_voice_timing, safe_private_child
 )
 from studio.eb01_v7_storyboard import VOICE_SECONDS
 from studio.eb01_v8_40s_native_motion_plan import plan
@@ -142,6 +142,25 @@ class PrivateNoPublicReleaseTests(unittest.TestCase):
             with patch.dict(os.environ, {"GITHUB_WORKSPACE": ""}):
                 with self.assertRaisesRegex(PrivateMovieBlocked, "Git checkout"):
                     safe_private_path(checkout / "private" / "actor.mp4")
+
+    def test_compositor_refuses_symlinked_private_source_subdirectory(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "private"
+            outside = base / "outside"
+            root.mkdir()
+            outside.mkdir()
+            (root / "segments").symlink_to(outside, target_is_directory=True)
+            with self.assertRaisesRegex(PrivateMovieBlocked, "Symlinked"):
+                safe_private_child(root, Path("segments") / "S00_00.mp4")
+
+    def test_compositor_refuses_source_path_escape(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            root = base / "private"
+            root.mkdir()
+            with self.assertRaisesRegex(PrivateMovieBlocked, "escaped"):
+                safe_private_child(root, Path("../outside.mp4"))
 
     def test_symlinked_parent_denied_even_when_target_is_private(self):
         with tempfile.TemporaryDirectory() as td:
