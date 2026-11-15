@@ -8,7 +8,9 @@ conditioning frame may overlap the previous take, but it is included
 ONCE in the final source timeline. No fake interpolated/copy-pasted frames.
 
 Scheduling is NOT generation. Stage receipts and actual 24fps motion are
-mandatory and owner artistic approval remains separate.
+mandatory and owner artistic approval remains separate. Final source takes
+must contain native >=576x1024 model detail; upscaling a 320x576 pilot is
+not accepted as cinematic native detail.
 """
 from __future__ import annotations
 
@@ -28,6 +30,8 @@ SEGMENT_NATIVE_FRAMES = 33
 SEGMENT_OVERLAP_FRAMES = 1
 STRIDE = SEGMENT_NATIVE_FRAMES - SEGMENT_OVERLAP_FRAMES
 REQUIRED_MIN_DURATION_SECONDS = 40.0
+MIN_NATIVE_WIDTH = 576
+MIN_NATIVE_HEIGHT = 1024
 
 # Deliberate speaking/reaction intervals. 7 unique movie scenes, not
 # additional recycled pseudo scenes. Natural acting beats after/before voice.
@@ -132,6 +136,8 @@ def plan() -> dict:
     return {
         "schema":8,
         "required_fps":FPS,
+        "required_native_width":MIN_NATIVE_WIDTH,
+        "required_native_height":MIN_NATIVE_HEIGHT,
         "new_true_inference_segment_count":30,
         "neural_frames_to_generate":total_generated,
         "final_unique_native_frames":cursor,
@@ -152,12 +158,11 @@ def plan() -> dict:
 
 
 def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
-    """Reject fake scenes, same-source repeats or unproved 1-frame continuity.
+    """Reject fake scenes, repeated sources, broken continuity or low-detail sources.
 
-    Needs SHA-authentic 33-frame native MP4 receipts, source input SHA and
-    exact conditioning input-frame SHA and last decoded frame SHA for each
-    GPU result. First decoded frame need NOT match input due VAE. Plan passes
-    NOTHING. Only S00-S06 actors and native original 33f takes are valid.
+    Each source must be an authentic 33-frame/24fps GPU take, >=576x1024
+    at model output (not post-upscaled), with SHA-pinned actor identity,
+    RGB/identity QA, and exact previous-tail conditioning continuity.
     """
     p=plan()
     reasons=[]
@@ -166,6 +171,7 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                 "reasons": ["INVALID_EVIDENCE_MAPPING"],
                 "genuinely_original_segments_verified": 0,
                 "expected_original_segments": p["new_true_inference_segment_count"],
+                "native_576x1024_detail_verified": False,
                 "full_40s_movie_ready": False, "social_published": False}
     if set(evidence)!=set(SEGMENT_COUNTS):
         reasons.append("REQUIRED_7_UNIQUE_SCENE_EVIDENCE_MISSING")
@@ -192,6 +198,14 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
             first=proof.get("conditioning_input_frame_sha256")
             last=proof.get("last_decoded_frame_sha256")
             actor_sha=proof.get("canonical_actor_sha256")
+            native_width=proof.get("native_width")
+            native_height=proof.get("native_height")
+            native_detail_ok = (
+                type(native_width) is int and native_width >= MIN_NATIVE_WIDTH
+                and type(native_height) is int and native_height >= MIN_NATIVE_HEIGHT
+            )
+            if not native_detail_ok:
+                reasons.append(f"{sid}_{idx}_NATIVE_576X1024_DETAIL_NOT_PROVEN")
             if (not all(isinstance(x,str) and HEX64.fullmatch(x)
                         for x in (sha,first,last,actor_sha))
                 or actor_sha!=row["canonical_reference_sha256"]
@@ -200,6 +214,7 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                 or proof["native_frames"] != 33
                 or type(proof.get("native_fps")) is not int
                 or proof["native_fps"] != 24
+                or not native_detail_ok
                 or proof.get("actual_model_inference") is not True
                 or proof.get("rgb_neon_qc")!="PASS"
                 or proof.get("identity_artistic_qc")!="PASS"):
@@ -223,16 +238,17 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
             chain_valid = chain_ok
             if chain_ok:
                 genuine_count += 1
+    fully_verified = (not reasons and genuine_count == p["new_true_inference_segment_count"])
     return {
         "schema":8,
-        "status":"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED" if not reasons else "BLOCKED",
+        "status":"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED" if fully_verified else "BLOCKED",
         "reasons":sorted(set(reasons)),
         "genuinely_original_segments_verified":genuine_count,
         "expected_original_segments":p["new_true_inference_segment_count"],
+        "native_576x1024_detail_verified":fully_verified,
         "full_40s_movie_ready":False,  # no stitched file, owner or lipsync approval
         "social_published":False,
     }
-
 
 
 def authorize_v8_scale_up(pilot: Mapping[str, object]) -> dict:
@@ -271,8 +287,10 @@ def authorize_v8_scale_up(pilot: Mapping[str, object]) -> dict:
         "public_media_export": False,
     }
 
+
 def main():
     print(json.dumps(plan(),ensure_ascii=False,indent=2))
+
 
 if __name__=="__main__":
     main()
