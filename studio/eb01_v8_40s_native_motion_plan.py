@@ -158,11 +158,16 @@ def plan() -> dict:
 
 
 def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
-    """Reject fake scenes, repeated sources, broken continuity or low-detail sources.
+    """Verify 30 original takes with continuity in the CORRECT hash domain.
 
-    Each source must be an authentic 33-frame/24fps GPU take, >=576x1024
-    at model output (not post-upscaled), with SHA-pinned actor identity,
-    RGB/identity QA, and exact previous-tail conditioning continuity.
+    conditioning_input_frame_sha256 and next_conditioning_frame_sha256 are
+    SHA-256 of the exact canonical PNG files supplied to the I2V worker.
+    last_decoded_frame_sha256 is SHA-256 of raw decoded RGB pixels. Those
+    byte domains are intentionally different and MUST NEVER be compared.
+
+    Each non-final take exports its last decoded RGB frame to one canonical
+    PNG; the next take must consume that exact PNG (same file SHA). The raw
+    decoded RGB digest remains an independent duplicate-tail detector.
     """
     p=plan()
     reasons=[]
@@ -175,8 +180,10 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                 "full_40s_movie_ready": False, "social_published": False}
     if set(evidence)!=set(SEGMENT_COUNTS):
         reasons.append("REQUIRED_7_UNIQUE_SCENE_EVIDENCE_MISSING")
-    sha_seen=set()
+    mp4_seen=set()
     decoded_tails_seen=set()
+    conditioning_inputs_seen=set()
+    conditioning_exports_seen=set()
     genuine_count=0
     for row in p["scenes"]:
         sid=row["scene_id"]
@@ -184,61 +191,92 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
         if not isinstance(receipts,list) or len(receipts)!=row["native_segment_count"]:
             reasons.append(f"{sid}_MISSING_DISTINCT_NATIVE_I2V_SEGMENTS")
             continue
-        prev_tail=None
+        previous_conditioning_export=None
         chain_valid=True
         for idx,proof in enumerate(receipts):
             if not isinstance(proof,dict):
                 reasons.append(f"{sid}_{idx}_NO_GPU_RECEIPT")
                 chain_valid=False
+                previous_conditioning_export=None
                 continue
-            sha=proof.get("mp4_sha256")
-            # The VAE's first OUTPUT frame may differ pixel-by-pixel from
-            # the input reference. Exact overlap must be enforced on the
-            # conditioning SOURCE file SHA, not decoded output RGB bytes.
-            first=proof.get("conditioning_input_frame_sha256")
-            last=proof.get("last_decoded_frame_sha256")
+            mp4_sha=proof.get("mp4_sha256")
+            # File SHA of the exact PNG used as I2V conditioning input.
+            conditioning_input=proof.get("conditioning_input_frame_sha256")
+            # SHA of raw decoded RGB bytes, not a PNG/file SHA.
+            decoded_tail=proof.get("last_decoded_frame_sha256")
+            # File SHA of the canonical PNG exported from decoded_tail and
+            # actually passed to the next segment as its conditioning input.
+            next_conditioning=proof.get("next_conditioning_frame_sha256")
             actor_sha=proof.get("canonical_actor_sha256")
             native_width=proof.get("native_width")
             native_height=proof.get("native_height")
-            native_detail_ok = (
-                type(native_width) is int and native_width >= MIN_NATIVE_WIDTH
-                and type(native_height) is int and native_height >= MIN_NATIVE_HEIGHT
+            native_detail_ok=(
+                type(native_width) is int and native_width>=MIN_NATIVE_WIDTH
+                and type(native_height) is int and native_height>=MIN_NATIVE_HEIGHT
             )
             if not native_detail_ok:
                 reasons.append(f"{sid}_{idx}_NATIVE_576X1024_DETAIL_NOT_PROVEN")
-            if (not all(isinstance(x,str) and HEX64.fullmatch(x)
-                        for x in (sha,first,last,actor_sha))
-                or actor_sha!=row["canonical_reference_sha256"]
-                or sha in sha_seen
-                or type(proof.get("native_frames")) is not int
-                or proof["native_frames"] != 33
-                or type(proof.get("native_fps")) is not int
-                or proof["native_fps"] != 24
-                or not native_detail_ok
-                or proof.get("actual_model_inference") is not True
-                or proof.get("rgb_neon_qc")!="PASS"
-                or proof.get("identity_artistic_qc")!="PASS"):
+            if idx < len(receipts)-1:
+                next_export_ok=isinstance(next_conditioning,str) and HEX64.fullmatch(next_conditioning)
+                if not next_export_ok:
+                    reasons.append(f"{sid}_{idx}_NEXT_CONDITIONING_EXPORT_SHA_MISSING")
+            else:
+                next_export_ok=(next_conditioning is None or
+                    (isinstance(next_conditioning,str) and HEX64.fullmatch(next_conditioning)))
+                if not next_export_ok:
+                    reasons.append(f"{sid}_{idx}_NEXT_CONDITIONING_EXPORT_SHA_INVALID")
+            core_valid=(
+                all(isinstance(x,str) and HEX64.fullmatch(x)
+                    for x in (mp4_sha,conditioning_input,decoded_tail,actor_sha))
+                and actor_sha==row["canonical_reference_sha256"]
+                and mp4_sha not in mp4_seen
+                and type(proof.get("native_frames")) is int
+                and proof["native_frames"]==33
+                and type(proof.get("native_fps")) is int
+                and proof["native_fps"]==24
+                and native_detail_ok
+                and next_export_ok
+                and proof.get("actual_model_inference") is True
+                and proof.get("rgb_neon_qc")=="PASS"
+                and proof.get("identity_artistic_qc")=="PASS"
+            )
+            if not core_valid:
                 reasons.append(f"{sid}_{idx}_REAL_NATIVE_GPU_OR_QA_NOT_PROVEN")
                 chain_valid=False
+                previous_conditioning_export=(
+                    next_conditioning if isinstance(next_conditioning,str)
+                    and HEX64.fullmatch(next_conditioning) else None
+                )
                 continue
-            chain_ok = chain_valid
-            if idx == 0:
-                if proof.get("initial_reference_sha256") != row["canonical_reference_sha256"]:
+            chain_ok=chain_valid
+            if idx==0:
+                if proof.get("initial_reference_sha256")!=row["canonical_reference_sha256"]:
                     reasons.append(f"{sid}_ORIGINAL_CHARACTER_SHA_MISMATCH")
-                    chain_ok = False
-            elif prev_tail is None or first != prev_tail:
+                    chain_ok=False
+            elif previous_conditioning_export is None or conditioning_input!=previous_conditioning_export:
                 reasons.append(f"{sid}_{idx}_CONDITIONING_FRAME_CONTINUITY_BROKEN")
-                chain_ok = False
-            if last in decoded_tails_seen:
+                chain_ok=False
+            if conditioning_input in conditioning_inputs_seen:
+                reasons.append(f"{sid}_{idx}_REUSED_CONDITIONING_INPUT")
+                chain_ok=False
+            if decoded_tail in decoded_tails_seen:
                 reasons.append(f"{sid}_{idx}_REUSED_DECODED_TAIL")
-                chain_ok = False
-            sha_seen.add(sha)
-            decoded_tails_seen.add(last)
-            prev_tail = last
-            chain_valid = chain_ok
+                chain_ok=False
+            if idx < len(receipts)-1:
+                if next_conditioning==conditioning_input or next_conditioning in conditioning_exports_seen:
+                    reasons.append(f"{sid}_{idx}_REUSED_NEXT_CONDITIONING_EXPORT")
+                    chain_ok=False
+                conditioning_exports_seen.add(next_conditioning)
+                previous_conditioning_export=next_conditioning
+            else:
+                previous_conditioning_export=None
+            conditioning_inputs_seen.add(conditioning_input)
+            decoded_tails_seen.add(decoded_tail)
+            mp4_seen.add(mp4_sha)
+            chain_valid=chain_ok
             if chain_ok:
-                genuine_count += 1
-    fully_verified = (not reasons and genuine_count == p["new_true_inference_segment_count"])
+                genuine_count+=1
+    fully_verified=(not reasons and genuine_count==p["new_true_inference_segment_count"])
     return {
         "schema":8,
         "status":"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED" if fully_verified else "BLOCKED",
@@ -246,7 +284,7 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
         "genuinely_original_segments_verified":genuine_count,
         "expected_original_segments":p["new_true_inference_segment_count"],
         "native_576x1024_detail_verified":fully_verified,
-        "full_40s_movie_ready":False,  # no stitched file, owner or lipsync approval
+        "full_40s_movie_ready":False,
         "social_published":False,
     }
 
