@@ -212,7 +212,13 @@ import os
 settings=InferenceConfig(pipeline_config=os.environ['LTX_CONFIG'],prompt=os.environ['LTX_PROMPT'],
   seed=202611132,height=576,width=320,num_frames=33,frame_rate=24,
   offload_to_cpu=True,conditioning_media_paths=[os.environ['LTX_INPUT']],
-  conditioning_start_frames=[0],image_cond_noise_scale=0.025,
+  # Controlled motion A/B: keep original reference/prompt/seed, exact
+  # official DEFAULT conditioning strength=1.0, but restore LTX's
+  # officially documented DEFAULT image-conditioning noise 0.15.
+  # Prior 0.025 yielded true moving video but tiny 0.4308/255 global
+  # mean consecutive frame delta; no artist-approved action/lipsync.
+  conditioning_strengths=[1.0],conditioning_start_frames=[0],
+  image_cond_noise_scale=0.15,
   output_path=os.environ['LTX_OUTPUT'])
 print('EB01_LTX_REAL_NATIVE_33_FRAME_PILOT_START',flush=True)
 infer(settings)
@@ -268,12 +274,19 @@ infer(settings)
             "all_33_decoded":qc["decoded_frames"]==pilot_frames,
             "no_neon":qc["status"]=="NO_NEON_ARTIFACT_FOUND",
         }
+        from tools.eb01_true_gpu_clip_numbers import gray_motion
+        numerical_motion=gray_motion(video)
         quality_safe={
             "schema":1,"shot":"S02","actual_native_gpu_generated":True,
             "movie_sha256":source_sha(video),
             "movie_bytes":video.stat().st_size,
             "actual_gpu_seconds":pilot_seconds,
             "probe":meta,"checks":quality_checks,
+            "motion_noise_conditioning":0.15,
+            "conditioning_strength_explicit":1.0,
+            "numerical_motion_proxy":numerical_motion,
+            "previous_fp32_control_mean_luma_delta":0.4308,
+            "actor_motion_artistic_QA_proven":False,
             "rgb_gate_status":qc["status"],
             "frame_flags":qc.get("flagged_frames",[])[:100],
             "spectral_flags":qc.get("spectral_intrusion_flagged_frames",[])[:100],
@@ -338,6 +351,9 @@ infer(settings)
            "pipeline_memory_patch_sha256":stage_sha,
            "prompt_enhancement_disabled":True,
            "original_prompt_passed_unchanged":True,
+           "motion_conditioning_noise_scale":0.15,
+           "conditioning_strength":1.0,
+           "native_motion_diagnostic":numerical_motion,
            "studio_git_revision":cfg["revision"],
            "original_reference_sha256":source_sha(reference),
            "original_character_sha256":SRC_SHA["KOSTYA"],
