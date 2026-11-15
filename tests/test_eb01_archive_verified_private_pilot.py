@@ -10,7 +10,8 @@ from pathlib import Path
 import tempfile
 from tools.eb01_archive_verified_private_pilot import (
     private_dataset_meta, archive, archive_existing_output, safe_cmd,
-    safe_cmd_result, verify_remote_dataset, PrivateArchiveBlocked
+    safe_cmd_result, verify_remote_dataset, classify_kaggle_failure,
+    PrivateArchiveBlocked
 )
 
 KERNEL="wolf19loner92/eb01-ltx2b-pilot33-a609d40bc3ee"
@@ -86,17 +87,16 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
             self.assertFalse(report["remote_original_sha_verified"])
 
     def test_explicit_http_404_is_the_only_metadata_failure_that_allows_create(self):
-        from types import SimpleNamespace
-        with patch("tools.eb01_archive_verified_private_pilot.subprocess.run",
-                   return_value=SimpleNamespace(returncode=1,stdout="",
-                                                 stderr="404 Client Error: Not Found")):
-            self.assertEqual(safe_cmd_result(["kaggle","datasets","metadata","x"]),
-                             (False,"NOT_FOUND"))
-        with patch("tools.eb01_archive_verified_private_pilot.subprocess.run",
-                   return_value=SimpleNamespace(returncode=1,stdout="",
-                                                 stderr="403 Forbidden")):
-            self.assertEqual(safe_cmd_result(["kaggle","datasets","metadata","x"]),
-                             (False,"ACCESS_DENIED"))
+        self.assertEqual(classify_kaggle_failure("404 Client Error: Not Found"),
+                         "NOT_FOUND")
+        self.assertEqual(classify_kaggle_failure("403 Forbidden"),
+                         "ACCESS_DENIED")
+        self.assertEqual(classify_kaggle_failure("401 Unauthorized"),
+                         "AUTH_DENIED")
+        self.assertEqual(classify_kaggle_failure("connection reset by peer"),
+                         "TIMEOUT")
+        self.assertEqual(classify_kaggle_failure("file not found"),
+                         "COMMAND_FAILED")
 
     def test_only_minimal_receipt_and_mp4_staged_in_private_dataset(self):
         source=Path(__file__).resolve().parents[1].joinpath(
