@@ -15,8 +15,10 @@ from unittest.mock import patch
 from studio.eb01_v8_private_mux import (
     PrivateMovieBlocked, safe_private_path, prepare_private_output_parent,
     secure_private_file, segment_filter, transcode_one, native33,
-    final_frame_rgb_sha, ffprobe, assemble_private_v8, audio_mix
+    final_frame_rgb_sha, ffprobe, assemble_private_v8, audio_mix,
+    validate_voice_timing
 )
+from studio.eb01_v7_storyboard import VOICE_SECONDS
 from studio.eb01_v8_40s_native_motion_plan import plan
 
 
@@ -66,16 +68,53 @@ class RealCodecFrameTests(unittest.TestCase):
                 subprocess.run(
                     ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
                      "-f", "lavfi", "-i", f"sine=frequency={300+i*65}:sample_rate=48000",
-                     "-t", "0.15", "-ac", "1", "-c:a", "pcm_s16le", str(wave)],
+                     "-t", str(VOICE_SECONDS[sid]), "-ac", "1",
+                     "-c:a", "pcm_s16le", str(wave)],
                     capture_output=True, check=True, timeout=30)
                 wavs[sid] = wave
             merged = base / "SYNTHETIC_TEST_NOT_REAL_RUSSIAN_AUDIO.wav"
-            audio_mix(base, wavs, plan(), merged)
+            timing = audio_mix(base, wavs, plan(), merged)
+            self.assertEqual(timing["mix_sample_rate"], 48000)
+            self.assertEqual(timing["samples_per_video_frame"], 2000)
+            self.assertEqual(set(timing["voice_lines"]), set(wavs))
+            for proof in timing["voice_lines"].values():
+                self.assertEqual(proof["start_sample_48k"],
+                                 proof["movie_start_frame"] * 2000)
+                self.assertLessEqual(proof["duration_seconds"],
+                                     proof["window_seconds"] + 1 / 24000)
             streams = [x for x in ffprobe(merged)["streams"]
                        if x["codec_type"] == "audio"]
             self.assertEqual(len(streams), 1)
             self.assertAlmostEqual(float(streams[0]["duration"]),
                                    plan()["final_duration_seconds"], delta=0.04)
+
+    def test_overlong_voice_is_rejected_instead_of_spilling_into_next_scene(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            scene = next(s for s in plan()["scenes"] if s["scene_id"] == "S02")
+            wave = base / "overlong_S02.wav"
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
+                 "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                 "-t", str(VOICE_SECONDS["S02"] + 0.25), "-ac", "1",
+                 "-c:a", "pcm_s16le", str(wave)],
+                capture_output=True, check=True, timeout=30)
+            with self.assertRaisesRegex(PrivateMovieBlocked, "dialogue window"):
+                validate_voice_timing("S02", wave, scene)
+
+    def test_truncated_voice_is_rejected_instead_of_silently_passing(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            scene = next(s for s in plan()["scenes"] if s["scene_id"] == "S02")
+            wave = base / "truncated_S02.wav"
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
+                 "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+                 "-t", str(VOICE_SECONDS["S02"] - 0.25), "-ac", "1",
+                 "-c:a", "pcm_s16le", str(wave)],
+                capture_output=True, check=True, timeout=30)
+            with self.assertRaisesRegex(PrivateMovieBlocked, "dialogue window"):
+                validate_voice_timing("S02", wave, scene)
 
     def test_no_real_sources_never_creates_fake_final_movie(self):
         with tempfile.TemporaryDirectory() as td:
