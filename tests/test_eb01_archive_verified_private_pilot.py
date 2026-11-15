@@ -56,6 +56,7 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
         self.assertNotIn("actions/upload-artifact",source)
         self.assertIn('"isPrivate":True',source)
         self.assertIn('report["independent_remote_acl"]',source)
+        self.assertIn('safe["owner_original_mp4_sha256"]=expected',source)
         self.assertIn('validate_actual_pilot(output)',source)
 
 
