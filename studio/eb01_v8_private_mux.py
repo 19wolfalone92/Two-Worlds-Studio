@@ -2,7 +2,8 @@
 
 No model inference, generated frames, cloned scene loops or artistic approval.
 Must run only in owner-controlled PRIVATE storage; NEVER public GitHub artifacts.
-An upscaled 320x576 source is not native 576x1024 neural detail.
+Every source take must already contain native >=576x1024 model detail. An
+upscaled 320x576 motion pilot is not eligible as a V8 final source segment.
 """
 from __future__ import annotations
 
@@ -108,40 +109,50 @@ def ffprobe(path: Path) -> dict:
 
 
 def native33(path: Path) -> None:
+    """Require a true 33-frame model source with native cinematic pixel detail."""
     p = ffprobe(path)
     streams = [s for s in p.get("streams", []) if s.get("codec_type") == "video"]
     if len(streams) != 1:
         raise PrivateMovieBlocked("Exactly one native source video stream required")
     v = streams[0]
     try:
-        good = (v["width"] == 320 and v["height"] == 576
+        good = (type(v["width"]) is int and v["width"] >= 576
+                and type(v["height"]) is int and v["height"] >= 1024
                 and Fraction(v["avg_frame_rate"]) == 24
                 and int(v["nb_read_frames"]) == 33)
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         good = False
     if not good:
-        raise PrivateMovieBlocked("Genuine native 320x576/24/33 source required")
+        raise PrivateMovieBlocked("Native >=576x1024/24/33 model source required; 320x576 upscale is not detail")
     call(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-xerror",
           "-i", str(path), "-an", "-f", "null", "-"], "private source decode")
 
 
 def final_frame_rgb_sha(path: Path) -> str:
-    # Full final decoded 320x576 RGB frame, NOT compressed H264 file bytes.
+    # Full final decoded RGB frame at the ACTUAL native source dimensions.
+    v = next((s for s in ffprobe(path).get("streams", [])
+              if s.get("codec_type") == "video"), {})
+    width, height = v.get("width"), v.get("height")
+    if (type(width) is not int or type(height) is not int
+            or width < 576 or height < 1024):
+        raise PrivateMovieBlocked("Native high-detail frame dimensions unavailable")
     raw = call(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error",
         "-i", str(path), "-vf", "select=eq(n\\,32)", "-vsync", "0",
         "-an", "-pix_fmt", "rgb24", "-f", "rawvideo", "-"],
         "source frame-32 decode", timeout=60)
-    if len(raw) != 320 * 576 * 3:
-        raise PrivateMovieBlocked("Missing exact final raw RGB continuity frame")
+    if len(raw) != width * height * 3:
+        raise PrivateMovieBlocked("Missing exact final native RGB continuity frame")
     return hashlib.sha256(raw).hexdigest()
 
 
 def segment_filter(skip_conditioning_frame: bool) -> str:
     # 33 frames for first segment; only 32 for every following segment.
-    # No fps converter or minterpolate: output native 24fps count unchanged.
+    # Preserve aspect ratio and crop to delivery frame; never invent pixels
+    # to claim native detail. Native source detail is proved before this step.
     return ("trim=start_frame=" + ("1" if skip_conditioning_frame else "0")
-            + ",setpts=PTS-STARTPTS,scale=576:1024:flags=lanczos,"
-              "setsar=1,format=yuv420p")
+            + ",setpts=PTS-STARTPTS,"
+              "scale=576:1024:force_original_aspect_ratio=increase,"
+              "crop=576:1024,setsar=1,format=yuv420p")
 
 
 def transcode_one(src: Path, dst: Path, skip: bool, fps=24) -> None:
@@ -198,7 +209,7 @@ def validate_private_inputs(root: Path) -> dict:
         receipts[sid] = rows
     verified = verify_real_neural_sources(receipts)
     if verified["status"] != "SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED":
-        raise PrivateMovieBlocked("Source authenticity, continuity or artist-QA receipts unverified")
+        raise PrivateMovieBlocked("Source authenticity, continuity or native detail/QA receipts unverified")
     voices = {}
     for sid, sha in VOICE_SHA.items():
         wav = root / "voices" / (sid + ".wav")
@@ -279,7 +290,8 @@ def assemble_private_v8(root: Path, output: Path) -> dict:
             original_neural_segments_verified=True,
             six_line_lipsync_verified=False,
             owner_final_artistic_review=False,
-            private_durable_storage_verified=False)
+            private_durable_storage_verified=False,
+            native_576x1024_detail_verified=proof["source_proof"]["native_576x1024_detail_verified"])
         if n != 967 or "AUDIO_STREAM_DURATION_MISSING" in decision["reasons"]:
             raise PrivateMovieBlocked("Private review mux clock or voice track incomplete")
         # Preserve unapproved review media privately. No 'final approved' claim.
@@ -291,8 +303,9 @@ def assemble_private_v8(root: Path, output: Path) -> dict:
             "video_frame_count": 967, "seconds": movie["final_duration_seconds"],
             "original_neural_segments": 30, "independent_scenes": 7,
             "canonical_russian_voice_lines": 6,
-            "scaled_from_native_320x576": True,
-            "native_576x1024_detail_verified": False,
+            "native_source_resolution_minimum": [576, 1024],
+            "native_576x1024_detail_verified": decision["native_576x1024_detail_independently_proven"],
+            "delivery_resized_to_576x1024": True,
             "audio_conditioned_lipsync_verified": False,
             "owner_artistic_approval": False,
             "private_durable_storage_verified": False,
