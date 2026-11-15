@@ -267,6 +267,8 @@ infer(settings)
             "frame_flags":qc.get("flagged_frames",[])[:100],
             "spectral_flags":qc.get("spectral_intrusion_flagged_frames",[])[:100],
             "horizontal_band_flags":qc.get("horizontal_neon_band_flagged_frames",[])[:100],
+            "neon_line_geometry_by_frame":qc.get("neon_line_geometry_trace",[])[:100],
+            "neon_line_geometry_flags":qc.get("neon_line_geometry_flagged_frames",[])[:100],
             "narrow_neon_flags":qc.get("narrow_neon_suspected_frames",[])[:100],
             # Bounded per-frame NUMERIC evidence distinguishes persistent scene
             # palette from abrupt corruption without releasing private pixels.
@@ -286,9 +288,37 @@ infer(settings)
               "color_status",qc["status"],flush=True)
         if not all(quality_checks.values()):
             rejected=",".join(k for k,v in quality_checks.items() if not v)
-            raise RuntimeError("Authentic LTX S02 generated original MP4 but "
-                               "required video frame/color QA rejected: "+rejected
-                               +" rgb="+str(qc["status"]))
+            # Real GPU and 33 native model frames finished. Preserve private
+            # source and distinguish mandatory artistic QA failure from
+            # runtime crash. Never claim the film is complete or approved.
+            review={
+                "schema":7,"shot":"S02","success":False,
+                "status":"REAL_NATIVE_GPU_VIDEO_GENERATED_QA_REVIEW_BLOCKED",
+                "model_inference_completed":True,
+                "actual_original_mp4_created":True,
+                "actual_mp4_private_only":True,
+                "true_gpu_neural_inference":True,
+                "model":"Lightricks/LTX-Video-2B-0.9.6-distilled",
+                "official_source_git_sha":LTX_SHA,
+                "studio_git_revision":cfg["revision"],
+                "original_character_sha256":SRC_SHA["KOSTYA"],
+                "clip_sha256":source_sha(video),
+                "frame_count":meta["frames"],"fps":meta["fps"],
+                "width":meta["width"],"height":meta["height"],
+                "actual_gpu_seconds":pilot_seconds,
+                "color_qa":qc["status"],
+                "blocked_checks":rejected,
+                "error_type":"IndependentVisualQABlocked",
+                "original_prompt_passed_unchanged":True,
+                "human_artistic_approved":False,
+                "audio_conditioned_lipsync_verified":False,
+                "whole_movie_ready":False,"published":False,
+            }
+            JOB.write_text(json.dumps(review,ensure_ascii=False,indent=2)+"\n")
+            print("EB01_TRUE_GPU_NATIVE_OUTPUT_PRESERVED_PRIVATE_QA_BLOCKED",
+                  "frames",meta["frames"],"seconds",pilot_seconds,
+                  "reason",rejected,"rgb_review_status",qc["status"],flush=True)
+            return
         proof={"schema":7,"shot":"S02","success":True,
            "status":"REAL_LTX2B_SHORT_33FRAME_GPU_PILOT_ARTISTIC_REVIEW_REQUIRED",
            "model":"Lightricks/LTX-Video-2B-0.9.6-distilled",
