@@ -14,3 +14,5 @@
 2026-11-15T01:42Z read-only check existing c28a516c464e after primary run 43659159216 and prior watchdog 43659296677 both completed. Do not submit another GPU job; retain private originals; capture only safe numeric QA and genuine model status.
 
 2026-11-15T02:19Z read-only post-COMPLETE c28a516c464e receipt SHA and numeric RGB geometry QA; never resubmit GPU or publish private media.
+
+2026-11-15: FP32 LTX TRUE native 33 frame 24fps color technical pass independently verified in run 43664319485 SHA 74ee...; standalone numeral fetch of same private notebook intermittently returns 404. Execute one read-only watchdog check with new tools/eb01_gpu_watchdog.py integrated gray_motion computed on the SAME successful private download (no new GPU), 33 unique frame evidence, raw clip never public.
