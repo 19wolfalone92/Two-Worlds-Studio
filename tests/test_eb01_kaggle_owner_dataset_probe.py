@@ -8,7 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from tools.eb01_kaggle_owner_dataset_probe import (
-    TARGET_DATASET, inspect_owner_dataset_visibility, parse_owner_dataset_csv
+    TARGET_DATASET, inspect_owner_dataset_visibility, parse_owner_dataset_csv,
+    classify_owner_list_failure
 )
 
 
@@ -54,12 +55,26 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
             def fake(*args, **kwargs):
                 raise subprocess.TimeoutExpired("kaggle", 75)
             result = inspect_owner_dataset_visibility(runner=fake)
-        self.assertEqual(result["status"], "OWNER_DATASET_LIST_TIMEOUT")
+        self.assertEqual(result["status"], "OWNER_DATASET_LIST_HELP_TIMEOUT")
+
+    def test_list_no_results_is_a_safe_exact_absence_signal(self):
+        self.assertEqual(classify_owner_list_failure("No results found for search term"),
+                         "OWNER_DATASET_LIST_OK_EXACT_SLUG_NOT_FOUND")
+
+    def test_list_permission_and_argument_errors_remain_distinct(self):
+        self.assertEqual(classify_owner_list_failure("403 Forbidden"),
+                         "OWNER_DATASET_LIST_ACCESS_DENIED")
+        self.assertEqual(classify_owner_list_failure("unrecognized arguments: --csv"),
+                         "OWNER_DATASET_LIST_CLI_ARGUMENT_ERROR")
 
     def test_cli_invocation_is_owner_only_search_and_read_only(self):
         with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
             seen = {}
             def fake(args, **kwargs):
+                seen.setdefault("calls", []).append(args)
+                if args[-1] == "--help":
+                    return SimpleNamespace(returncode=0,
+                        stdout="--mine --search --page --csv", stderr="")
                 seen["args"] = args
                 seen["kwargs"] = kwargs
                 return SimpleNamespace(returncode=0,
@@ -67,8 +82,11 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
                     stderr="")
             result = inspect_owner_dataset_visibility(runner=fake)
         self.assertEqual(result["status"], "OWNER_DATASET_LIST_OK_EXACT_SLUG_FOUND")
-        self.assertIn("--mine", seen["args"])
-        self.assertIn("--search", seen["args"])
+        self.assertEqual(seen["calls"][0], ["kaggle", "datasets", "list", "--help"])
+        self.assertIn("-m", seen["args"])
+        self.assertIn("-s", seen["args"])
+        self.assertIn("-p", seen["args"])
+        self.assertIn("-v", seen["args"])
         self.assertNotIn("create", seen["args"])
         self.assertNotIn("download", seen["args"])
         self.assertNotIn("kernels", seen["args"])
