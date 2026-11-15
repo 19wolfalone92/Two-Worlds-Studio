@@ -3,8 +3,9 @@ from studio.eb01_v8_final_mux_qa import verify_final_mux
 def probe(frames=967):
     return {"streams": [
         {"codec_type":"video","codec_name":"h264","width":576,"height":1024,
-         "avg_frame_rate":"24/1","r_frame_rate":"24/1"},
-        {"codec_type":"audio","codec_name":"aac"}],
+         "avg_frame_rate":"24/1","r_frame_rate":"24/1",
+         "nb_frames":str(frames),"duration":str(frames/24)},
+        {"codec_type":"audio","codec_name":"aac","duration":str(frames/24)}],
         "format":{"duration":str(frames/24)}}
 
 def check(p=None, **kw):
@@ -63,3 +64,27 @@ def test_invalid_format_never_crashes_or_passes():
     result = check(p)
     assert result["movie_ready"] is False
     assert "INVALID_FINAL_DURATION" in result["reasons"]
+
+
+def test_truncated_encoded_stream_rejected_despite_valid_container():
+    p = probe()
+    p["streams"][0]["nb_frames"] = "563"
+    assert "ENCODED_VIDEO_FRAME_COUNT_MISMATCH" in check(p,
+        original_neural_segments_verified=True,
+        six_line_lipsync_verified=True,
+        private_durable_storage_verified=True)["reasons"]
+
+
+def test_short_audio_stream_rejected():
+    p = probe()
+    p["streams"][1]["duration"] = "3.0"
+    assert "AUDIO_STREAM_DURATION_MISMATCH" in check(p)["reasons"]
+
+
+def test_missing_stream_metadata_fails_closed():
+    p = probe()
+    del p["streams"][0]["nb_frames"]
+    del p["streams"][1]["duration"]
+    result = check(p)
+    assert "ENCODED_VIDEO_FRAME_COUNT_MISSING" in result["reasons"]
+    assert "AUDIO_STREAM_DURATION_MISSING" in result["reasons"]
