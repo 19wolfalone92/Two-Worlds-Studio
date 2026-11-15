@@ -213,6 +213,38 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
     }
 
 
+
+def authorize_v8_scale_up(pilot: Mapping[str, object]) -> dict:
+    """Fail closed BEFORE spending 30 GPU segments on an unapproved pilot.
+
+    Optical luma differences and RGB QA cannot certify visible acting.
+    The human review must refer to the exact SHA-locked private MP4, not
+    an unrelated preview. Private durable storage must be access-controlled.
+    This gate authorizes planning only, never GPU submission or publishing.
+    """
+    expected_sha = "74ee559ecf5d73cd95e0d28e0aa5171e6b546f6e227091974b42126acfea56d6"
+    checks = {
+        "authentic_pilot_sha": pilot.get("pilot_mp4_sha256") == expected_sha,
+        "true_native_33_frames": pilot.get("decoded_frames") == 33,
+        "native_rgb_pass": pilot.get("rgb_status") == "NO_NEON_ARTIFACT_FOUND",
+        "private_owner_visual_signoff": pilot.get("owner_visual_review") == "PASS",
+        "skeletal_jaw_and_body_physics": pilot.get("skeletal_anatomy_review") == "PASS",
+        "human_face_identity_and_expression": pilot.get("human_identity_review") == "PASS",
+        "visible_nontrivial_acting": pilot.get("acting_motion_review") == "PASS",
+        "private_durable_media_acl": pilot.get("private_media_acl_verified") is True,
+        "audio_conditioned_lipsync_demonstrated": pilot.get("audio_conditioned_lipsync_review") == "PASS",
+    }
+    # No numeric luma threshold is an acceptable substitute for human QA.
+    blocked = sorted(k for k, ok in checks.items() if not ok)
+    return {
+        "schema": 8,
+        "scale_up_authorized": not blocked,
+        "blocking_gates": blocked,
+        "gpu_job_submitted": False,
+        "full_movie_ready": False,
+        "public_media_export": False,
+    }
+
 def main():
     print(json.dumps(plan(),ensure_ascii=False,indent=2))
 
