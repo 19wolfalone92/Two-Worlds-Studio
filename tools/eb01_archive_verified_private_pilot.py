@@ -51,7 +51,7 @@ def verify_remote_dataset(meta, expected, temp_root):
     It is safe to repeat and makes hourly watchdog runs idempotent.
     """
     metadata_dir=Path(temp_root)/"remote_metadata"
-    metadata_dir.mkdir(mode=0o700,exist_ok=True)
+    metadata_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
     if not safe_cmd(["kaggle","datasets","metadata",meta["id"],
                      "-p",str(metadata_dir)],timeout=100):
         return {"exists":False,"status":"REMOTE_DATASET_NOT_FOUND"}
@@ -69,7 +69,7 @@ def verify_remote_dataset(meta, expected, temp_root):
         return {"exists":True,"private":False,"sha_verified":False,
                 "status":"REMOTE_DATASET_PRIVACY_NOT_PROVEN"}
     download_dir=Path(temp_root)/"remote_dataset_verify"
-    download_dir.mkdir(mode=0o700,exist_ok=True)
+    download_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
     if not safe_cmd(["kaggle","datasets","download","-d",meta["id"],
                      "-p",str(download_dir),"--force"],timeout=180):
         return {"exists":True,"private":True,"sha_verified":False,
@@ -148,7 +148,7 @@ def _archive_verified_output(kernel,expected,output,temp_parent):
     # metadata and downloaded bytes rather than attempting a duplicate create.
     with tempfile.TemporaryDirectory(prefix="eb01-private-",dir=str(temp_parent)) as d:
         root=Path(d)
-        existing=verify_remote_dataset(meta,expected,root)
+        existing=verify_remote_dataset(meta,expected,root/"existing_check")
         if existing["exists"]:
             report["status"]=existing["status"]
             report["independent_remote_acl"]=existing.get("private") is True
@@ -168,7 +168,7 @@ def _archive_verified_output(kernel,expected,output,temp_parent):
             report["status"]="PRIVATE_KAGGLE_DATASET_CREATE_FAILED"
             return report
         report["created_private_default"]=True
-        verified=verify_remote_dataset(meta,expected,root)
+        verified=verify_remote_dataset(meta,expected,root/"post_create_check")
         report["independent_remote_acl"]=verified.get("private") is True
         report["remote_original_sha_verified"]=verified.get("sha_verified") is True
         report["status"]=(
