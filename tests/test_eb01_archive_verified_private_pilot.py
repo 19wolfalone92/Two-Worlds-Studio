@@ -62,9 +62,13 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
                 "success":True,"clip_sha256":expected,"whole_movie_ready":False,
                 "frame_count":33,"fps":24,"width":320,"height":576}))
             calls=[]
+            metadata_calls={"count":0}
             def fake_cmd(argv,timeout=180):
                 calls.append(list(argv))
                 if argv[1:3]==["datasets","metadata"]:
+                    metadata_calls["count"]+=1
+                    if metadata_calls["count"]==1:
+                        return False
                     dest=Path(argv[argv.index("-p")+1])
                     dest.mkdir(parents=True,exist_ok=True)
                     (dest/"dataset-metadata.json").write_text(
@@ -98,6 +102,16 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
             self.assertFalse(report["published"])
             self.assertFalse(report["full_movie_ready"])
             self.assertFalse(any(x[1:3]==["kernels","output"] for x in calls))
+            self.assertTrue(any(x[1:3]==["datasets","create"] for x in calls))
+            # A later hourly run sees the same private dataset, verifies the
+            # exact remote MP4 SHA, and does not attempt a duplicate create.
+            calls.clear()
+            metadata_calls["count"]=1
+            with patch("tools.eb01_archive_verified_private_pilot.safe_cmd",side_effect=fake_cmd):
+                again=archive_existing_output(KERNEL,expected,output,runner)
+            self.assertEqual(again["status"],"OWNER_PRIVATE_DATASET_ACL_AND_SHA_VERIFIED")
+            self.assertTrue(again["existing_dataset_reused"])
+            self.assertFalse(any(x[1:3]==["datasets","create"] for x in calls))
 
     def test_existing_watchdog_output_must_be_inside_ephemeral_runner_temp(self):
         with tempfile.TemporaryDirectory() as tmp:
