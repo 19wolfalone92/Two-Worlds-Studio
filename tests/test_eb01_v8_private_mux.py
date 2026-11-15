@@ -13,7 +13,8 @@ import unittest
 from unittest.mock import patch
 
 from studio.eb01_v8_private_mux import (
-    PrivateMovieBlocked, safe_private_path, segment_filter, transcode_one,
+    PrivateMovieBlocked, safe_private_path, prepare_private_output_parent,
+    secure_private_file, segment_filter, transcode_one,
     ffprobe, assemble_private_v8, audio_mix
 )
 from studio.eb01_v8_40s_native_motion_plan import plan
@@ -101,6 +102,31 @@ class PrivateNoPublicReleaseTests(unittest.TestCase):
                 self.skipTest("Directory symlinks unavailable")
             with self.assertRaisesRegex(PrivateMovieBlocked, "Symlinked"):
                 safe_private_path(alias / "review.mp4")
+
+    @unittest.skipUnless(os.name == "posix", "POSIX owner-only mode bits required")
+    def test_new_review_directory_is_owner_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            output = Path(td) / "owner-vault" / "review.mp4"
+            parent = prepare_private_output_parent(output)
+            self.assertEqual(parent.stat().st_mode & 0o777, 0o700)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX owner-only mode bits required")
+    def test_shared_group_or_world_readable_output_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = Path(td) / "shared-vault"
+            vault.mkdir()
+            vault.chmod(0o755)
+            with self.assertRaisesRegex(PrivateMovieBlocked, "Group/world-readable"):
+                prepare_private_output_parent(vault / "review.mp4")
+
+    @unittest.skipUnless(os.name == "posix", "POSIX owner-only mode bits required")
+    def test_final_review_file_is_owner_read_write_only(self):
+        with tempfile.TemporaryDirectory() as td:
+            movie = Path(td) / "review.mp4"
+            movie.write_bytes(b"synthetic-not-real-media")
+            movie.chmod(0o644)
+            secure_private_file(movie)
+            self.assertEqual(movie.stat().st_mode & 0o777, 0o600)
 
     def test_no_frame_duplication_or_generated_fps_in_segment_filter(self):
         for skip in (False, True):
