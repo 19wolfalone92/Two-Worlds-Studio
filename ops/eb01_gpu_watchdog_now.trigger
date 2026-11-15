@@ -16,3 +16,5 @@
 2026-11-15T02:19Z read-only post-COMPLETE c28a516c464e receipt SHA and numeric RGB geometry QA; never resubmit GPU or publish private media.
 
 2026-11-15: FP32 LTX TRUE native 33 frame 24fps color technical pass independently verified in run 43664319485 SHA 74ee...; standalone numeral fetch of same private notebook intermittently returns 404. Execute one read-only watchdog check with new tools/eb01_gpu_watchdog.py integrated gray_motion computed on the SAME successful private download (no new GPU), 33 unique frame evidence, raw clip never public.
+
+2026-11-15 GPU motion A/B status ONLY: one existing private original LTX worker wolf19loner92/eb01-ltx2b-pilot33-a609d40bc3ee was pushed exactly once by GitHub 43718767041. Read-only inspector must classify RUNNING vs QUEUED vs COMPLETE/ERROR, fetch original SHA and numerical gray-motion only if terminal. No GPU push, no raw media export, no UI false full movie claims.
