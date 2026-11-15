@@ -86,6 +86,27 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
             self.assertFalse(report["independent_remote_acl"])
             self.assertFalse(report["remote_original_sha_verified"])
 
+    def test_public_existing_dataset_is_blocked_without_delete_or_other_mutation(self):
+        meta = private_dataset_meta(KERNEL, SHA)
+        with tempfile.TemporaryDirectory() as tmp:
+            def metadata_read(argv, timeout=180):
+                self.assertEqual(argv[1:3], ["datasets", "metadata"])
+                dest = Path(argv[argv.index("-p") + 1])
+                dest.mkdir(parents=True, exist_ok=True)
+                (dest / "dataset-metadata.json").write_text(
+                    json.dumps({"isPrivate": False}), encoding="utf-8")
+                return True, "OK"
+            with patch("tools.eb01_archive_verified_private_pilot.safe_cmd_result",
+                       side_effect=metadata_read):
+                with patch("tools.eb01_archive_verified_private_pilot.safe_cmd",
+                           side_effect=AssertionError("privacy conflict must never mutate Kaggle")):
+                    result = verify_remote_dataset(meta, SHA, Path(tmp))
+        self.assertEqual(result["status"], "REMOTE_DATASET_PRIVACY_CONFLICT")
+        self.assertTrue(result["exists"])
+        self.assertFalse(result["private"])
+        self.assertFalse(result["sha_verified"])
+        self.assertFalse(result["delete_attempted"])
+
     def test_explicit_http_404_is_the_only_metadata_failure_that_allows_create(self):
         self.assertEqual(classify_kaggle_failure("404 Client Error: Not Found"),
                          "NOT_FOUND")
@@ -108,6 +129,7 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
         self.assertIn('report["independent_remote_acl"]',source)
         self.assertIn('safe["owner_original_mp4_sha256"]=expected',source)
         self.assertIn('validate_actual_pilot(output)',source)
+        self.assertNotIn('["kaggle","datasets","delete"', source)
 
 
     def test_archive_reuses_same_watchdog_download_and_verifies_private_remote_sha(self):

@@ -97,9 +97,11 @@ def verify_remote_dataset(meta, expected, temp_root):
                 "status":"REMOTE_DATASET_METADATA_UNREADABLE"}
     if remote.get("isPrivate") is not True:
         if remote.get("isPrivate") is False:
-            deleted=safe_cmd(["kaggle","datasets","delete",meta["id"],"--yes"],timeout=100)
+            # A visibility conflict is a hard stop, not permission for an
+            # automated job to mutate or delete an existing owner dataset.
+            # Preserve the evidence and require explicit owner-side resolution.
             return {"exists":True,"private":False,"sha_verified":False,
-                    "delete_attempted":deleted,"status":"REMOTE_DATASET_PRIVACY_CONFLICT"}
+                    "delete_attempted":False,"status":"REMOTE_DATASET_PRIVACY_CONFLICT"}
         return {"exists":True,"private":False,"sha_verified":False,
                 "status":"REMOTE_DATASET_PRIVACY_NOT_PROVEN"}
     download_dir=Path(temp_root)/"remote_dataset_verify"

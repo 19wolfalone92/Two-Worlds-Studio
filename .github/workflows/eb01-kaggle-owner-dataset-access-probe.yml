@@ -6,9 +6,6 @@ on:
       - fix/eb01-s02-private-raw-preservation-20261113
     paths:
       - ops/eb01_kaggle_owner_dataset_probe.trigger
-      - .github/workflows/eb01-kaggle-owner-dataset-access-probe.yml
-      - tools/eb01_kaggle_owner_dataset_probe.py
-      - tests/test_eb01_kaggle_owner_dataset_probe.py
 
 permissions:
   contents: read

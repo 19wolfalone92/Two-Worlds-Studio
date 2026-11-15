@@ -67,30 +67,71 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
         self.assertEqual(classify_owner_list_failure("unrecognized arguments: --csv"),
                          "OWNER_DATASET_LIST_CLI_ARGUMENT_ERROR")
 
-    def test_cli_invocation_is_owner_only_search_and_read_only(self):
+    def test_cli_invocation_is_owner_only_and_read_only_without_search_filter(self):
         with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
-            seen = {}
+            seen = {"calls": []}
             def fake(args, **kwargs):
-                seen.setdefault("calls", []).append(args)
+                seen["calls"].append((args, kwargs))
                 if args[-1] == "--help":
                     return SimpleNamespace(returncode=0,
-                        stdout="--mine --search --page --csv", stderr="")
-                seen["args"] = args
-                seen["kwargs"] = kwargs
+                        stdout="--mine --page --csv", stderr="")
                 return SimpleNamespace(returncode=0,
-                    stdout="ref,title,size\n" + TARGET_DATASET + ",x,1\n",
+                    stdout="ref,title,size\\n" + TARGET_DATASET + ",x,1\\n",
                     stderr="")
             result = inspect_owner_dataset_visibility(runner=fake)
         self.assertEqual(result["status"], "OWNER_DATASET_LIST_OK_EXACT_SLUG_FOUND")
-        self.assertEqual(seen["calls"][0], ["kaggle", "datasets", "list", "--help"])
-        self.assertIn("-m", seen["args"])
-        self.assertIn("-s", seen["args"])
-        self.assertIn("-p", seen["args"])
-        self.assertIn("-v", seen["args"])
-        self.assertNotIn("create", seen["args"])
-        self.assertNotIn("download", seen["args"])
-        self.assertNotIn("kernels", seen["args"])
-        self.assertTrue(seen["kwargs"]["stdin"] is subprocess.DEVNULL)
+        self.assertTrue(result["scan_complete"])
+        self.assertEqual(result["pages_scanned"], 1)
+        self.assertEqual(seen["calls"][0][0], ["kaggle", "datasets", "list", "--help"])
+        args, kwargs = seen["calls"][1]
+        self.assertIn("--mine", args)
+        self.assertIn("--page", args)
+        self.assertIn("--csv", args)
+        self.assertNotIn("--search", args)
+        self.assertNotIn("create", args)
+        self.assertNotIn("download", args)
+        self.assertNotIn("kernels", args)
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+
+    def test_private_owner_listing_is_paginated_until_exact_slug_found(self):
+        with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
+            pages = []
+            def fake(args, **kwargs):
+                if args[-1] == "--help":
+                    return SimpleNamespace(returncode=0,
+                        stdout="--mine --page --csv", stderr="")
+                page = int(args[args.index("--page") + 1])
+                pages.append(page)
+                if page == 1:
+                    rows = "".join(f"other/{i},title-{i},1\\n" for i in range(20))
+                    return SimpleNamespace(returncode=0,
+                        stdout="ref,title,size\\n" + rows, stderr="")
+                return SimpleNamespace(returncode=0,
+                    stdout="ref,title,size\\n" + TARGET_DATASET + ",private-title,1\\n",
+                    stderr="")
+            result = inspect_owner_dataset_visibility(runner=fake)
+        self.assertEqual(pages, [1, 2])
+        self.assertEqual(result["status"], "OWNER_DATASET_LIST_OK_EXACT_SLUG_FOUND")
+        self.assertTrue(result["exact_dataset_visible"])
+        self.assertTrue(result["scan_complete"])
+        self.assertEqual(result["rows_examined"], 21)
+        self.assertNotIn("private-title", str(result))
+
+    def test_owner_listing_absence_is_reported_only_after_short_final_page(self):
+        with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
+            def fake(args, **kwargs):
+                if args[-1] == "--help":
+                    return SimpleNamespace(returncode=0,
+                        stdout="--mine --page --csv", stderr="")
+                rows = "ref,title,size\\nother/dataset,private-title,1\\n"
+                return SimpleNamespace(returncode=0, stdout=rows, stderr="")
+            result = inspect_owner_dataset_visibility(runner=fake)
+        self.assertEqual(result["status"], "OWNER_DATASET_LIST_OK_EXACT_SLUG_NOT_FOUND")
+        self.assertFalse(result["exact_dataset_visible"])
+        self.assertTrue(result["scan_complete"])
+        self.assertEqual(result["pages_scanned"], 1)
+        self.assertNotIn("private-title", str(result))
+
 
 
 if __name__ == "__main__":

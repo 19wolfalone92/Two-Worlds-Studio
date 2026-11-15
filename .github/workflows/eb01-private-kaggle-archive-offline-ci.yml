@@ -2,7 +2,14 @@ name: EB01 - owner PRIVATE Kaggle original video archival security (no Kaggle AP
 on:
   push:
     branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
-    paths: [ops/eb01_private_kaggle_archive_ci.trigger]
+    paths:
+      - ops/eb01_private_kaggle_archive_ci.trigger
+      - tools/eb01_archive_verified_private_pilot.py
+      - tests/test_eb01_archive_verified_private_pilot.py
+      - tools/eb01_kaggle_owner_dataset_probe.py
+      - tests/test_eb01_kaggle_owner_dataset_probe.py
+      - .github/workflows/eb01-private-kaggle-archive-offline-ci.yml
+      - .github/workflows/eb01-kaggle-owner-dataset-access-probe.yml
 permissions:
   contents: read
 jobs:
