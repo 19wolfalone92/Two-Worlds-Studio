@@ -22,9 +22,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Compile offline uploader and never query external accounts
-        run: python -m py_compile tools/eb01_archive_verified_private_pilot.py
+        run: python -m py_compile tools/eb01_archive_verified_private_pilot.py tools/eb01_kaggle_owner_dataset_probe.py
       - name: Owner-only SHA and privacy guards, no network/GPU/media
-        run: python -m unittest tests.test_eb01_archive_verified_private_pilot -v
+        run: python -m unittest tests.test_eb01_archive_verified_private_pilot tests.test_eb01_kaggle_owner_dataset_probe -v
       - name: Keep public-media output disabled and no Kaggle write
         run: |
           python - <<'PY'
