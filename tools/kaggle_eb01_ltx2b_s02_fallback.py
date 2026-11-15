@@ -83,7 +83,15 @@ def main():
         ]
         for item in old:
             if code.count(item)!=1:raise RuntimeError("Official LTX source changed; cannot safely patch T4")
-            code=code.replace(item,item.replace("torch.bfloat16","torch.float16"))
+            # T4 cannot compute BF16. Keep 2B transformer/T5 in FP16 but
+            # use FP32 for sequentially-offloaded VIDEO VAE to avoid
+            # potential FP16 decoder overflows behind neon RGB artifacts.
+            # The previous full FP16 real GPU generated 33 valid frames yet
+            # color gate flagged 33/33, so this is an actual A/B numerical
+            # precision change, NOT another unchanged expensive rerun.
+            chosen=("torch.float32" if item.startswith("vae = vae.to(")
+                    else "torch.float16")
+            code=code.replace(item,item.replace("torch.bfloat16",chosen))
         # ROOT CAUSE VERIFIED IN FIRST LTX GPU LOG: ~14.42/14.56 GiB
         # exhausted while create_ltx_video_pipeline simultaneously places
         # transformer, T5 and VAE on CUDA, *before* offload_to_cpu can run.
@@ -167,6 +175,9 @@ def main():
         stages.write_text(pipe)
         patched=sha(source)
         stage_sha=sha(stages)
+        print("EB01_T4_NATIVE_PRECISION_POLICY",
+              "transformer_fp16",True,"text_fp16",True,
+              "vae_encoder_decoder_fp32",True,flush=True)
         print("EB01_ALT_ENGINE_ROOT_CAUSE_OOM_FIXED_SEQUENTIAL_CPU_GPU_STAGE",
               "inference_sha",patched,"pipeline_sha",stage_sha,flush=True)
         run([sys.executable,"-m","pip","install","-q","-e",str(LTX)+"[inference]"],timeout=960)
