@@ -90,11 +90,11 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
                     "narrow_neon_suspected_frames":[],
                     "native_luma_motion_proxy":{"mean_frame_luma_delta":0.66},
                     "full_human_artistic_approval":False}
-            with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}), \\
-                 patch("tools.eb01_archive_verified_private_pilot.safe_cmd",side_effect=fake_cmd), \\
-                 patch("tools.eb01_archive_verified_private_pilot.validate_actual_pilot",
-                       return_value=source):
-                report=archive_existing_output(KERNEL,expected,output,runner)
+            with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}):
+                with patch("tools.eb01_archive_verified_private_pilot.safe_cmd",side_effect=fake_cmd):
+                    with patch("tools.eb01_archive_verified_private_pilot.validate_actual_pilot",
+                               return_value=source):
+                        report=archive_existing_output(KERNEL,expected,output,runner)
             self.assertEqual(report["status"],
                 "OWNER_PRIVATE_DATASET_CREATED_ACL_AND_SHA_VERIFIED")
             self.assertTrue(report["independent_remote_acl"])
