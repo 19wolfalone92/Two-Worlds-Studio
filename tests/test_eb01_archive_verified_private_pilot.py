@@ -39,6 +39,15 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
                 with self.assertRaisesRegex(PrivateArchiveBlocked,"credential"):
                     archive(KERNEL,SHA,Path(tmp))
 
+    def test_independent_kernel_output_fetch_is_disabled_even_with_owner_token(self):
+        with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}):
+            with patch("tools.eb01_archive_verified_private_pilot.safe_cmd",
+                       side_effect=AssertionError("No second Kaggle output request allowed")):
+                with tempfile.TemporaryDirectory() as tmp:
+                    with self.assertRaisesRegex(PrivateArchiveBlocked,
+                            "Separate Kaggle kernel-output downloads are disabled"):
+                        archive(KERNEL,SHA,Path(tmp))
+
     def test_only_minimal_receipt_and_mp4_staged_in_private_dataset(self):
         source=Path(__file__).resolve().parents[1].joinpath(
             "tools","eb01_archive_verified_private_pilot.py").read_text()
