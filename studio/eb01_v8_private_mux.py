@@ -68,6 +68,20 @@ def safe_private_path(path: Path) -> Path:
     return p
 
 
+def safe_private_child(root: Path, relative: Path) -> Path:
+    """Resolve a media input below the private root; reject symlink parents and escapes."""
+    base = safe_private_path(root)
+    relative = Path(relative)
+    if relative.is_absolute():
+        raise PrivateMovieBlocked("Absolute private child path refused")
+    candidate = safe_private_path(base / relative)
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        raise PrivateMovieBlocked("Private media path escaped its source root") from None
+    return candidate
+
+
 def prepare_private_output_parent(output: Path) -> Path:
     """Create/verify an owner-only directory for the final review MP4."""
     parent = safe_private_path(output.parent)
@@ -243,6 +257,7 @@ def transcode_one(src: Path, dst: Path, skip: bool, fps=24) -> None:
 
 def validate_private_inputs(root: Path) -> dict:
     """Hash actual GPU video bytes, test real decoding, then validate receipts."""
+    root = safe_private_path(root)
     schedule = plan()
     receipts = {}
     videos = []
@@ -252,8 +267,8 @@ def validate_private_inputs(root: Path) -> dict:
         rows = []
         for idx in range(scene["native_segment_count"]):
             key = f"{sid}_{idx:02d}"
-            movie = root / "segments" / (key + ".mp4")
-            record = root / "receipts" / (key + ".json")
+            movie = safe_private_child(root, Path("segments") / (key + ".mp4"))
+            record = safe_private_child(root, Path("receipts") / (key + ".json"))
             if not movie.is_file() or not record.is_file():
                 raise PrivateMovieBlocked("Missing genuine private segment/receipt")
             if movie.is_symlink() or record.is_symlink() or record.stat().st_size > 32768:
@@ -279,7 +294,7 @@ def validate_private_inputs(root: Path) -> dict:
     voice_timing = {}
     scene_by_id = {row["scene_id"]: row for row in schedule["scenes"]}
     for sid, sha in VOICE_SHA.items():
-        wav = root / "voices" / (sid + ".wav")
+        wav = safe_private_child(root, Path("voices") / (sid + ".wav"))
         if not wav.is_file() or wav.is_symlink() or digest(wav) != sha:
             raise PrivateMovieBlocked("Canonical original Russian Qwen WAV missing")
         voices[sid] = wav
