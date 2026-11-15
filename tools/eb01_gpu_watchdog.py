@@ -186,11 +186,20 @@ def validate_actual_pilot(root: Path) -> dict:
     qa = inspect_clip(file)
     if qa.get("decoded_frames") != 33:
         raise ValueError("Full-frame source inspection incomplete")
+    # Reuse the already-successful, PRIVATE Kaggle readback. A second
+    # downloader can intermittently report 404 despite this exact worker
+    # having obtained and SHA-verified the same MP4. Analyze actual decoded
+    # motion here BEFORE the runner securely erases media.
+    from tools.eb01_true_gpu_clip_numbers import gray_motion
+    motion = gray_motion(file)
+    # Motion is merely an optical proxy, NEVER proof of acting, identity,
+    # facial anatomy, jaw/lipsync or owner approval. Keep every source private.
     # Even with no detected RGB artifact, a human must evaluate bone anatomy,
     # natural head/jaw/shoulder movement, and face/character consistency.
     return {
         "original_pilot_sha256": sha,
         "decoded_true_neural_frames": qa["decoded_frames"],
+        "native_luma_motion_proxy": motion,
         "artifact_scan_status": qa["status"],
         "narrow_neon_suspected_frames": qa["narrow_neon_suspected_frames"],
         "full_human_artistic_approval": False,
