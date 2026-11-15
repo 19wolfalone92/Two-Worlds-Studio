@@ -1,0 +1,27 @@
+name: EB01 private archival — offline security and idempotency tests
+
+on:
+  push:
+    branches:
+      - fix/eb01-s02-private-raw-preservation-20261113
+    paths:
+      - tools/eb01_archive_verified_private_pilot.py
+      - tests/test_eb01_archive_verified_private_pilot.py
+      - .github/workflows/eb01-private-archive-cpu-tests.yml
+
+permissions:
+  contents: read
+
+jobs:
+  private_archive_security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile archival tool without credentials
+        run: python -m py_compile tools/eb01_archive_verified_private_pilot.py
+      - name: Run offline owner-private ACL, exact-SHA, no-public and idempotency tests
+        run: python -m unittest tests.test_eb01_archive_verified_private_pilot -v
