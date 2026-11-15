@@ -15,16 +15,37 @@ HEX64=re.compile(r"^[0-9a-f]{64}$")
 
 class PrivateArchiveBlocked(ValueError): pass
 
-def safe_cmd(argv,timeout=180):
+def safe_cmd_result(argv,timeout=180):
+    """Run Kaggle quietly and return a bounded failure class, never raw output."""
     if "--public" in argv:
         raise PrivateArchiveBlocked("Never publish original actor video")
     try:
         p=subprocess.run(argv,stdin=subprocess.DEVNULL,
                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,
-                         timeout=timeout,check=False)
-        return p.returncode==0
-    except (OSError,subprocess.TimeoutExpired):
-        return False
+                         timeout=timeout,check=False,text=True)
+    except subprocess.TimeoutExpired:
+        return False,"TIMEOUT"
+    except OSError:
+        return False,"CLIENT_UNAVAILABLE"
+    if p.returncode==0:
+        return True,"OK"
+    evidence=((p.stdout or "")+"\\n"+(p.stderr or "")).lower()
+    # Permission/auth failures take precedence over a generic "not found".
+    if re.search(r"\\b403\\b",evidence) or "forbidden" in evidence or "permission denied" in evidence:
+        return False,"ACCESS_DENIED"
+    if re.search(r"\\b401\\b",evidence) or "unauthorized" in evidence:
+        return False,"AUTH_DENIED"
+    # Only an explicit HTTP 404 is allowed to authorize first-time creation.
+    # Generic missing-file text and transport failures remain UNKNOWN.
+    if re.search(r"\\b404\\b",evidence):
+        return False,"NOT_FOUND"
+    if "timed out" in evidence or "connection reset" in evidence:
+        return False,"TIMEOUT"
+    return False,"COMMAND_FAILED"
+
+
+def safe_cmd(argv,timeout=180):
+    return safe_cmd_result(argv,timeout=timeout)[0]
 
 def sha(path):
     h=hashlib.sha256()
@@ -52,14 +73,21 @@ def verify_remote_dataset(meta, expected, temp_root):
     """
     metadata_dir=Path(temp_root)/"remote_metadata"
     metadata_dir.mkdir(mode=0o700,parents=True,exist_ok=True)
-    if not safe_cmd(["kaggle","datasets","metadata",meta["id"],
-                     "-p",str(metadata_dir)],timeout=100):
-        return {"exists":False,"status":"REMOTE_DATASET_NOT_FOUND"}
+    metadata_ok,metadata_error=safe_cmd_result(
+        ["kaggle","datasets","metadata",meta["id"],"-p",str(metadata_dir)],
+        timeout=100)
+    if not metadata_ok:
+        if metadata_error=="NOT_FOUND":
+            return {"exists":False,"status":"REMOTE_DATASET_NOT_FOUND"}
+        # 401/403, network errors and unclassified failures are NOT evidence
+        # that the dataset is absent. Never create on an ambiguous lookup.
+        return {"exists":None,"private":False,"sha_verified":False,
+                "status":"REMOTE_DATASET_LOOKUP_"+metadata_error}
     remote_file=metadata_dir/"dataset-metadata.json"
     try:
         remote=json.loads(remote_file.read_text(encoding="utf-8"))
     except (OSError,ValueError,UnicodeError):
-        return {"exists":True,"private":False,"sha_verified":False,
+        return {"exists":None,"private":False,"sha_verified":False,
                 "status":"REMOTE_DATASET_METADATA_UNREADABLE"}
     if remote.get("isPrivate") is not True:
         if remote.get("isPrivate") is False:
@@ -149,12 +177,16 @@ def _archive_verified_output(kernel,expected,output,temp_parent):
     with tempfile.TemporaryDirectory(prefix="eb01-private-",dir=str(temp_parent)) as d:
         root=Path(d)
         existing=verify_remote_dataset(meta,expected,root/"existing_check")
-        if existing["exists"]:
+        if existing.get("exists") is True:
             report["status"]=existing["status"]
             report["independent_remote_acl"]=existing.get("private") is True
             report["remote_original_sha_verified"]=existing.get("sha_verified") is True
             report["owner_private_kaggle_dataset"]=meta["id"]
             report["existing_dataset_reused"]=True
+            return report
+        if existing.get("status")!="REMOTE_DATASET_NOT_FOUND":
+            report["status"]=existing.get("status","REMOTE_DATASET_LOOKUP_UNVERIFIED")
+            report["archive_create_blocked"]=True
             return report
         stage=root/"owner_private_dataset"
         stage.mkdir(mode=0o700)
