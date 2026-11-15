@@ -55,7 +55,7 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
             def fake(*args, **kwargs):
                 raise subprocess.TimeoutExpired("kaggle", 75)
             result = inspect_owner_dataset_visibility(runner=fake)
-        self.assertEqual(result["status"], "OWNER_DATASET_LIST_HELP_TIMEOUT")
+        self.assertEqual(result["status"], "OWNER_DATASET_LIST_TIMEOUT")
 
     def test_list_no_results_is_a_safe_exact_absence_signal(self):
         self.assertEqual(classify_owner_list_failure("No results found for search term"),
@@ -67,14 +67,11 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
         self.assertEqual(classify_owner_list_failure("unrecognized arguments: --csv"),
                          "OWNER_DATASET_LIST_CLI_ARGUMENT_ERROR")
 
-    def test_cli_invocation_is_owner_only_and_read_only_without_search_filter(self):
+    def test_cli_invocation_is_owner_only_and_read_only_without_help_or_search(self):
         with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
             seen = {"calls": []}
             def fake(args, **kwargs):
                 seen["calls"].append((args, kwargs))
-                if args[-1] == "--help":
-                    return SimpleNamespace(returncode=0,
-                        stdout="--mine --page --csv", stderr="")
                 return SimpleNamespace(returncode=0,
                     stdout="ref,title,size\n" + TARGET_DATASET + ",x,1\n",
                     stderr="")
@@ -82,24 +79,33 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
         self.assertEqual(result["status"], "OWNER_DATASET_LIST_OK_EXACT_SLUG_FOUND")
         self.assertTrue(result["scan_complete"])
         self.assertEqual(result["pages_scanned"], 1)
-        self.assertEqual(seen["calls"][0][0], ["kaggle", "datasets", "list", "--help"])
-        args, kwargs = seen["calls"][1]
+        self.assertEqual(len(seen["calls"]), 1)
+        args, kwargs = seen["calls"][0]
         self.assertIn("--mine", args)
         self.assertIn("--page", args)
         self.assertIn("--csv", args)
         self.assertNotIn("--search", args)
+        self.assertNotIn("--help", args)
         self.assertNotIn("create", args)
         self.assertNotIn("download", args)
         self.assertNotIn("kernels", args)
         self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
 
+    def test_cli_argument_error_does_not_authorize_absence_or_creation(self):
+        with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
+            def fake(*args, **kwargs):
+                return SimpleNamespace(returncode=2, stdout="",
+                                       stderr="unrecognized arguments: --mine")
+            result = inspect_owner_dataset_visibility(runner=fake)
+        self.assertEqual(result["status"], "OWNER_DATASET_LIST_CLI_ARGUMENT_ERROR")
+        self.assertFalse(result["scan_complete"])
+        self.assertFalse(result["dataset_created"])
+        self.assertNotIn("unrecognized arguments", str(result))
+
     def test_private_owner_listing_is_paginated_until_exact_slug_found(self):
         with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
             pages = []
             def fake(args, **kwargs):
-                if args[-1] == "--help":
-                    return SimpleNamespace(returncode=0,
-                        stdout="--mine --page --csv", stderr="")
                 page = int(args[args.index("--page") + 1])
                 pages.append(page)
                 if page == 1:
@@ -120,9 +126,6 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
     def test_owner_listing_absence_is_reported_only_after_short_final_page(self):
         with patch.dict(os.environ, {"KAGGLE_API_TOKEN": "test-token"}):
             def fake(args, **kwargs):
-                if args[-1] == "--help":
-                    return SimpleNamespace(returncode=0,
-                        stdout="--mine --page --csv", stderr="")
                 rows = "ref,title,size\nother/dataset,private-title,1\n"
                 return SimpleNamespace(returncode=0, stdout=rows, stderr="")
             result = inspect_owner_dataset_visibility(runner=fake)

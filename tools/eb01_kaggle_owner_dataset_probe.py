@@ -114,25 +114,9 @@ def inspect_owner_dataset_visibility(runner=subprocess.run) -> dict:
     }
     if not os.environ.get("KAGGLE_API_TOKEN"):
         return {**base, "status": "OWNER_KAGGLE_CREDENTIAL_MISSING"}
-    try:
-        help_result = runner(
-            ["kaggle", "datasets", "list", "--help"],
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, timeout=20, check=False)
-    except subprocess.TimeoutExpired:
-        return {**base, "status": "OWNER_DATASET_LIST_HELP_TIMEOUT"}
-    except OSError as exc:
-        return {**base, "status": "OWNER_DATASET_LIST_CLIENT_" + type(exc).__name__}
-    help_text = (help_result.stdout or "") + " " + (help_result.stderr or "")
-    if help_result.returncode != 0:
-        return {**base, "status": classify_owner_list_failure(help_text),
-                "diagnostic": safe_command_diagnostic(help_result, phase="help")}
-    required = ("--mine", "--page", "--csv")
-    missing = [flag for flag in required if flag not in help_text]
-    if missing:
-        return {**base, "status": "OWNER_DATASET_LIST_CLI_OPTIONS_MISSING",
-                "missing_options": missing}
-
+    # Execute the documented owner-only list command directly. A separate
+    # "--help" probe is unnecessary and has returned exit=1 in hosted runners,
+    # preventing the actual read-only query from running.
     rows_examined = 0
     for page in range(1, MAX_OWNER_PAGES + 1):
         try:
