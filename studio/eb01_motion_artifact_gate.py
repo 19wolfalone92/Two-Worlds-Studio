@@ -129,24 +129,22 @@ def neon_streak_line_geometry(frame: np.ndarray) -> float:
     if height<8 or width<64:
         return 0.0
     runs=np.diff(np.pad(mask.astype(np.int8),((0,0),(1,1))),axis=1)
-    long_enough=max(14,round(width*.12))
-    thin_rows=0
-    for y in range(2,height-2):
-        start=np.flatnonzero(runs[y]==1)
-        end=np.flatnonzero(runs[y]==-1)
-        for left,right in zip(start,end):
-            if right-left<long_enough:
-                continue
-            # Long chromatic region which extends vertically is a *blob*,
-            # not a thin isolated horizontal RGB strip. Use 2-pixel margin.
-            vertical=np.mean(mask[
-                [y-2,y-1,y+1,y+2],left:right
-            ])
-            # A genuine 2-pixel streak has one of four adjacent rows
-            # occupied (25%); .22 wrongly missed every real 2-row test.
-            if vertical<.35:
-                thin_rows+=1
-                break
+    min_length=max(14,round(width*.12))
+    long_chroma_row=np.zeros(height,dtype=np.bool_)
+    for y in range(height):
+        starts=np.flatnonzero(runs[y]==1)
+        ends=np.flatnonzero(runs[y]==-1)
+        long_chroma_row[y]=bool(np.any(ends-starts>=min_length))
+    # H.264 YUV420 chroma bleed can turn a two-pixel cyan streak
+    # into FOUR adjacent affected decoded rows. Earlier one-row neighbor
+    # isolation failed to detect that demonstrated codec effect.
+    # Group contiguous long-chroma rows, then distinguish short bars from
+    # wide blue actor clothing/background which occupy many more rows.
+    transition=np.diff(np.pad(long_chroma_row.astype(np.int8),(1,1)))
+    begins=np.flatnonzero(transition==1)
+    finishes=np.flatnonzero(transition==-1)
+    thin_rows=sum(int(end-begin) for begin,end in zip(begins,finishes)
+                  if 1<=end-begin<=6)
     return round(thin_rows/height,6)
 
 
