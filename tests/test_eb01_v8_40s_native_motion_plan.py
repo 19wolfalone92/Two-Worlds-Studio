@@ -18,11 +18,13 @@ def all_fake_receipts_that_are_only_FOR_UNIT_TESTS():
         previous=None
         for idx in range(row["native_segment_count"]):
             first=previous if previous else f"{n+210000:064x}"
-            last=f"{n+310000:064x}"
+            last=f"{n+310000:064x}"  # raw RGB-pixel digest
+            next_conditioning=f"{n+410000:064x}"  # canonical exported PNG file SHA
             item={
                 "mp4_sha256":f"{n:064x}",
                 "conditioning_input_frame_sha256":first,
                 "last_decoded_frame_sha256":last,
+                "next_conditioning_frame_sha256":next_conditioning,
                 "native_frames":33,"native_fps":24,
                 "native_width":576,"native_height":1024,
                 "actual_model_inference":True,
@@ -33,7 +35,7 @@ def all_fake_receipts_that_are_only_FOR_UNIT_TESTS():
             if idx==0:
                 item["initial_reference_sha256"]=row["canonical_reference_sha256"]
             src.append(item)
-            previous=last
+            previous=next_conditioning
             n+=1
         result[row["scene_id"]]=src
     return result
@@ -224,3 +226,30 @@ class V8ScaleUpAuthorizationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class V8ConditioningHashDomainTests(unittest.TestCase):
+    def test_continuity_uses_canonical_export_png_sha_not_raw_rgb_digest(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        # This false-positive passed the old validator: next input equals
+        # previous raw RGB digest, not the exported PNG file SHA.
+        evidence["S02"][1]["conditioning_input_frame_sha256"] = (
+            evidence["S02"][0]["last_decoded_frame_sha256"]
+        )
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("S02_1_CONDITIONING_FRAME_CONTINUITY_BROKEN",result["reasons"])
+
+    def test_missing_next_conditioning_export_blocks_nonfinal_segment(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        del evidence["S04"][1]["next_conditioning_frame_sha256"]
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("S04_1_NEXT_CONDITIONING_EXPORT_SHA_MISSING",result["reasons"])
+
+    def test_matching_canonical_png_file_sha_preserves_valid_chain(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["status"],"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED")
+        self.assertEqual(result["genuinely_original_segments_verified"],30)
+        self.assertFalse(result["full_40s_movie_ready"])
