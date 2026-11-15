@@ -14,8 +14,8 @@ from unittest.mock import patch
 
 from studio.eb01_v8_private_mux import (
     PrivateMovieBlocked, safe_private_path, prepare_private_output_parent,
-    secure_private_file, segment_filter, transcode_one,
-    ffprobe, assemble_private_v8, audio_mix
+    secure_private_file, segment_filter, transcode_one, native33,
+    final_frame_rgb_sha, ffprobe, assemble_private_v8, audio_mix
 )
 from studio.eb01_v8_40s_native_motion_plan import plan
 
@@ -26,13 +26,15 @@ class RealCodecFrameTests(unittest.TestCase):
     def test_exact_33_vs_32_original_frames_after_conditioning_overlap(self):
         with tempfile.TemporaryDirectory() as td:
             base = Path(td)
-            source = base / "synthetic_33f.mp4"
+            source = base / "synthetic_33f_native_576x1024.mp4"
             subprocess.run(
                 ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
-                 "-f", "lavfi", "-i", "testsrc2=size=320x576:rate=24",
+                 "-f", "lavfi", "-i", "testsrc2=size=576x1024:rate=24",
                  "-frames:v", "33", "-c:v", "libx264",
                  "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(source)],
-                check=True, capture_output=True, timeout=60)
+                check=True, capture_output=True, timeout=90)
+            native33(source)
+            self.assertEqual(len(final_frame_rgb_sha(source)),64)
             for skipped, expected in ((False, 33), (True, 32)):
                 out = base / f"synthetic_test_skip_{skipped}.mp4"
                 transcode_one(source, out, skipped)
@@ -42,6 +44,18 @@ class RealCodecFrameTests(unittest.TestCase):
                 self.assertEqual(v["height"], 1024)
                 self.assertEqual(v["avg_frame_rate"], "24/1")
                 self.assertEqual(int(v["nb_read_frames"]), expected)
+
+    def test_320x576_pilot_cannot_enter_native_v8_source_pool(self):
+        with tempfile.TemporaryDirectory() as td:
+            source = Path(td) / "synthetic_low_resolution_pilot.mp4"
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
+                 "-f", "lavfi", "-i", "testsrc2=size=320x576:rate=24",
+                 "-frames:v", "33", "-c:v", "libx264",
+                 "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(source)],
+                check=True, capture_output=True, timeout=60)
+            with self.assertRaisesRegex(PrivateMovieBlocked, "320x576 upscale is not detail"):
+                native33(source)
 
     def test_six_independent_voice_inputs_produce_full_length_audio_clock(self):
         with tempfile.TemporaryDirectory() as td:
@@ -133,6 +147,8 @@ class PrivateNoPublicReleaseTests(unittest.TestCase):
             f = segment_filter(skip)
             self.assertIn("trim=start_frame=" + ("1" if skip else "0"), f)
             self.assertIn("setpts=PTS-STARTPTS", f)
+            self.assertIn("force_original_aspect_ratio=increase", f)
+            self.assertIn("crop=576:1024", f)
             self.assertNotIn("minterpolate", f)
             self.assertNotIn("fps=", f)
             self.assertNotIn("loop", f)
@@ -142,6 +158,8 @@ class PrivateNoPublicReleaseTests(unittest.TestCase):
         self.assertEqual(p["new_true_inference_segment_count"], 30)
         self.assertEqual(p["final_unique_native_frames"], 967)
         self.assertEqual(p["original_russian_qwen_lines"], 6)
+        self.assertEqual(p["required_native_width"], 576)
+        self.assertEqual(p["required_native_height"], 1024)
         self.assertFalse(p["production_executed"])
         self.assertFalse(p["cinematic_owner_approved"])
 
