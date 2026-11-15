@@ -194,14 +194,18 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                 or proof.get("identity_artistic_qc")!="PASS"):
                 reasons.append(f"{sid}_{idx}_REAL_NATIVE_GPU_OR_QA_NOT_PROVEN")
                 continue
-            sha_seen.add(sha)
-            if idx==0:
-                if proof.get("initial_reference_sha256")!=row["canonical_reference_sha256"]:
+            chain_ok = True
+            if idx == 0:
+                if proof.get("initial_reference_sha256") != row["canonical_reference_sha256"]:
                     reasons.append(f"{sid}_ORIGINAL_CHARACTER_SHA_MISMATCH")
-            elif first!=prev_tail:
+                    chain_ok = False
+            elif first != prev_tail:
                 reasons.append(f"{sid}_{idx}_CONDITIONING_FRAME_CONTINUITY_BROKEN")
-            prev_tail=last
-            genuine_count+=1
+                chain_ok = False
+            sha_seen.add(sha)
+            prev_tail = last
+            if chain_ok:
+                genuine_count += 1
     return {
         "schema":8,
         "status":"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED" if not reasons else "BLOCKED",
