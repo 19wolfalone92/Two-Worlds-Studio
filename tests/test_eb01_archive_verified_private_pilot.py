@@ -1,12 +1,15 @@
 """Private original Kaggle dataset archival security tests; ZERO API calls."""
 from __future__ import annotations
 import os
+import json
+import hashlib
+import zipfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 import tempfile
 from tools.eb01_archive_verified_private_pilot import (
-    private_dataset_meta, archive, safe_cmd, PrivateArchiveBlocked
+    private_dataset_meta, archive, archive_existing_output, safe_cmd, PrivateArchiveBlocked
 )
 
 KERNEL="wolf19loner92/eb01-ltx2b-pilot33-a609d40bc3ee"
@@ -45,6 +48,83 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
         self.assertIn('"isPrivate":True',source)
         self.assertIn('report["independent_remote_acl"]',source)
         self.assertIn('validate_actual_pilot(output)',source)
+
+
+    def test_archive_reuses_same_watchdog_download_and_verifies_private_remote_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runner=Path(tmp)
+            output=runner/"eb01-real-kaggle-supervisor"/"private_download"
+            output.mkdir(parents=True)
+            movie_bytes=b"private-original-pilot-test-bytes"
+            expected=hashlib.sha256(movie_bytes).hexdigest()
+            (output/"S02_PILOT33.mp4").write_bytes(movie_bytes)
+            (output/"EB01_S02_LTX_PILOT33_JOB.json").write_text(json.dumps({
+                "success":True,"clip_sha256":expected,"whole_movie_ready":False,
+                "frame_count":33,"fps":24,"width":320,"height":576}))
+            calls=[]
+            def fake_cmd(argv,timeout=180):
+                calls.append(list(argv))
+                if argv[1:3]==["datasets","metadata"]:
+                    dest=Path(argv[argv.index("-p")+1])
+                    dest.mkdir(parents=True,exist_ok=True)
+                    (dest/"dataset-metadata.json").write_text(
+                        json.dumps({"isPrivate":True}),encoding="utf-8")
+                    return True
+                if argv[1:3]==["datasets","create"]:
+                    return True
+                if argv[1:3]==["datasets","download"]:
+                    dest=Path(argv[argv.index("-p")+1])
+                    dest.mkdir(parents=True,exist_ok=True)
+                    with zipfile.ZipFile(dest/"owner-private.zip","w") as z:
+                        z.writestr("S02_ORIGINAL_33F_OWNER_REVIEW.mp4",movie_bytes)
+                        z.writestr("ORIGINAL_RECEIPT_SAFE.json",
+                                   json.dumps({"owner_original_mp4_sha256":expected}))
+                    return True
+                raise AssertionError("Unexpected Kaggle command in same-run archive")
+            source={"original_pilot_sha256":expected,"decoded_true_neural_frames":33,
+                    "artifact_scan_status":"NO_NEON_ARTIFACT_FOUND",
+                    "narrow_neon_suspected_frames":[],
+                    "native_luma_motion_proxy":{"mean_frame_luma_delta":0.66},
+                    "full_human_artistic_approval":False}
+            with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}), \\
+                 patch("tools.eb01_archive_verified_private_pilot.safe_cmd",side_effect=fake_cmd), \\
+                 patch("tools.eb01_archive_verified_private_pilot.validate_actual_pilot",
+                       return_value=source):
+                report=archive_existing_output(KERNEL,expected,output,runner)
+            self.assertEqual(report["status"],
+                "OWNER_PRIVATE_DATASET_CREATED_ACL_AND_SHA_VERIFIED")
+            self.assertTrue(report["independent_remote_acl"])
+            self.assertTrue(report["remote_original_sha_verified"])
+            self.assertFalse(report["published"])
+            self.assertFalse(report["full_movie_ready"])
+            self.assertFalse(any(x[1:3]==["kernels","output"] for x in calls))
+
+    def test_existing_watchdog_output_must_be_inside_ephemeral_runner_temp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp)
+            runner=base/"runner"
+            runner.mkdir()
+            outside=base/"outside"
+            outside.mkdir()
+            with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}):
+                with self.assertRaisesRegex(PrivateArchiveBlocked,"under ephemeral RUNNER_TEMP"):
+                    archive_existing_output(KERNEL,"a"*64,outside,runner)
+
+    def test_existing_watchdog_output_symlink_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp)
+            runner=base/"runner"
+            runner.mkdir()
+            real=runner/"real"
+            real.mkdir()
+            alias=runner/"alias"
+            try:
+                alias.symlink_to(real,target_is_directory=True)
+            except (OSError,NotImplementedError):
+                self.skipTest("Directory symlinks unavailable")
+            with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}):
+                with self.assertRaisesRegex(PrivateArchiveBlocked,"Symlinked"):
+                    archive_existing_output(KERNEL,"a"*64,alias,runner)
 
 if __name__=="__main__":
     unittest.main()
