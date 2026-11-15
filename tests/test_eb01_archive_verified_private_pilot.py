@@ -107,8 +107,9 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
             # exact remote MP4 SHA, and does not attempt a duplicate create.
             calls.clear()
             metadata_calls["count"]=1
-            with patch("tools.eb01_archive_verified_private_pilot.safe_cmd",side_effect=fake_cmd):
-                again=archive_existing_output(KERNEL,expected,output,runner)
+            with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}):
+                with patch("tools.eb01_archive_verified_private_pilot.safe_cmd",side_effect=fake_cmd):
+                    again=archive_existing_output(KERNEL,expected,output,runner)
             self.assertEqual(again["status"],"OWNER_PRIVATE_DATASET_ACL_AND_SHA_VERIFIED")
             self.assertTrue(again["existing_dataset_reused"])
             self.assertFalse(any(x[1:3]==["datasets","create"] for x in calls))
