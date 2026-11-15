@@ -17,7 +17,7 @@ import tempfile
 from fractions import Fraction
 from pathlib import Path
 
-from studio.eb01_v7_storyboard import VOICE_SHA
+from studio.eb01_v7_storyboard import VOICE_SHA, VOICE_SECONDS
 from studio.eb01_v8_40s_native_motion_plan import plan, verify_real_neural_sources
 from studio.eb01_v8_final_mux_qa import verify_final_mux
 
@@ -104,8 +104,72 @@ def secure_private_file(path: Path) -> Path:
 def ffprobe(path: Path) -> dict:
     return json.loads(call(["ffprobe", "-v", "error", "-count_frames",
         "-show_entries",
-        "format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,nb_read_frames,nb_frames,duration",
+        "format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,nb_read_frames,nb_frames,duration,sample_rate,channels",
         "-of", "json", str(path)], "private ffprobe", timeout=60))
+
+
+def validate_voice_timing(scene_id: str, wav: Path, scene: dict) -> dict:
+    """Bind one locked WAV to its exact dialogue window before private mux.
+
+    This proves source-clock fit only; it does NOT prove audio-conditioned
+    mouth/jaw animation or lip-sync. Those require separate visual evidence.
+    """
+    if scene_id not in VOICE_SECONDS or not wav.is_file() or wav.is_symlink():
+        raise PrivateMovieBlocked("Canonical voice source missing or unsafe")
+    info = ffprobe(wav)
+    streams = info.get("streams", [])
+    audio = [s for s in streams if s.get("codec_type") == "audio"]
+    video = [s for s in streams if s.get("codec_type") == "video"]
+    if len(audio) != 1 or video:
+        raise PrivateMovieBlocked("Exactly one audio-only canonical WAV stream required")
+    stream = audio[0]
+    try:
+        duration = float(stream.get("duration") or info["format"]["duration"])
+        sample_rate = int(stream["sample_rate"])
+        channels = int(stream["channels"])
+        start = scene["dialogue_start_scene_frame"]
+        end = scene["dialogue_end_scene_frame"]
+        if type(start) is not int or type(end) is not int or end <= start:
+            raise ValueError("invalid dialogue frame window")
+        window_frames = end - start
+        window_seconds = window_frames / 24
+        expected_seconds = float(VOICE_SECONDS[scene_id])
+        codec = str(stream.get("codec_name", ""))
+        valid = (
+            math.isfinite(duration) and duration > 0
+            and 8000 <= sample_rate <= 192000
+            and channels in (1, 2)
+            and codec.startswith("pcm_")
+            and duration >= expected_seconds - 1 / 24
+            and duration <= window_seconds + 1 / sample_rate
+        )
+    except (KeyError, TypeError, ValueError, OverflowError, ZeroDivisionError):
+        valid = False
+        duration = 0.0
+        sample_rate = 0
+        channels = 0
+        window_frames = 0
+        window_seconds = 0.0
+        start = 0
+        end = 0
+    if not valid:
+        raise PrivateMovieBlocked(
+            "Canonical WAV duration/PCM format exceeds or misses its planned dialogue window")
+    # 48 kHz / 24 FPS is exactly 2,000 samples per video frame.
+    start_movie_frame = scene["start_movie_frame"] + start
+    return {
+        "scene_id": scene_id,
+        "voice_sha256": digest(wav),
+        "duration_seconds": round(duration, 6),
+        "window_seconds": round(window_seconds, 6),
+        "dialogue_start_frame": start,
+        "dialogue_end_frame": end,
+        "movie_start_frame": start_movie_frame,
+        "source_sample_rate": sample_rate,
+        "source_channels": channels,
+        "mix_sample_rate": 48000,
+        "start_sample_48k": start_movie_frame * 2000,
+    }
 
 
 def native33(path: Path) -> None:
@@ -211,33 +275,49 @@ def validate_private_inputs(root: Path) -> dict:
     if verified["status"] != "SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED":
         raise PrivateMovieBlocked("Source authenticity, continuity or native detail/QA receipts unverified")
     voices = {}
+    voice_timing = {}
+    scene_by_id = {row["scene_id"]: row for row in schedule["scenes"]}
     for sid, sha in VOICE_SHA.items():
         wav = root / "voices" / (sid + ".wav")
         if not wav.is_file() or wav.is_symlink() or digest(wav) != sha:
             raise PrivateMovieBlocked("Canonical original Russian Qwen WAV missing")
         voices[sid] = wav
+        voice_timing[sid] = validate_voice_timing(sid, wav, scene_by_id[sid])
     return {"plan": schedule, "videos": videos, "voices": voices,
-            "source_proof": verified}
+            "voice_timing": voice_timing, "source_proof": verified}
 
 
-def audio_mix(root: Path, voices: dict, schedule: dict, wav: Path) -> None:
+def audio_mix(root: Path, voices: dict, schedule: dict, wav: Path) -> dict:
+    """Mix the six locked WAVs on exact 48 kHz sample/frame boundaries.
+
+    The source WAV must fit its planned dialogue window; it is never silently
+    truncated to hide an overlong line. This is mux-clock QA, not lip-sync QA.
+    """
     tracks = [s for s in schedule["scenes"] if s["scene_id"] != "S00"]
     inputs = ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono"]
     graph = [f"[0:a]atrim=duration={schedule['final_duration_seconds']:.6f},asetpts=PTS-STARTPTS[bed]"]
     mixed = ["[bed]"]
+    timing = {}
     for index, row in enumerate(tracks, 1):
         sid = row["scene_id"]
-        start_frame = row["start_movie_frame"] + row["dialogue_start_scene_frame"]
-        ms = round(start_frame * 1000 / 24)
+        proof = validate_voice_timing(sid, voices[sid], row)
+        start_samples = proof["start_sample_48k"]
+        window_seconds = proof["window_seconds"]
         inputs += ["-i", str(voices[sid])]
-        graph.append(f"[{index}:a]aresample=48000,asetpts=PTS-STARTPTS,adelay={ms}:all=1[s{index}]")
+        graph.append(
+            f"[{index}:a]aresample=48000,asetpts=PTS-STARTPTS,"
+            f"atrim=duration={window_seconds:.6f},"
+            f"adelay={start_samples}S:all=1[s{index}]")
         mixed.append(f"[s{index}]")
+        timing[sid] = proof
     graph.append("".join(mixed) + f"amix=inputs={len(mixed)}:duration=first:normalize=0,"
                  f"atrim=duration={schedule['final_duration_seconds']:.6f},asetpts=PTS-STARTPTS[mix]")
     call(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
           *inputs, "-filter_complex", ";".join(graph),
           "-map", "[mix]", "-c:a", "pcm_s16le", str(wav)],
          "private six-line canonical audio mix", timeout=180)
+    return {"mix_sample_rate": 48000, "samples_per_video_frame": 2000,
+            "voice_lines": timing}
 
 
 def assemble_private_v8(root: Path, output: Path) -> dict:
@@ -272,7 +352,7 @@ def assemble_private_v8(root: Path, output: Path) -> dict:
         if int(v.get("nb_read_frames", "-1")) != movie["final_unique_native_frames"]:
             raise PrivateMovieBlocked("30 segments missing expected 967 original frames")
         mixed = workspace / "six_original_russian_lines.wav"
-        audio_mix(root, proof["voices"], movie, mixed)
+        audio_timing = audio_mix(root, proof["voices"], movie, mixed)
         candidate = workspace / "private_owner_40s_review_unapproved.mp4"
         call(["ffmpeg", "-hide_banner", "-nostdin", "-v", "error", "-y",
               "-i", str(joined), "-i", str(mixed),
@@ -303,6 +383,8 @@ def assemble_private_v8(root: Path, output: Path) -> dict:
             "video_frame_count": 967, "seconds": movie["final_duration_seconds"],
             "original_neural_segments": 30, "independent_scenes": 7,
             "canonical_russian_voice_lines": 6,
+            "audio_timing_verified": True,
+            "audio_timing_receipt": audio_timing,
             "native_source_resolution_minimum": [576, 1024],
             "native_576x1024_detail_verified": decision["native_576x1024_detail_independently_proven"],
             "delivery_resized_to_576x1024": True,
