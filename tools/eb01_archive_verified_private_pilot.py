@@ -31,13 +31,13 @@ def safe_cmd_result(argv,timeout=180):
         return True,"OK"
     evidence=((p.stdout or "")+"\\n"+(p.stderr or "")).lower()
     # Permission/auth failures take precedence over a generic "not found".
-    if re.search(r"\\b403\\b",evidence) or "forbidden" in evidence or "permission denied" in evidence:
+    if re.search(r"\b403\b",evidence) or "forbidden" in evidence or "permission denied" in evidence:
         return False,"ACCESS_DENIED"
-    if re.search(r"\\b401\\b",evidence) or "unauthorized" in evidence:
+    if re.search(r"\b401\b",evidence) or "unauthorized" in evidence:
         return False,"AUTH_DENIED"
     # Only an explicit HTTP 404 is allowed to authorize first-time creation.
     # Generic missing-file text and transport failures remain UNKNOWN.
-    if re.search(r"\\b404\\b",evidence):
+    if re.search(r"\b404\b",evidence):
         return False,"NOT_FOUND"
     if "timed out" in evidence or "connection reset" in evidence:
         return False,"TIMEOUT"
