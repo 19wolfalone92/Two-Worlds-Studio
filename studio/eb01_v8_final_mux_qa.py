@@ -56,10 +56,12 @@ def verify_final_mux(probe: Mapping, *, decoded_video_frames: int,
         reasons.append("AAC_AUDIO_REQUIRED")
     fmt = probe.get("format", {})
     try:
+        if not isinstance(fmt, Mapping) or type(decoded_video_frames) is not int:
+            raise ValueError("Invalid format or decoded frame count")
         duration = float(fmt.get("duration", "nan"))
         if not math.isfinite(duration) or duration < 40 or abs(duration - decoded_video_frames / 24) > 0.12:
             reasons.append("INVALID_FINAL_DURATION")
-    except (TypeError, ValueError, AttributeError):
+    except (TypeError, ValueError, AttributeError, OverflowError):
         reasons.append("INVALID_FINAL_DURATION")
     if original_neural_segments_verified is not True:
         reasons.append("ORIGINAL_NEURAL_PROVENANCE_MISSING")
