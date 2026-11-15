@@ -1,0 +1,50 @@
+name: EB01 V8 native-detail gate — CPU-only regression
+
+on:
+  push:
+    branches:
+      - fix/eb01-s02-private-raw-preservation-20261113
+    paths:
+      - studio/eb01_v8_40s_native_motion_plan.py
+      - studio/eb01_v8_private_mux.py
+      - studio/eb01_v8_final_mux_qa.py
+      - tests/test_eb01_v8_40s_native_motion_plan.py
+      - tests/test_eb01_v8_private_mux.py
+      - tests/test_eb01_v8_final_mux_qa.py
+      - tests/test_eb01_private_media_custody.py
+      - .github/workflows/eb01-v8-native-detail-gate-tests.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native_detail_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU-only FFmpeg and Python dependency
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --disable-pip-version-check "Pillow>=10,<13"
+      - name: Compile all V8 gates
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            studio/eb01_v8_40s_native_motion_plan.py \
+            studio/eb01_v8_private_mux.py \
+            studio/eb01_v8_final_mux_qa.py
+      - name: Run synthetic CPU, native-detail, frame-clock and privacy regressions
+        run: |
+          set -euo pipefail
+          python -m unittest \
+            tests.test_eb01_v8_private_mux \
+            tests.test_eb01_v8_40s_native_motion_plan \
+            tests.test_eb01_v8_final_mux_qa \
+            tests.test_eb01_private_media_custody -v
