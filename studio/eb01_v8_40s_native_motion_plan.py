@@ -164,6 +164,7 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
     if set(evidence)!=set(SEGMENT_COUNTS):
         reasons.append("REQUIRED_7_UNIQUE_SCENE_EVIDENCE_MISSING")
     sha_seen=set()
+    decoded_tails_seen=set()
     genuine_count=0
     for row in p["scenes"]:
         sid=row["scene_id"]
@@ -205,7 +206,11 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
             elif prev_tail is None or first != prev_tail:
                 reasons.append(f"{sid}_{idx}_CONDITIONING_FRAME_CONTINUITY_BROKEN")
                 chain_ok = False
+            if last in decoded_tails_seen:
+                reasons.append(f"{sid}_{idx}_REUSED_DECODED_TAIL")
+                chain_ok = False
             sha_seen.add(sha)
+            decoded_tails_seen.add(last)
             prev_tail = last
             chain_valid = chain_ok
             if chain_ok:
