@@ -10,6 +10,7 @@ import csv
 import io
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -38,6 +39,21 @@ def parse_owner_dataset_csv(raw: str) -> dict:
     }
 
 
+def classify_owner_list_failure(evidence: str) -> str:
+    """Return a safe list-probe category; never expose raw CLI diagnostics."""
+    text = str(evidence).lower()
+    if re.search(r"\b403\b", text) or "forbidden" in text or "permission denied" in text:
+        return "OWNER_DATASET_LIST_ACCESS_DENIED"
+    if re.search(r"\b401\b", text) or "unauthorized" in text:
+        return "OWNER_DATASET_LIST_AUTH_DENIED"
+    if "no results found" in text or "no datasets found" in text:
+        return "OWNER_DATASET_LIST_OK_EXACT_SLUG_NOT_FOUND"
+    if "unrecognized arguments" in text or "no such option" in text:
+        return "OWNER_DATASET_LIST_CLI_ARGUMENT_ERROR"
+    from tools.eb01_archive_verified_private_pilot import classify_kaggle_failure
+    return "OWNER_DATASET_LIST_" + classify_kaggle_failure(text)
+
+
 def inspect_owner_dataset_visibility(runner=subprocess.run) -> dict:
     base = {
         "schema": 1,
@@ -53,9 +69,26 @@ def inspect_owner_dataset_visibility(runner=subprocess.run) -> dict:
     if not os.environ.get("KAGGLE_API_TOKEN"):
         return {**base, "status": "OWNER_KAGGLE_CREDENTIAL_MISSING"}
     try:
+        help_result = runner(
+            ["kaggle", "datasets", "list", "--help"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, timeout=20, check=False)
+    except subprocess.TimeoutExpired:
+        return {**base, "status": "OWNER_DATASET_LIST_HELP_TIMEOUT"}
+    except OSError as exc:
+        return {**base, "status": "OWNER_DATASET_LIST_CLIENT_" + type(exc).__name__}
+    help_text = (help_result.stdout or "") + " " + (help_result.stderr or "")
+    if help_result.returncode != 0:
+        return {**base, "status": classify_owner_list_failure(help_text)}
+    required = ("--mine", "--search", "--page", "--csv")
+    missing = [flag for flag in required if flag not in help_text]
+    if missing:
+        return {**base, "status": "OWNER_DATASET_LIST_CLI_OPTIONS_MISSING",
+                "missing_options": missing}
+    try:
         result = runner(
-            ["kaggle", "datasets", "list", "--mine", "--search",
-             "eb01-owner-private-motion-a609d40bc3ee", "--page", "1", "--csv"],
+            ["kaggle", "datasets", "list", "-m", "-s",
+             "eb01-owner-private-motion-a609d40bc3ee", "-p", "1", "-v"],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, timeout=75, check=False)
     except subprocess.TimeoutExpired:
@@ -63,12 +96,10 @@ def inspect_owner_dataset_visibility(runner=subprocess.run) -> dict:
     except OSError as exc:
         return {**base, "status": "OWNER_DATASET_LIST_CLIENT_" + type(exc).__name__}
     if result.returncode != 0:
-        from tools.eb01_archive_verified_private_pilot import classify_kaggle_failure
-        return {**base, "status": "OWNER_DATASET_LIST_" +
-                classify_kaggle_failure((result.stdout or "") + " " + (result.stderr or ""))}
+        return {**base, "status": classify_owner_list_failure(
+            (result.stdout or "") + " " + (result.stderr or ""))}
     parsed = parse_owner_dataset_csv(result.stdout or "")
     return {**base, **parsed}
-
 
 def main() -> int:
     parser = argparse.ArgumentParser()
