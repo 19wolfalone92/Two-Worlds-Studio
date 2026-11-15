@@ -31,9 +31,10 @@ jobs:
           from pathlib import Path
           src=Path("tools/eb01_archive_verified_private_pilot.py").read_text()
           assert '"isPrivate":True' in src
-          assert 'data' not in []
           assert 'KAGGLE_API_TOKEN' in src
           assert 'if "--public" in argv' in src
-          assert '"OWNER_PRIVATE_DATASET_CREATED_ACL_NOT_INDEPENDENTLY_VERIFIED"' in src
+          assert '"REMOTE_DATASET_PRIVACY_CONFLICT"' in src
+          assert '["kaggle","datasets","delete"' not in src
+          assert '"public_github_media_upload":False' in src
           print("EB01_PRIVATE_KAGGLE_ARCHIVE_ONLY_SECURITY_TESTS_GREEN_NOT_MEDIA_CREATED")
           PY
