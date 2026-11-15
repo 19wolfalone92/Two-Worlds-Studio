@@ -128,6 +128,8 @@ def _archive_verified_output(kernel,expected,output,temp_parent):
         "whole_movie_ready","published","audio_conditioned_lipsync_verified")}
     if safe.get("whole_movie_ready") is not False:
         raise PrivateArchiveBlocked("A short pilot must never be mislabeled a finished movie")
+    # Stable archive receipt field used by remote byte-for-byte readback.
+    safe["owner_original_mp4_sha256"]=expected
     safe["watchdog_verification"]={
         "original_pilot_sha256":source["original_pilot_sha256"],
         "decoded_true_neural_frames":source["decoded_true_neural_frames"],
