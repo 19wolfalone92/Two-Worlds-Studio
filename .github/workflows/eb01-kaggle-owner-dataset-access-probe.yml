@@ -1,0 +1,48 @@
+name: EB01 — read-only Kaggle owner dataset access probe
+
+on:
+  push:
+    branches:
+      - fix/eb01-s02-private-raw-preservation-20261113
+    paths:
+      - ops/eb01_kaggle_owner_dataset_probe.trigger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eb01-kaggle-owner-dataset-visibility
+  cancel-in-progress: false
+
+jobs:
+  owner_dataset_visibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      KAGGLE_API_TOKEN: \${{ secrets.KAGGLE_API_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile and run offline sanitization tests
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/eb01_kaggle_owner_dataset_probe.py
+          python -m unittest tests.test_eb01_kaggle_owner_dataset_probe -v
+      - name: Install Kaggle CLI
+        run: python -m pip -q install 'kaggle>=2.2.4'
+      - name: Query only owner-owned matching dataset refs (no media, no mutation)
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_kaggle_owner_dataset_probe \
+            --output "$RUNNER_TEMP/EB01_KAGGLE_OWNER_DATASET_VISIBILITY_SAFE.json"
+      - name: Upload sanitized visibility receipt only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_KAGGLE_OWNER_DATASET_VISIBILITY_SAFE
+          path: \${{ runner.temp }}/EB01_KAGGLE_OWNER_DATASET_VISIBILITY_SAFE.json
+          retention-days: 7
+          if-no-files-found: warn
