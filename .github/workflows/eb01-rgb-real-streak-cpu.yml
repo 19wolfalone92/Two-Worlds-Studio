@@ -1,0 +1,38 @@
+name: EB01 — source-true RGB stripe QA + 33f GPU output receipts, CPU
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_rgb_true_streak_target_ci.trigger]
+permissions:
+  contents: read
+jobs:
+  verify_real_color_and_separate_gpu_completion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install actual FFmpeg, all CPU evidence dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12'
+          python -m compileall -q studio tools tests
+      - name: Actual H264 long blue wall vs 2px RGB stripe regression
+        run: python -m unittest tests.test_eb01_motion_artifact_gate tests.test_eb01_gpu_watchdog tests.test_eb01_ltx_t4_streamed_diagnostics tests.test_eb01_ltx_no_hidden_prompt_3b -v
+      - name: Prove redacted raw Kaggle CLI filename protection
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          worker=Path('tools/kaggle_eb01_ltx2b_s02_fallback.py').read_text()
+          yml=Path('.github/workflows/eb01-ltx-short-pilot33.yml').read_text()
+          assert 'vae_encoder_decoder_fp32' in worker
+          assert 'REAL_NATIVE_GPU_VIDEO_GENERATED_QA_REVIEW_BLOCKED' in worker
+          assert 'neon_line_geometry_by_frame' in worker
+          assert 'kaggle-output-PRIVATE.log' in yml
+          assert '2>&1' in yml
+          print('EB01_COLOR_QA_REVIEW_FAIL_CLOSED_NATIVE_GPU_AND_PUBLIC_PRIVACY_PASS')
+          PY
