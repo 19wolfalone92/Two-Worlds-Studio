@@ -199,6 +199,52 @@ def validate_actual_pilot(root: Path) -> dict:
     }
 
 
+
+def validate_actual_qa_blocked_pilot(root: Path) -> dict:
+    """A true decoded neural MP4 can exist even when independent QA fails.
+
+    A completed MODEL is not an approved CLIP or finished 40s film.
+    Check SHA and all 33 frames independently; fail closed on forged receipts.
+    """
+    movie=root/EXPECTED_MP4
+    record=root/EXPECTED_JOB
+    if not (movie.is_file() and record.is_file()
+            and 1024<=movie.stat().st_size<=MAX_OUTPUT_BYTES):
+        raise ValueError("Original review-blocked native MP4/receipt absent")
+    receipt=json.loads(record.read_text(encoding="utf-8"))
+    if (receipt.get("schema")!=7 or receipt.get("shot")!="S02"
+        or receipt.get("status")!="REAL_NATIVE_GPU_VIDEO_GENERATED_QA_REVIEW_BLOCKED"
+        or receipt.get("success") is not False
+        or receipt.get("model_inference_completed") is not True
+        or receipt.get("true_gpu_neural_inference") is not True
+        or receipt.get("whole_movie_ready") is not False
+        or receipt.get("human_artistic_approved") is not False
+        or receipt.get("published") is not False
+        or receipt.get("frame_count")!=33
+        or str(receipt.get("fps")) not in ("24","24/1")
+        or receipt.get("width")!=320 or receipt.get("height")!=576
+        or receipt.get("clip_sha256")!=file_sha(movie)):
+        raise ValueError("Unapproved native GPU film receipt failed proof")
+    from studio.comfy_neural import _probe
+    probe=_probe(movie)
+    if (probe["frames"]!=33 or probe["width"]!=320 or
+        probe["height"]!=576 or probe["fps"]!="24"):
+        raise ValueError("Video bytes disagree with original native frame receipt")
+    from studio.eb01_motion_artifact_gate import inspect_clip
+    qa=inspect_clip(movie)
+    if (qa["decoded_frames"]!=33 or qa["status"]=="NO_NEON_ARTIFACT_FOUND"):
+        raise ValueError("Review-blocked receipt inconsistent with fresh color scan")
+    return {
+        "actual_original_video_sha256":receipt["clip_sha256"],
+        "actual_neural_frames_verified":33,
+        "native_video_fps":24,
+        "frame_color_review_status":qa["status"],
+        "review_color_flags":qa.get("flagged_frames",[])[:33],
+        "spatial_line_geometry_flags":qa.get("neon_line_geometry_flagged_frames",[])[:33],
+        "actor_artistic_approved":False,
+        "full_movie_ready":False,
+    }
+
 def inspect(kernel: str, root: Path, *, max_polls: int = 4,
             poll_seconds: int = 30, runner=run_cli, sleeper=time.sleep) -> dict:
     """Poll existing private GPU job. No auto retry or new kernel creation."""
@@ -244,6 +290,15 @@ def inspect(kernel: str, root: Path, *, max_polls: int = 4,
                 try:
                     if exit_code != 0:
                         raise ValueError("Kaggle kernel output download failed")
+                    receipt_path=out/EXPECTED_JOB
+                    candidate=(json.loads(receipt_path.read_text(encoding="utf-8"))
+                               if receipt_path.is_file() else {})
+                    if candidate.get("status")=="REAL_NATIVE_GPU_VIDEO_GENERATED_QA_REVIEW_BLOCKED":
+                        report["clip_verification"]=validate_actual_qa_blocked_pilot(out)
+                        report["status"]="REAL_GPU_NATIVE_33F_QA_REVIEW_BLOCKED_NOT_MODEL_CRASH"
+                        report["failure_category"]="ACTUAL_INDEPENDENT_VISUAL_QA_REQUIRES_OWNER_REVIEW"
+                        report["next_action"]="REVIEW_PRIVATE_NATIVE_MP4_NO_BLIND_GPU_RESTART"
+                        break
                     report["clip_verification"] = validate_actual_pilot(out)
                     if report["clip_verification"]["artifact_scan_status"] == "NO_NEON_ARTIFACT_FOUND":
                         report["status"] = "TRUE_PILOT_TECHNICAL_QA_PASS_HUMAN_REVIEW_REQUIRED"
@@ -313,6 +368,7 @@ def main(argv=None) -> int:
         "REAL_GPU_INFERENCE_ERROR_DIAGNOSED",
         "KERNEL_COMPLETE_BUT_NO_VALID_TRUE_VIDEO",
         "TRUE_PILOT_VISUAL_COLOR_ARTIFACT_BLOCKED",
+        "REAL_GPU_NATIVE_33F_QA_REVIEW_BLOCKED_NOT_MODEL_CRASH",
         "KAGGLE_STATUS_UNREADABLE","WATCHDOG_INFRA_ERROR"
     ) else 0
 
