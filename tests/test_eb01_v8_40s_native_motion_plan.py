@@ -24,6 +24,7 @@ def all_fake_receipts_that_are_only_FOR_UNIT_TESTS():
                 "conditioning_input_frame_sha256":first,
                 "last_decoded_frame_sha256":last,
                 "native_frames":33,"native_fps":24,
+                "native_width":576,"native_height":1024,
                 "actual_model_inference":True,
                 "canonical_actor_sha256":row["canonical_reference_sha256"],
                 "rgb_neon_qc":"PASS",
@@ -49,6 +50,8 @@ class ElizabethNative40sTimelineTests(unittest.TestCase):
         self.assertGreater(p["final_duration_seconds"],40)
         self.assertEqual(p["new_true_inference_segment_count"],30)
         self.assertEqual(p["neural_frames_to_generate"],990)
+        self.assertEqual(p["required_native_width"],576)
+        self.assertEqual(p["required_native_height"],1024)
         self.assertFalse(p["production_executed"])
         self.assertFalse(p["cinematic_owner_approved"])
 
@@ -75,7 +78,26 @@ class ElizabethNative40sTimelineTests(unittest.TestCase):
         result=verify_real_neural_sources(evidence)
         self.assertEqual(result["status"],"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED")
         self.assertEqual(result["genuinely_original_segments_verified"],30)
+        self.assertTrue(result["native_576x1024_detail_verified"])
         self.assertFalse(result["full_40s_movie_ready"])
+
+    def test_320x576_upscaled_pilot_cannot_satisfy_native_detail_requirement(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        evidence["S02"][0]["native_width"]=320
+        evidence["S02"][0]["native_height"]=576
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("S02_0_NATIVE_576X1024_DETAIL_NOT_PROVEN",result["reasons"])
+        self.assertFalse(result["native_576x1024_detail_verified"])
+
+    def test_boolean_or_string_dimensions_are_not_native_detail_proof(self):
+        for width,height in ((True,1024),("576",1024),(576,False),(576,"1024")):
+            evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+            evidence["S04"][1]["native_width"]=width
+            evidence["S04"][1]["native_height"]=height
+            result=verify_real_neural_sources(evidence)
+            self.assertEqual(result["status"],"BLOCKED")
+            self.assertIn("S04_1_NATIVE_576X1024_DETAIL_NOT_PROVEN",result["reasons"])
 
     def test_duplicate_native_clip_is_rejected(self):
         evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
