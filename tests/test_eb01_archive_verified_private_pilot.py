@@ -173,7 +173,8 @@ class OwnerPrivateArchivalSecurity(unittest.TestCase):
             metadata_calls["count"]=1
             with patch.dict(os.environ,{"KAGGLE_API_TOKEN":"owner-test-token"}):
                 with patch("tools.eb01_archive_verified_private_pilot.safe_cmd",side_effect=fake_cmd):
-                    with patch("tools.eb01_archive_verified_private_pilot.validate_actual_pilot",
+                    with patch("tools.eb01_archive_verified_private_pilot.safe_cmd_result",side_effect=fake_metadata_result):
+                        with patch("tools.eb01_archive_verified_private_pilot.validate_actual_pilot",
                                    return_value=source):
                             again=archive_existing_output(KERNEL,expected,output,runner)
             self.assertEqual(again["status"],"OWNER_PRIVATE_DATASET_ACL_AND_SHA_VERIFIED")
