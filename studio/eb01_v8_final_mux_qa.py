@@ -52,6 +52,30 @@ def verify_final_mux(probe: Mapping, *, decoded_video_frames: int,
             reasons.append("INVALID_FPS")
         if v.get("codec_name") != "h264":
             reasons.append("H264_VIDEO_REQUIRED")
+    # Independently inspect the encoded video stream, not only caller-provided
+    # decoded frame counts or container duration. A valid-looking container
+    # can contain a truncated stream or a stale/incorrect frame count.
+    if video:
+        v = video[0]
+        try:
+            n = int(v.get("nb_frames", ""))
+            if str(v.get("nb_frames")) != str(n) or n != expected["final_unique_native_frames"]:
+                reasons.append("ENCODED_VIDEO_FRAME_COUNT_MISMATCH")
+        except (TypeError, ValueError, OverflowError):
+            reasons.append("ENCODED_VIDEO_FRAME_COUNT_MISSING")
+        try:
+            stream_duration = float(v.get("duration"))
+            if not math.isfinite(stream_duration) or abs(stream_duration - expected["final_duration_seconds"]) > 0.12:
+                reasons.append("ENCODED_VIDEO_DURATION_MISMATCH")
+        except (TypeError, ValueError, OverflowError):
+            reasons.append("ENCODED_VIDEO_DURATION_MISSING")
+    if audio:
+        try:
+            audio_duration = float(audio[0].get("duration"))
+            if not math.isfinite(audio_duration) or abs(audio_duration - expected["final_duration_seconds"]) > 0.12:
+                reasons.append("AUDIO_STREAM_DURATION_MISMATCH")
+        except (TypeError, ValueError, OverflowError):
+            reasons.append("AUDIO_STREAM_DURATION_MISSING")
     if audio and audio[0].get("codec_name") != "aac":
         reasons.append("AAC_AUDIO_REQUIRED")
     fmt = probe.get("format", {})
