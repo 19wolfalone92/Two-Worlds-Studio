@@ -1,0 +1,1 @@
+2026-11-15T18:54Z one read-only Kaggle CLI probe: list only datasets owned by wolf19loner92 and exact-match eb01-owner-private-motion-a609d40bc3ee. Do not download media, create/update/delete datasets, submit GPU, expose raw CLI output, or publish private content. Emit only sanitized access/match booleans.
