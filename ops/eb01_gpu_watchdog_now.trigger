@@ -3,11 +3,11 @@
 2026-11-14T12:47Z autonomous read-only recheck of existing Kaggle kernel; no GPU resubmission, no publishing.
 2026-11-14 RESUME after user STOP: check ONLY existing new post-audit owner GPU kernel wolf19loner92/eb01-ltx2b-pilot33-fd6d11a64bd6, GH monitor 43600628791 ended because 36 read-only status observations were all QUEUED. Do not submit new job. On real COMPLETE verify all MP4 frames/SHA; on ERROR perform root-cause triage.
 2026-11-14T14:34Z autonomous read-only watchdog recheck: FD6D11 existing private kernel only; capture real status and sanitized evidence, no GPU submission.
-2026-11-14T15:13Z scheduled watchdog recheck: inspect ONLY existing FD6D11 kernel, capture status and sanitized private QA, do not submit GPU or publish.
+2026-11-14T15:13Z scheduled watchdog recheck: inspect ONLY existing FD6D11 kernel, capture real status and sanitized private QA, do not submit GPU or publish.
 2026-11-14T16:21Z autonomous read-only FD6D11 kernel status and sanitized evidence check; no GPU push, no publication.
 2026-11-14T17:16Z autonomous existing FD6D11 read-only Kaggle watchdog status and private sanitized QA check; no GPU push or publication.
 2026-11-14T18:39Z autonomous read-only existing FD6D11 kernel status/diagnostics check; do not submit GPU, expose private media, or publish.
-2026-11-14T19:52Z autonomous existing FD6D11 read-only status/diagnostic and private frame QA; no GPU resubmission, no social publication.
+2026-11-14T19:52Z autonomous existing FD6D11 read-only status/diagnostic and private frame QA; no GPU resubmission, no social publication
 
 2026-11-15 resume FP32 VAE native T4 model A/B: single new 33f owner GPU kernel wolf19loner92/eb01-ltx2b-pilot33-c28a516c464e derived from GitHub run 43659159216 nonce (push stage succeeded). Old 0997be85f0d3 terminal ERROR, no duplicates. Read-only observe new kernel, on COMPLETE must verify actual SHA and frame QA; on ERROR get original diagnostic, no blind GPU retry. repo public raw files never upload.
 
@@ -18,3 +18,5 @@
 2026-11-15: FP32 LTX TRUE native 33 frame 24fps color technical pass independently verified in run 43664319485 SHA 74ee...; standalone numeral fetch of same private notebook intermittently returns 404. Execute one read-only watchdog check with new tools/eb01_gpu_watchdog.py integrated gray_motion computed on the SAME successful private download (no new GPU), 33 unique frame evidence, raw clip never public.
 
 2026-11-15 GPU motion A/B status ONLY: one existing private original LTX worker wolf19loner92/eb01-ltx2b-pilot33-a609d40bc3ee was pushed exactly once by GitHub 43718767041. Read-only inspector must classify RUNNING vs QUEUED vs COMPLETE/ERROR, fetch original SHA and numerical gray-motion only if terminal. No GPU push, no raw media export, no UI false full movie claims.
+
+2026-11-15T15:58Z scheduled autonomous read-only recheck of the SAME a609d40bc3ee kernel after the prior 13:38Z QUEUED observation and 14:09Z queue-budget expiry; do not push, restart, clone, or create any GPU kernel. If still QUEUED, preserve only safe state and leave it for next hourly cadence. If terminal, retrieve and verify original private output once, calculate gray_motion from that same download, and publish only sanitized JSON.
