@@ -1,0 +1,1 @@
+2026-11-15 verify owner PRIVATE Kaggle datasets safe-by-default SHA-bound remote original video archiver with no OAuth/GPU, only unit/static tests, no actual upload. User production goal durable private proof and 40sec film; never public GH actor footage.
