@@ -106,6 +106,48 @@ def narrow_neon_intrusion_fraction(frame: np.ndarray) -> float:
     return float(np.mean(vivid & (cyan | magenta | blue)))
 
 
+
+def neon_streak_line_geometry(frame: np.ndarray) -> float:
+    """Detect LONG/THIN colored lines, independently of overall blue coverage.
+
+    An entire blue coat or blue-lit wall can produce >0.15% vivid pixels in
+    ALL frames yet contain no geometric line artifact. Do not erase visual
+    review by guessing: return only a bounded per-frame line score.
+    """
+    if frame.ndim != 3 or frame.shape[2] != 3 or frame.dtype != np.uint8:
+        raise ArtifactRejected("Expected RGB video frame")
+    rgb=frame.astype(np.int16)
+    r,g,b=rgb[:,:,0],rgb[:,:,1],rgb[:,:,2]
+    high=rgb.max(axis=2)
+    low=rgb.min(axis=2)
+    vivid=(high-low>80)&(high>110)
+    tinted=(((b>r+50)&(g>r+45)&(b>85)) |
+            ((r>g+45)&(b>g+45)&(b>85)) |
+            ((b>r+32)&(b>g+32)&(b>90)))
+    mask=vivid&tinted
+    height,width=mask.shape
+    if height<8 or width<64:
+        return 0.0
+    runs=np.diff(np.pad(mask.astype(np.int8),((0,0),(1,1))),axis=1)
+    long_enough=max(14,round(width*.12))
+    thin_rows=0
+    for y in range(2,height-2):
+        start=np.flatnonzero(runs[y]==1)
+        end=np.flatnonzero(runs[y]==-1)
+        for left,right in zip(start,end):
+            if right-left<long_enough:
+                continue
+            # Long chromatic region which extends vertically is a *blob*,
+            # not a thin isolated horizontal RGB strip. Use 2-pixel margin.
+            vertical=np.mean(mask[
+                [y-2,y-1,y+1,y+2],left:right
+            ])
+            if vertical<.22:
+                thin_rows+=1
+                break
+    return round(thin_rows/height,6)
+
+
 def classify(values: list[float]) -> dict:
     if len(values) < 10:
         raise ArtifactRejected("Pilot has too few frames to check continuity")
@@ -147,6 +189,7 @@ def inspect_clip(path: Path) -> dict:
     horizontal_trace = []
     spectral_trace = []
     narrow_neon_trace = []
+    line_geometry_trace = []
     try:
         while len(values) < 400:
             raw = proc.stdout.read(frame_bytes)
@@ -159,6 +202,7 @@ def inspect_clip(path: Path) -> dict:
             horizontal_trace.append(horizontal_neon_band_fraction(frame))
             spectral_trace.append(warm_scene_spectral_intrusion_fraction(frame))
             narrow_neon_trace.append(narrow_neon_intrusion_fraction(frame))
+            line_geometry_trace.append(neon_streak_line_geometry(frame))
         if len(values) >= 400:
             raise ArtifactRejected("Too many frames for bounded pilot check")
         if proc.wait(timeout=30) != 0:
@@ -200,6 +244,20 @@ def inspect_clip(path: Path) -> dict:
         result["status"] = "REJECT_PERSISTENT_NARROW_NEON_STRIPES_REVIEW_REQUIRED"
         result["safe_frame_count"] = 0
         result["flagged_frames"] = sorted(set(result["flagged_frames"] + suspicious))
+    structural_flags=[i for i,v in enumerate(line_geometry_trace) if v>=.005]
+    if len(structural_flags)>=2 and reject_beyond_terminal(structural_flags):
+        result["status"]="REJECT_STRUCTURAL_RGB_STREAK_LINES"
+        result["safe_frame_count"]=0
+        result["flagged_frames"]=sorted(set(result["flagged_frames"]+structural_flags))
+    elif (len(suspicious)==len(values) and len(values)>=10
+          and not band_frames and len(spectral_bad)<=len(values)*.15
+          and not structural_flags and terminal_cutoff is None):
+        # Constant saturated cool palette is not automatically a strip glitch.
+        # Still BLOCKED for independent owner review, never marked clean.
+        result["status"]="REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF"
+        result["safe_frame_count"]=0
+    result["neon_line_geometry_trace"]=line_geometry_trace
+    result["neon_line_geometry_flagged_frames"]=structural_flags
     result["narrow_neon_fraction_trace"] = [round(v, 6) for v in narrow_neon_trace]
     result["narrow_neon_suspected_frames"] = suspicious
     result["narrow_neon_suspicion_threshold"] = .0015
