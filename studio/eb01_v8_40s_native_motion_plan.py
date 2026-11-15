@@ -274,11 +274,16 @@ def authorize_v8_scale_up(pilot: Mapping[str, object], *,
     height = pilot.get("native_height")
     fps = pilot.get("native_fps")
     duration = pilot.get("pilot_duration_seconds")
-    duration_ok = (
-        isinstance(duration, (int, float)) and not isinstance(duration, bool)
-        and math.isfinite(float(duration)) and 2.0 <= float(duration) <= 4.0
-        and type(frames) is int and frames == round(float(duration) * FPS)
-    )
+    try:
+        duration_value = float(duration)
+        duration_ok = (
+            isinstance(duration, (int, float)) and not isinstance(duration, bool)
+            and math.isfinite(duration_value) and 2.0 <= duration_value <= 4.0
+            and type(frames) is int
+            and abs(frames / FPS - duration_value) <= 0.5 / FPS
+        )
+    except (TypeError, ValueError, OverflowError):
+        duration_ok = False
     checks = {
         "expected_pilot_sha_not_pinned": (
             isinstance(expected_pilot_sha256, str)
@@ -297,6 +302,7 @@ def authorize_v8_scale_up(pilot: Mapping[str, object], *,
         "true_48_to_96_frame_decode_missing": (
             type(frames) is int and 48 <= frames <= 96
         ),
+        "true_neural_inference_not_proven": pilot.get("actual_model_inference") is True,
         "native_rgb_pass": pilot.get("rgb_status") == "NO_NEON_ARTIFACT_FOUND",
         "private_owner_visual_signoff": pilot.get("owner_visual_review") == "PASS",
         "skeletal_jaw_and_body_physics": pilot.get("skeletal_anatomy_review") == "PASS",
