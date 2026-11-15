@@ -172,9 +172,11 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
             reasons.append(f"{sid}_MISSING_DISTINCT_NATIVE_I2V_SEGMENTS")
             continue
         prev_tail=None
+        chain_valid=True
         for idx,proof in enumerate(receipts):
             if not isinstance(proof,dict):
                 reasons.append(f"{sid}_{idx}_NO_GPU_RECEIPT")
+                chain_valid=False
                 continue
             sha=proof.get("mp4_sha256")
             # The VAE's first OUTPUT frame may differ pixel-by-pixel from
@@ -193,17 +195,19 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                 or proof.get("rgb_neon_qc")!="PASS"
                 or proof.get("identity_artistic_qc")!="PASS"):
                 reasons.append(f"{sid}_{idx}_REAL_NATIVE_GPU_OR_QA_NOT_PROVEN")
+                chain_valid=False
                 continue
-            chain_ok = True
+            chain_ok = chain_valid
             if idx == 0:
                 if proof.get("initial_reference_sha256") != row["canonical_reference_sha256"]:
                     reasons.append(f"{sid}_ORIGINAL_CHARACTER_SHA_MISMATCH")
                     chain_ok = False
-            elif first != prev_tail:
+            elif prev_tail is None or first != prev_tail:
                 reasons.append(f"{sid}_{idx}_CONDITIONING_FRAME_CONTINUITY_BROKEN")
                 chain_ok = False
             sha_seen.add(sha)
             prev_tail = last
+            chain_valid = chain_ok
             if chain_ok:
                 genuine_count += 1
     return {
