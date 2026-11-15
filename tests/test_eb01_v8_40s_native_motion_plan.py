@@ -144,10 +144,6 @@ class ElizabethNative40sTimelineTests(unittest.TestCase):
         self.assertIn("true_neural_inference_not_proven", result["blocking_gates"])
 
 
-if __name__=="__main__":
-    unittest.main()
-
-
 def valid_scaleup_pilot():
     sha = "a" * 64
     return {
@@ -225,3 +221,6 @@ class V8ScaleUpAuthorizationTests(unittest.TestCase):
         result = authorize_v8_scale_up(pilot, expected_pilot_sha256="a" * 64)
         self.assertFalse(result["scale_up_authorized"])
         self.assertIn("controlled_2_to_4_second_pilot_missing", result["blocking_gates"])
+
+if __name__ == "__main__":
+    unittest.main()
