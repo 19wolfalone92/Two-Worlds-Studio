@@ -182,16 +182,18 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
         reasons.append("REQUIRED_7_UNIQUE_SCENE_EVIDENCE_MISSING")
     mp4_seen=set()
     decoded_tails_seen=set()
-    conditioning_inputs_seen=set()
     conditioning_exports_seen=set()
     genuine_count=0
     for row in p["scenes"]:
         sid=row["scene_id"]
+        # Each independent scene may legitimately begin from the same
+        # canonical actor portrait; reuse is forbidden only within a scene.
         receipts=evidence.get(sid,[])
         if not isinstance(receipts,list) or len(receipts)!=row["native_segment_count"]:
             reasons.append(f"{sid}_MISSING_DISTINCT_NATIVE_I2V_SEGMENTS")
             continue
         previous_conditioning_export=None
+        conditioning_inputs_seen=set()
         chain_valid=True
         for idx,proof in enumerate(receipts):
             if not isinstance(proof,dict):
@@ -252,6 +254,9 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
             if idx==0:
                 if proof.get("initial_reference_sha256")!=row["canonical_reference_sha256"]:
                     reasons.append(f"{sid}_ORIGINAL_CHARACTER_SHA_MISMATCH")
+                    chain_ok=False
+                if conditioning_input!=row["canonical_reference_sha256"]:
+                    reasons.append(f"{sid}_INITIAL_CONDITIONING_INPUT_NOT_CANONICAL")
                     chain_ok=False
             elif previous_conditioning_export is None or conditioning_input!=previous_conditioning_export:
                 reasons.append(f"{sid}_{idx}_CONDITIONING_FRAME_CONTINUITY_BROKEN")
