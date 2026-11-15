@@ -3,7 +3,7 @@ import copy
 import unittest
 
 from studio.eb01_v8_40s_native_motion_plan import (
-    plan,verify_real_neural_sources,FPS,SEGMENT_NATIVE_FRAMES,
+    plan,verify_real_neural_sources,authorize_v8_scale_up,FPS,SEGMENT_NATIVE_FRAMES,
 )
 from studio.eb01_v7_storyboard import SHOTS,VOICE_SECONDS,VOICE_SHA
 
@@ -130,3 +130,81 @@ class ElizabethNative40sTimelineTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+
+def valid_scaleup_pilot():
+    sha = "a" * 64
+    return {
+        "pilot_mp4_sha256": sha,
+        "owner_reviewed_mp4_sha256": sha,
+        "decoded_frames": 60,
+        "native_width": 576,
+        "native_height": 1024,
+        "native_fps": 24,
+        "pilot_duration_seconds": 2.5,
+        "rgb_status": "NO_NEON_ARTIFACT_FOUND",
+        "owner_visual_review": "PASS",
+        "skeletal_anatomy_review": "PASS",
+        "human_identity_review": "PASS",
+        "acting_motion_review": "PASS",
+        "private_media_acl_verified": True,
+        "audio_conditioned_lipsync_review": "PASS",
+    }
+
+
+class V8ScaleUpAuthorizationTests(unittest.TestCase):
+    def test_exact_owner_reviewed_2_to_4s_native_pilot_can_authorize_planning_only(self):
+        pilot = valid_scaleup_pilot()
+        result = authorize_v8_scale_up(pilot, expected_pilot_sha256="a" * 64)
+        self.assertTrue(result["scale_up_authorized"])
+        self.assertEqual(result["blocking_gates"], [])
+        self.assertFalse(result["gpu_job_submitted"])
+        self.assertFalse(result["full_movie_ready"])
+        self.assertFalse(result["public_media_export"])
+
+    def test_current_33f_320x576_a609_pilot_cannot_authorize_batch(self):
+        pilot = {
+            "pilot_mp4_sha256": "1f13fdbc6b9bc3dc42c3bdab75090ac025556b0c6d63b4ff572769320fb7d71f",
+            "decoded_frames": 33,
+            "native_width": 320,
+            "native_height": 576,
+            "native_fps": 24,
+            "pilot_duration_seconds": 1.375,
+            "rgb_status": "NO_NEON_ARTIFACT_FOUND",
+        }
+        result = authorize_v8_scale_up(
+            pilot,
+            expected_pilot_sha256="1f13fdbc6b9bc3dc42c3bdab75090ac025556b0c6d63b4ff572769320fb7d71f",
+        )
+        self.assertFalse(result["scale_up_authorized"])
+        self.assertIn("controlled_2_to_4_second_pilot_missing", result["blocking_gates"])
+        self.assertIn("native_576x1024_detail_missing", result["blocking_gates"])
+        self.assertIn("private_owner_visual_signoff", result["blocking_gates"])
+
+    def test_stale_or_unreviewed_sha_is_rejected(self):
+        pilot = valid_scaleup_pilot()
+        pilot["owner_reviewed_mp4_sha256"] = "b" * 64
+        result = authorize_v8_scale_up(pilot, expected_pilot_sha256="a" * 64)
+        self.assertFalse(result["scale_up_authorized"])
+        self.assertIn("authentic_pilot_sha_not_owner_reviewed", result["blocking_gates"])
+
+    def test_missing_expected_sha_never_authorizes_scale_up(self):
+        result = authorize_v8_scale_up(valid_scaleup_pilot())
+        self.assertFalse(result["scale_up_authorized"])
+        self.assertIn("expected_pilot_sha_not_pinned", result["blocking_gates"])
+
+    def test_boolean_and_string_dimensions_are_not_native_detail(self):
+        for width, height in ((True, 1024), ("576", 1024), (576, False), (576, "1024")):
+            pilot = valid_scaleup_pilot()
+            pilot["native_width"] = width
+            pilot["native_height"] = height
+            result = authorize_v8_scale_up(pilot, expected_pilot_sha256="a" * 64)
+            self.assertFalse(result["scale_up_authorized"])
+            self.assertIn("native_576x1024_detail_missing", result["blocking_gates"])
+
+    def test_duration_must_match_24fps_decoded_frame_count(self):
+        pilot = valid_scaleup_pilot()
+        pilot["pilot_duration_seconds"] = 3.0
+        result = authorize_v8_scale_up(pilot, expected_pilot_sha256="a" * 64)
+        self.assertFalse(result["scale_up_authorized"])
+        self.assertIn("controlled_2_to_4_second_pilot_missing", result["blocking_gates"])
