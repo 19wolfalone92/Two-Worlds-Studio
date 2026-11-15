@@ -71,6 +71,36 @@ jobs:
               print("NO_FRESH_PILOT",report["status"],"NO_PARTIAL_FULL_MOVIE")
           PY
         id: owner_review
+      - name: Archive the SAME successful watchdog download to owner-private Kaggle (no second kernel fetch)
+        if: steps.owner_review.outputs.pilot_exists == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/eb01-real-kaggle-supervisor"
+          sha="$(python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"eb01-real-kaggle-supervisor"/"EB01_S02_EXISTING_KERNEL_WATCHDOG_REPORT.json"
+          d=json.loads(p.read_text(encoding="utf-8"))
+          v=d.get("clip_verification",{})
+          value=v.get("original_pilot_sha256","")
+          if len(value)!=64 or any(c not in "0123456789abcdef" for c in value):
+              raise SystemExit("Missing exact verified original SHA")
+          print(value)
+          PY
+          )"
+          python -m tools.eb01_archive_verified_private_pilot \
+            --kernel wolf19loner92/eb01-ltx2b-pilot33-a609d40bc3ee \
+            --sha256 "$sha" \
+            --existing-output-dir "$root/private_download"
+      - name: Preserve owner-private archive ACL/SHA receipt only (never media)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_OWNER_PRIVATE_ARCHIVE_STATUS_ONLY
+          path: ${{ runner.temp }}/EB01_PRIVATE_ARCHIVE_STATUS_ONLY.json
+          retention-days: 7
+          if-no-files-found: warn
       - name: Preserve REAL unapproved short acting pilot privately — NEVER as finished film
         if: ${{ github.event.repository.private && steps.owner_review.outputs.pilot_exists == 'true' }}
         uses: actions/upload-artifact@v4
