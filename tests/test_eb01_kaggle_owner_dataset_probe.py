@@ -76,7 +76,7 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
                     return SimpleNamespace(returncode=0,
                         stdout="--mine --page --csv", stderr="")
                 return SimpleNamespace(returncode=0,
-                    stdout="ref,title,size\\n" + TARGET_DATASET + ",x,1\\n",
+                    stdout="ref,title,size\n" + TARGET_DATASET + ",x,1\n",
                     stderr="")
             result = inspect_owner_dataset_visibility(runner=fake)
         self.assertEqual(result["status"], "OWNER_DATASET_LIST_OK_EXACT_SLUG_FOUND")
@@ -103,11 +103,11 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
                 page = int(args[args.index("--page") + 1])
                 pages.append(page)
                 if page == 1:
-                    rows = "".join(f"other/{i},title-{i},1\\n" for i in range(20))
+                    rows = "".join(f"other/{i},title-{i},1\n" for i in range(20))
                     return SimpleNamespace(returncode=0,
-                        stdout="ref,title,size\\n" + rows, stderr="")
+                        stdout="ref,title,size\n" + rows, stderr="")
                 return SimpleNamespace(returncode=0,
-                    stdout="ref,title,size\\n" + TARGET_DATASET + ",private-title,1\\n",
+                    stdout="ref,title,size\n" + TARGET_DATASET + ",private-title,1\n",
                     stderr="")
             result = inspect_owner_dataset_visibility(runner=fake)
         self.assertEqual(pages, [1, 2])
@@ -123,7 +123,7 @@ class OwnerDatasetVisibilityProbeTests(unittest.TestCase):
                 if args[-1] == "--help":
                     return SimpleNamespace(returncode=0,
                         stdout="--mine --page --csv", stderr="")
-                rows = "ref,title,size\\nother/dataset,private-title,1\\n"
+                rows = "ref,title,size\nother/dataset,private-title,1\n"
                 return SimpleNamespace(returncode=0, stdout=rows, stderr="")
             result = inspect_owner_dataset_visibility(runner=fake)
         self.assertEqual(result["status"], "OWNER_DATASET_LIST_OK_EXACT_SLUG_NOT_FOUND")
