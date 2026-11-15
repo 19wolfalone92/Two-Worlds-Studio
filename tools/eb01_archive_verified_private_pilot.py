@@ -29,19 +29,25 @@ def safe_cmd_result(argv,timeout=180):
         return False,"CLIENT_UNAVAILABLE"
     if p.returncode==0:
         return True,"OK"
-    evidence=((p.stdout or "")+"\\n"+(p.stderr or "")).lower()
+    evidence=(p.stdout or "")+" "+(p.stderr or "")
+    return False,classify_kaggle_failure(evidence)
+
+
+def classify_kaggle_failure(evidence):
+    """Map Kaggle CLI diagnostics to a safe status without exposing raw text."""
+    evidence=str(evidence).lower()
     # Permission/auth failures take precedence over a generic "not found".
     if re.search(r"\b403\b",evidence) or "forbidden" in evidence or "permission denied" in evidence:
-        return False,"ACCESS_DENIED"
+        return "ACCESS_DENIED"
     if re.search(r"\b401\b",evidence) or "unauthorized" in evidence:
-        return False,"AUTH_DENIED"
+        return "AUTH_DENIED"
     # Only an explicit HTTP 404 is allowed to authorize first-time creation.
     # Generic missing-file text and transport failures remain UNKNOWN.
     if re.search(r"\b404\b",evidence):
-        return False,"NOT_FOUND"
+        return "NOT_FOUND"
     if "timed out" in evidence or "connection reset" in evidence:
-        return False,"TIMEOUT"
-    return False,"COMMAND_FAILED"
+        return "TIMEOUT"
+    return "COMMAND_FAILED"
 
 
 def safe_cmd(argv,timeout=180):
