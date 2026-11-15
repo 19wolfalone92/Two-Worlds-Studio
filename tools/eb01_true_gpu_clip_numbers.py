@@ -15,6 +15,7 @@ import tempfile
 from fractions import Fraction
 
 KERNEL = "wolf19loner92/eb01-ltx2b-pilot33-c28a516c464e"
+EXPECTED_SHA = "74ee559ecf5d73cd95e0d28e0aa5171e6b546f6e227091974b42126acfea56d6"
 
 
 def error_family_only(raw: str) -> str:
@@ -106,6 +107,10 @@ def check(root: Path) -> dict:
         return details
     details["native_mp4_byte_size"] = movie.stat().st_size
     details["native_mp4_sha256"] = hashlib.sha256(movie.read_bytes()).hexdigest()
+    details["matches_verified_t4_fp32_source_SHA"] = details["native_mp4_sha256"] == EXPECTED_SHA
+    if not details["matches_verified_t4_fp32_source_SHA"]:
+        details["status"] = "BLOCKED_ORIGINAL_SHA_MISMATCH"
+        return details
     try:
         meta = _probe(movie)
         details["native_ffprobe"] = meta
@@ -168,6 +173,14 @@ def main() -> int:
             ["kaggle", "kernels", "output", KERNEL,
              "-p", str(root), "--force"], timeout=240)
         report["kaggle_read_only_output_download"] = info
+        report["default_output_status"] = info
+        # Kaggle official CLI accepts a notebook version suffix (/1).
+        # One read-only fallback only; do not retry on 429/auth failure.
+        if code != 0 and info == "KAGGLE_PRIVATE_KERNEL_OR_OUTPUT_NOT_FOUND":
+            code, info = process(
+                ["kaggle", "kernels", "output", KERNEL + "/1",
+                 "-p", str(root), "--force", "--quiet"], timeout=240)
+            report["exact_version_one_readback_status"] = info
         report["output_download_ok"] = code == 0
         if code == 0:
             report.update(check(root))
