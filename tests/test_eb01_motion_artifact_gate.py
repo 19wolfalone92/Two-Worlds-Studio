@@ -11,7 +11,8 @@ import numpy as np
 
 from studio.eb01_motion_artifact_gate import (
     ArtifactRejected, bright_color_fraction, classify,
-    inspect_clip, trim_bad_tail
+    inspect_clip, trim_bad_tail, neon_streak_line_geometry,
+    narrow_neon_intrusion_fraction
 )
 
 
@@ -42,6 +43,46 @@ class E01MotionArtifactTests(unittest.TestCase):
         v=[.001]*49
         self.assertEqual(classify(v)["status"],"NO_NEON_ARTIFACT_FOUND")
         self.assertEqual(classify(v)["safe_frame_count"],49)
+
+    def test_blue_palette_is_not_automatically_thin_neon_stripe(self):
+        frame=np.full((128,160,3),[22,21,20],dtype=np.uint8)
+        frame[20:110,12:148,:]=[10,35,215]
+        self.assertGreater(narrow_neon_intrusion_fraction(frame),.1)
+        self.assertEqual(neon_streak_line_geometry(frame),0.0)
+
+    def test_true_two_row_rgb_streak_produces_independent_line_evidence(self):
+        frame=np.full((128,160,3),[22,21,20],dtype=np.uint8)
+        frame[55:57,12:148,:]=[10,35,215]
+        self.assertGreater(neon_streak_line_geometry(frame),.005)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "ffmpeg/ffprobe not installed")
+    def test_persistent_blue_palette_review_only_never_false_green(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            for shape,expected in (
+                ("wide","REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF"),
+                ("line","REJECT_STRUCTURAL_RGB_STREAK_LINES"),
+            ):
+                frames=[]
+                for i in range(21):
+                    frame=np.full((128,160,3),[22,21,20],dtype=np.uint8)
+                    if shape=="wide":
+                        frame[20:110,12:148,:]=[10,35,215]
+                    else:
+                        frame[55:57,12:148,:]=[10,35,215]
+                    frames.append(frame.tobytes())
+                video=root/(shape+".mp4")
+                cmd=["ffmpeg","-hide_banner","-nostdin","-y","-loglevel","error",
+                     "-f","rawvideo","-pix_fmt","rgb24","-s","160x128","-r","24",
+                     "-i","-","-an","-c:v","libx264","-crf","10",
+                     "-pix_fmt","yuv420p",str(video)]
+                subprocess.run(cmd,input=b"".join(frames),check=True,
+                               capture_output=True,timeout=45)
+                report=inspect_clip(video)
+                self.assertEqual(report["status"],expected,report)
+                self.assertEqual(report["safe_frame_count"],0)
+                self.assertFalse(report["actor_motion_artistically_approved"])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "ffmpeg/ffprobe not installed")
