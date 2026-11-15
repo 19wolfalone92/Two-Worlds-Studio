@@ -41,14 +41,19 @@ def verify_audio_conditioned_performances(evidence: Mapping[str, dict]) -> dict:
                             and math.isfinite(item[k]) for k in numeric)
         if (item.get("voice_sha256") != scene["canonical_voice_sha256"]
             or item.get("scene_id") != sid
+            or type(item.get("dialogue_start_frame")) is not int
+            or type(item.get("dialogue_end_frame")) is not int
             or item.get("dialogue_start_frame") != start
             or item.get("dialogue_end_frame") != end
+            or type(item.get("decoded_scene_frames")) is not int
             or item.get("decoded_scene_frames") != scene["unique_movie_frames"]
             or item.get("original_neural_frames") is not True
             or not valid_numbers):
             reasons.append(f"{sid}_SOURCE_TIMING_OR_METRICS_UNVERIFIED")
             continue
-        if (abs(item["audio_visual_offset_ms"]) > 80
+        if (item["voiced_jaw_motion_px"] <= 0
+            or item["silent_jaw_motion_px"] < 0
+            or abs(item["audio_visual_offset_ms"]) > 80
             or item["jaw_audio_correlation"] < 0.45
             or item["jaw_audio_correlation"] > 1.0
             or item["voiced_jaw_motion_px"] <= item["silent_jaw_motion_px"]):
