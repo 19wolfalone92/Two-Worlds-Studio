@@ -195,21 +195,16 @@ def archive_existing_output(kernel,expected,output,temp_parent):
 
 
 def archive(kernel,expected,temp_parent):
+    """Fail closed: never perform a second independent Kaggle kernel-output fetch."""
     if not KERNEL_RE.fullmatch(kernel) or not HEX64.fullmatch(expected):
         raise PrivateArchiveBlocked("Kaggle source and SHA not pinned")
     if not os.environ.get("KAGGLE_API_TOKEN"):
         raise PrivateArchiveBlocked("Owner credential unavailable")
-    with tempfile.TemporaryDirectory(prefix="eb01-private-",dir=str(temp_parent)) as d:
-        root=Path(d)
-        output=root/"model_private_output"
-        output.mkdir(mode=0o700)
-        if not safe_cmd(["kaggle","kernels","output",kernel,
-                         "-p",str(output),"--force"],timeout=240):
-            return {"schema":1,"status":"KAGGLE_PRIVATE_ORIGINAL_UNAVAILABLE",
-                    "gpu_restarted":False,"published":False,"full_movie_ready":False,
-                    "public_github_media_upload":False,"owner_original_mp4_sha256":expected,
-                    "independent_remote_acl":False}
-        return _archive_verified_output(kernel,expected,output,temp_parent)
+    raise PrivateArchiveBlocked(
+        "Separate Kaggle kernel-output downloads are disabled; archive only the "
+        "already verified private_download from the same watchdog run")
+
+
 
 def main():
     p=argparse.ArgumentParser()
