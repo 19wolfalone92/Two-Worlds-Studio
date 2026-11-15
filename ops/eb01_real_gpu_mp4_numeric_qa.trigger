@@ -3,3 +3,5 @@ Root-cause forensic from REAL ORIGINAL GPU watch archive run 43634475448 artifac
 2026-11-15 controlled one-off private Kaggle existing MP4 readback AFTER code fixed. Do not start new GPU. Check preserved native 33f clip, if Kaggle API still rejects capture only exact sanitized HTTP ERROR FAMILY (429 rate limit -> STOP, 401 bad token -> STOP, 403 ACL -> STOP, 5xx -> STOP). Never upload video to public GH artifact. 
 
 2026-11-15 resume: target new confirmed actual 33-frame GPU video kernel 0997be85f0d3 instead of previously 404 expired fd6d, true clip generated 324.53s, 33/33 narrow-color flags. Fetch only privately and upload numerical motion/chroma QA, never the copyrighted private picture or voice, no GPU restarts.
+
+2026-11-15: actual genuine owner FP32 VAE successful kernel c28a516c464e COMPLETE, native 33 frames at 24fps 320x576 SHA 74ee559ecf5d73cd95e0d28e0aa5171e6b546f6e227091974b42126acfea56d6, 297.21s native GPU model; watchdog 43664319485 technical QA pass, now independently audit motion and colors privately. No new GPU and no public raw frames.
