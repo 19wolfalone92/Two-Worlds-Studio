@@ -128,6 +128,22 @@ class ElizabethNative40sTimelineTests(unittest.TestCase):
         self.assertIn("S06_1_REAL_NATIVE_GPU_OR_QA_NOT_PROVEN",result["reasons"])
 
 
+    def test_malformed_or_overflowing_duration_is_blocked_without_exception(self):
+        for duration in (True, "2.5", float("nan"), float("inf"), 10 ** 10000):
+            pilot = valid_scaleup_pilot()
+            pilot["pilot_duration_seconds"] = duration
+            result = authorize_v8_scale_up(pilot, expected_pilot_sha256="a" * 64)
+            self.assertFalse(result["scale_up_authorized"])
+            self.assertIn("controlled_2_to_4_second_pilot_missing", result["blocking_gates"])
+
+    def test_synthetic_or_unverified_inference_cannot_authorize_scaleup(self):
+        pilot = valid_scaleup_pilot()
+        pilot["actual_model_inference"] = False
+        result = authorize_v8_scale_up(pilot, expected_pilot_sha256="a" * 64)
+        self.assertFalse(result["scale_up_authorized"])
+        self.assertIn("true_neural_inference_not_proven", result["blocking_gates"])
+
+
 if __name__=="__main__":
     unittest.main()
 
@@ -142,6 +158,7 @@ def valid_scaleup_pilot():
         "native_height": 1024,
         "native_fps": 24,
         "pilot_duration_seconds": 2.5,
+        "actual_model_inference": True,
         "rgb_status": "NO_NEON_ARTIFACT_FOUND",
         "owner_visual_review": "PASS",
         "skeletal_anatomy_review": "PASS",
