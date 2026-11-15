@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from tools.eb01_kaggle_owner_dataset_probe import (
     TARGET_DATASET, inspect_owner_dataset_visibility, parse_owner_dataset_csv,
-    classify_owner_list_failure
+    classify_owner_list_failure, safe_command_diagnostic
 )
 
 
