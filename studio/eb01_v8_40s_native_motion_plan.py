@@ -161,6 +161,12 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
     """
     p=plan()
     reasons=[]
+    if not isinstance(evidence, Mapping):
+        return {"schema": 8, "status": "BLOCKED",
+                "reasons": ["INVALID_EVIDENCE_MAPPING"],
+                "genuinely_original_segments_verified": 0,
+                "expected_original_segments": p["new_true_inference_segment_count"],
+                "full_40s_movie_ready": False, "social_published": False}
     if set(evidence)!=set(SEGMENT_COUNTS):
         reasons.append("REQUIRED_7_UNIQUE_SCENE_EVIDENCE_MISSING")
     sha_seen=set()
@@ -190,8 +196,10 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                         for x in (sha,first,last,actor_sha))
                 or actor_sha!=row["canonical_reference_sha256"]
                 or sha in sha_seen
-                or proof.get("native_frames")!=33
-                or proof.get("native_fps")!=24
+                or type(proof.get("native_frames")) is not int
+                or proof["native_frames"] != 33
+                or type(proof.get("native_fps")) is not int
+                or proof["native_fps"] != 24
                 or proof.get("actual_model_inference") is not True
                 or proof.get("rgb_neon_qc")!="PASS"
                 or proof.get("identity_artistic_qc")!="PASS"):
@@ -236,9 +244,14 @@ def authorize_v8_scale_up(pilot: Mapping[str, object]) -> dict:
     This gate authorizes planning only, never GPU submission or publishing.
     """
     expected_sha = "74ee559ecf5d73cd95e0d28e0aa5171e6b546f6e227091974b42126acfea56d6"
+    if not isinstance(pilot, Mapping):
+        return {"schema": 8, "scale_up_authorized": False,
+                "blocking_gates": ["INVALID_PILOT_EVIDENCE"],
+                "gpu_job_submitted": False, "full_movie_ready": False,
+                "public_media_export": False}
     checks = {
         "authentic_pilot_sha": pilot.get("pilot_mp4_sha256") == expected_sha,
-        "true_native_33_frames": pilot.get("decoded_frames") == 33,
+        "true_native_33_frames": type(pilot.get("decoded_frames")) is int and pilot["decoded_frames"] == 33,
         "native_rgb_pass": pilot.get("rgb_status") == "NO_NEON_ARTIFACT_FOUND",
         "private_owner_visual_signoff": pilot.get("owner_visual_review") == "PASS",
         "skeletal_jaw_and_body_physics": pilot.get("skeletal_anatomy_review") == "PASS",
