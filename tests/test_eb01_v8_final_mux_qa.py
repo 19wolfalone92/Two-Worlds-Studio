@@ -16,7 +16,8 @@ def check(p=None, **kw):
 
 def test_exact_valid_metadata():
     result=check()
-    assert result["movie_ready"] and not result["neural_provenance_independently_proven"]
+    assert not result["movie_ready"] and not result["neural_provenance_independently_proven"]
+    assert "ORIGINAL_NEURAL_PROVENANCE_MISSING" in result["reasons"]
 
 def test_missing_owner_signoff_blocks():
     assert not check(owner_final_artistic_review=False)["movie_ready"]
@@ -39,3 +40,26 @@ def test_missing_voice_proof_blocks():
 
 def test_missing_scene_blocks():
     assert "SEVEN_SCENES_NOT_PROVEN" in check(independent_scene_count=6)["reasons"]
+
+
+def test_all_explicit_proofs_required_for_ready():
+    result = check(original_neural_segments_verified=True,
+                   six_line_lipsync_verified=True,
+                   private_durable_storage_verified=True)
+    assert result["movie_ready"] is True
+
+
+def test_invalid_frame_count_never_crashes_or_passes():
+    for invalid in (None, "967", True, float("nan")):
+        result = check(decoded_video_frames=invalid)
+        assert result["movie_ready"] is False
+        assert "NATIVE_FRAME_COUNT_MISMATCH" in result["reasons"]
+        assert "INVALID_FINAL_DURATION" in result["reasons"]
+
+
+def test_invalid_format_never_crashes_or_passes():
+    p = probe()
+    p["format"] = None
+    result = check(p)
+    assert result["movie_ready"] is False
+    assert "INVALID_FINAL_DURATION" in result["reasons"]
