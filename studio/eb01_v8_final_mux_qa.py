@@ -16,7 +16,10 @@ from studio.eb01_v8_40s_native_motion_plan import plan
 def verify_final_mux(probe: Mapping, *, decoded_video_frames: int,
                      independent_scene_count: int,
                      canonical_audio_sha_verified: bool,
-                     owner_final_artistic_review: bool = False) -> dict:
+                     owner_final_artistic_review: bool = False,
+                     original_neural_segments_verified: bool = False,
+                     six_line_lipsync_verified: bool = False,
+                     private_durable_storage_verified: bool = False) -> dict:
     reasons = []
     if not isinstance(probe, Mapping):
         return {"status": "BLOCKED", "reasons": ["INVALID_PROBE"], "movie_ready": False}
@@ -58,9 +61,15 @@ def verify_final_mux(probe: Mapping, *, decoded_video_frames: int,
             reasons.append("INVALID_FINAL_DURATION")
     except (TypeError, ValueError, AttributeError):
         reasons.append("INVALID_FINAL_DURATION")
+    if original_neural_segments_verified is not True:
+        reasons.append("ORIGINAL_NEURAL_PROVENANCE_MISSING")
+    if six_line_lipsync_verified is not True:
+        reasons.append("SIX_LINE_LIPSYNC_MISSING")
+    if private_durable_storage_verified is not True:
+        reasons.append("PRIVATE_DURABLE_STORAGE_UNVERIFIED")
     if owner_final_artistic_review is not True:
         reasons.append("OWNER_FINAL_ARTISTIC_REVIEW_MISSING")
     return {"status": "TECHNICAL_AND_OWNER_GATES_PASS" if not reasons else "BLOCKED",
             "reasons": sorted(set(reasons)), "movie_ready": not reasons,
-            "neural_provenance_independently_proven": False,
+            "neural_provenance_independently_proven": original_neural_segments_verified is True,
             "public_media_export": False}
