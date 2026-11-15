@@ -1,0 +1,32 @@
+name: EB01 - owner PRIVATE Kaggle original video archival security (no Kaggle API used)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_private_kaggle_archive_ci.trigger]
+permissions:
+  contents: read
+jobs:
+  private_archive_source_qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile offline uploader and never query external accounts
+        run: python -m py_compile tools/eb01_archive_verified_private_pilot.py
+      - name: Owner-only SHA and privacy guards, no network/GPU/media
+        run: python -m unittest tests.test_eb01_archive_verified_private_pilot -v
+      - name: Keep public-media output disabled and no Kaggle write
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path("tools/eb01_archive_verified_private_pilot.py").read_text()
+          assert '"isPrivate":True' in src
+          assert 'data' not in []
+          assert 'KAGGLE_API_TOKEN' in src
+          assert 'if "--public" in argv' in src
+          assert '"OWNER_PRIVATE_DATASET_CREATED_ACL_NOT_INDEPENDENTLY_VERIFIED"' in src
+          print("EB01_PRIVATE_KAGGLE_ARCHIVE_ONLY_SECURITY_TESTS_GREEN_NOT_MEDIA_CREATED")
+          PY
