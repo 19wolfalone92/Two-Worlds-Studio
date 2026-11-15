@@ -6,10 +6,13 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import shutil
+import subprocess
 from pathlib import Path
 
 from tools.eb01_gpu_watchdog import (
-    KERNEL, parse_state, classify_failure, sanitize, inspect, private_numeric_qa_summary
+    KERNEL, parse_state, classify_failure, sanitize, inspect,
+    private_numeric_qa_summary, file_sha, validate_actual_qa_blocked_pilot
 )
 
 
@@ -120,6 +123,43 @@ class KaggleGPUWatchdogTests(unittest.TestCase):
             (root/"EB01_S02_NATIVE_GPU_FRAME_QA_SAFE.json").write_text("{ invalid json")
             result=private_numeric_qa_summary(root)
             self.assertEqual(result["source"],"INVALID_GPU_QA_RECEIPT")
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "ffmpeg/ffprobe are required for native frame proof")
+    def test_real_video_generated_but_color_review_is_not_cuda_failure_or_movie(self):
+        import numpy as np
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            video=root/"S02_PILOT33.mp4"
+            frame=np.full((576,320,3),[22,21,20],dtype=np.uint8)
+            frame[85:360,24:292,:]=[10,35,215]
+            subprocess.run(
+                ["ffmpeg","-hide_banner","-nostdin","-y","-loglevel","error",
+                 "-f","rawvideo","-pix_fmt","rgb24","-s","320x576",
+                 "-r","24","-i","-","-an","-c:v","libx264","-crf","17",
+                 "-pix_fmt","yuv420p",str(video)],
+                input=frame.tobytes()*33,
+                capture_output=True,check=True,timeout=45)
+            receipt={"schema":7,"shot":"S02","success":False,
+                 "status":"REAL_NATIVE_GPU_VIDEO_GENERATED_QA_REVIEW_BLOCKED",
+                 "model_inference_completed":True,
+                 "true_gpu_neural_inference":True,
+                 "whole_movie_ready":False,"human_artistic_approved":False,
+                 "published":False,"frame_count":33,"fps":"24",
+                 "width":320,"height":576,
+                 "clip_sha256":file_sha(video)}
+            manifest=root/"EB01_S02_LTX_PILOT33_JOB.json"
+            manifest.write_text(json.dumps(receipt))
+            report=validate_actual_qa_blocked_pilot(root)
+            self.assertEqual(report["actual_neural_frames_verified"],33)
+            self.assertNotEqual(report["frame_color_review_status"],
+                                "NO_NEON_ARTIFACT_FOUND")
+            self.assertFalse(report["actor_artistic_approved"])
+            self.assertFalse(report["full_movie_ready"])
+            receipt["clip_sha256"]="f"*64
+            manifest.write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(ValueError,"receipt failed proof"):
+                validate_actual_qa_blocked_pilot(root)
 
     def test_private_secrets_and_source_paths_redacted(self):
         logs=("Traceback private /kaggle/input/wolf/ELIZABETH.png\n"
