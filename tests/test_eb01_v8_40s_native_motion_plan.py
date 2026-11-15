@@ -17,7 +17,7 @@ def all_fake_receipts_that_are_only_FOR_UNIT_TESTS():
         src=[]
         previous=None
         for idx in range(row["native_segment_count"]):
-            first=previous if previous else f"{n+210000:064x}"
+            first=previous if previous else row["canonical_reference_sha256"]
             last=f"{n+310000:064x}"  # raw RGB-pixel digest
             next_conditioning=f"{n+410000:064x}"  # canonical exported PNG file SHA
             item={
@@ -253,3 +253,11 @@ class V8ConditioningHashDomainTests(unittest.TestCase):
         self.assertEqual(result["status"],"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED")
         self.assertEqual(result["genuinely_original_segments_verified"],30)
         self.assertFalse(result["full_40s_movie_ready"])
+
+
+    def test_first_conditioning_image_must_be_the_canonical_actor_source(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        evidence["S00"][0]["conditioning_input_frame_sha256"] = "e" * 64
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("S00_INITIAL_CONDITIONING_INPUT_NOT_CANONICAL",result["reasons"])
