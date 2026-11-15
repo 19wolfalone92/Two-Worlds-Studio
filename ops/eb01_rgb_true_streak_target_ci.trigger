@@ -1,0 +1,1 @@
+2026-11-15 target real FFmpeg H264 blue palette versus 2px stripe; review statuses remain fail-closed, Kaggle GPU inference successful but color review-blocked not false FP16 crash, FP32 video VAE, public GitHub console must not leak generated prompt filenames. No GPU.
