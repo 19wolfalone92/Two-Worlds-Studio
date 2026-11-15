@@ -44,7 +44,16 @@ def call(args: list[str], name: str, timeout: int = 240) -> bytes:
 
 
 def safe_private_path(path: Path) -> Path:
-    p = path.resolve()
+    # Check the un-resolved path first: resolve() otherwise conceals a
+    # symlinked parent that can redirect private media into a public tree.
+    absolute = Path(os.path.abspath(path))
+    if any(node.is_symlink() for node in (absolute, *absolute.parents)):
+        raise PrivateMovieBlocked("Symlinked private path or ancestor refused")
+    p = absolute.resolve()
+    # Also protect local runs where GITHUB_WORKSPACE is not set. A checkout
+    # with .git is a publication-capable tree, never an owner media vault.
+    if any((node / ".git").exists() for node in (p.parent, *p.parents)):
+        raise PrivateMovieBlocked("Private media cannot reside in a Git checkout")
     workspace = os.environ.get("GITHUB_WORKSPACE")
     if workspace and (p == Path(workspace).resolve() or
                       Path(workspace).resolve() in p.parents):
