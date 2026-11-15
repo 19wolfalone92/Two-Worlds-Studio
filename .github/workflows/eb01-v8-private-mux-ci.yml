@@ -1,0 +1,41 @@
+name: EB01 V8 real-source private 40s mux and six original WAV timing tests (CPU, no GPU)
+on:
+  push:
+    branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
+    paths: [ops/eb01_v8_private_mux_acceptance.trigger]
+permissions:
+  contents: read
+jobs:
+  native_nonfake_timeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install production FFmpeg and CPU dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'Pillow>=10,<12' 'numpy>=1.26,<3' 'soundfile>=0.12'
+          python -m compileall -q studio tools tests
+      - name: ACTUAL H264 33f conditioning-join + six unique WAV temporal clocks + fail-closed private output
+        run: python -m unittest tests.test_eb01_v8_private_mux tests.test_eb01_v8_40s_native_motion_plan tests.test_eb01_v8_final_mux_qa tests.test_eb01_private_media_custody -v
+      - name: Production original-not-fabricated actor requirements
+        run: |
+          python - <<'PY'
+          from studio.eb01_v8_40s_native_motion_plan import plan
+          from pathlib import Path
+          s=Path('studio/eb01_v8_private_mux.py').read_text()
+          p=plan()
+          assert p["final_unique_native_frames"]==967 and p["new_true_inference_segment_count"]==30
+          assert 'verify_real_neural_sources(receipts)' in s
+          assert 'final_frame_rgb_sha(movie)' in s
+          assert 'native33(movie)' in s
+          assert '"audio_conditioned_lipsync_verified": False' in s
+          assert '"full_approved_movie_ready": False' in s
+          assert '"private_durable_storage_verified": False' in s
+          print('EB01_V8_PRIVATE_967_REAL_FRAMES_MUX_CODE_PASSED_SYNTHETIC_CODEC_TESTS_NOT_TRUE_MOVIE')
+          PY
