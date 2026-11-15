@@ -48,8 +48,10 @@ def audit_official_patch(ltx_root: Path,worker: Path = WORKER) -> dict:
     pipe=pipeline.read_text(encoding="utf-8")
     parameters=_get_values(worker)
     for i,anchor in enumerate(parameters["old"]):
-        source=_replace_once(source,anchor,anchor.replace("torch.bfloat16","torch.float16"),
-            f"T4_dtype_cast_{i}")
+        chosen=("torch.float32" if anchor.startswith("vae = vae.to(")
+                else "torch.float16")
+        source=_replace_once(source,anchor,anchor.replace("torch.bfloat16",chosen),
+            f"T4_sequential_precision_policy_{i}")
     original=parameters["original_call"]
     source=_replace_once(source,original,
         "        sampler=sampler,\n        device='cpu',\n        enhance_prompt=enhance_prompt,",
@@ -71,6 +73,16 @@ def audit_official_patch(ltx_root: Path,worker: Path = WORKER) -> dict:
         +after
     )
     pipe=_replace_once(pipe,after,replacement,"VAE_then_transformer_only")
+    # Explicitly prove only the VAE is FP32; the transformer and
+    # encoder stay FP16, with actual geometry, decoder and VAE staging.
+    if source.count("vae = vae.to(torch.float32)")!=1:
+        raise ValueError("T4 FP32 VAE safety cast missing or duplicated")
+    if source.count("text_encoder = text_encoder.to(torch.float16)")!=1:
+        raise ValueError("T4 text encoder FP16 stage missing")
+    if source.count("return Transformer3DModel.from_pretrained(ckpt_path).to(torch.float16)")!=1:
+        raise ValueError("T4 transformer FP16 stage missing")
+    if "vae = vae.to(torch.float16)" in source:
+        raise ValueError("Half-precision VAE remains; all-frame neon risk")
     compile(source,str(py),"exec")
     compile(pipe,str(pipeline),"exec")
     markers=(
