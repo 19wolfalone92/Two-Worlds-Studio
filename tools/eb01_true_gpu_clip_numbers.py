@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 from fractions import Fraction
 
-KERNEL = "wolf19loner92/eb01-ltx2b-pilot33-fd6d11a64bd6"
+KERNEL = "wolf19loner92/eb01-ltx2b-pilot33-0997be85f0d3"
 
 
 def error_family_only(raw: str) -> str:
