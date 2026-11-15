@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 from fractions import Fraction
@@ -63,6 +64,40 @@ def safe_private_path(path: Path) -> Path:
     if path.is_symlink():
         raise PrivateMovieBlocked("Symlinked private path refused")
     return p
+
+
+def prepare_private_output_parent(output: Path) -> Path:
+    """Create/verify an owner-only directory for the final review MP4."""
+    parent = safe_private_path(output.parent)
+    parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    parent = safe_private_path(parent)
+    if not parent.is_dir():
+        raise PrivateMovieBlocked("Private output parent is not a directory")
+    if os.name == "posix":
+        st = parent.stat()
+        if st.st_uid != os.getuid():
+            raise PrivateMovieBlocked("Private output directory must belong to the current owner")
+        if stat.S_IMODE(st.st_mode) & 0o077:
+            raise PrivateMovieBlocked("Group/world-readable output directory refused")
+        os.chmod(parent, 0o700)
+        if stat.S_IMODE(parent.stat().st_mode) != 0o700:
+            raise PrivateMovieBlocked("Could not enforce owner-only output directory mode")
+    return parent
+
+
+def secure_private_file(path: Path) -> Path:
+    """Restrict a completed private review file to owner read/write."""
+    target = safe_private_path(path)
+    if target.is_symlink() or not target.is_file():
+        raise PrivateMovieBlocked("Private output file is missing or symlinked")
+    if os.name == "posix":
+        st = target.stat()
+        if st.st_uid != os.getuid():
+            raise PrivateMovieBlocked("Private output file must belong to the current owner")
+        os.chmod(target, 0o600)
+        if stat.S_IMODE(target.stat().st_mode) != 0o600:
+            raise PrivateMovieBlocked("Could not enforce owner-only MP4 permissions")
+    return target
 
 
 def ffprobe(path: Path) -> dict:
@@ -204,9 +239,7 @@ def assemble_private_v8(root: Path, output: Path) -> dict:
         raise PrivateMovieBlocked("Private original film source directories absent")
     proof = validate_private_inputs(root)
     movie = proof["plan"]
-    output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if output.parent.is_symlink():
-        raise PrivateMovieBlocked("Symlink destination is unsafe")
+    prepare_private_output_parent(output)
     # Temporary original media is never written to a public GitHub artifact.
     with tempfile.TemporaryDirectory(prefix="eb01-private-v8-", dir=str(output.parent)) as temp:
         workspace = Path(temp)
@@ -251,6 +284,7 @@ def assemble_private_v8(root: Path, output: Path) -> dict:
             raise PrivateMovieBlocked("Private review mux clock or voice track incomplete")
         # Preserve unapproved review media privately. No 'final approved' claim.
         shutil.move(str(candidate), str(output))
+        secure_private_file(output)
     return {"schema": 8,
             "status": "PRIVATE_ORIGINAL_40S_REVIEW_MP4_NOT_APPROVED",
             "original_video_sha256": digest(output),
