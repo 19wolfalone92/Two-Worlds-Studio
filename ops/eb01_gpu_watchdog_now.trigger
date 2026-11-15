@@ -8,3 +8,5 @@
 2026-11-14T17:16Z autonomous existing FD6D11 read-only Kaggle watchdog status and private sanitized QA check; no GPU push or publication.
 2026-11-14T18:39Z autonomous read-only existing FD6D11 kernel status/diagnostics check; do not submit GPU, expose private media, or publish.
 2026-11-14T19:52Z autonomous existing FD6D11 read-only status/diagnostic and private frame QA; no GPU resubmission, no social publication.
+
+2026-11-15 resume FP32 VAE native T4 model A/B: single new 33f owner GPU kernel wolf19loner92/eb01-ltx2b-pilot33-c28a516c464e derived from GitHub run 43659159216 nonce (push stage succeeded). Old 0997be85f0d3 terminal ERROR, no duplicates. Read-only observe new kernel, on COMPLETE must verify actual SHA and frame QA; on ERROR get original diagnostic, no blind GPU retry. repo public raw files never upload.
