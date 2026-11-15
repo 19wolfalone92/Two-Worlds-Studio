@@ -20,7 +20,7 @@ import sys
 import time
 from pathlib import Path
 
-KERNEL = "wolf19loner92/eb01-ltx2b-pilot33-0997be85f0d3"
+KERNEL = "wolf19loner92/eb01-ltx2b-pilot33-c28a516c464e"
 EXPECTED_JOB = "EB01_S02_LTX_PILOT33_JOB.json"
 EXPECTED_MP4 = "S02_PILOT33.mp4"
 KNOWN = ("QUEUED", "RUNNING", "COMPLETE", "ERROR", "CANCEL")
