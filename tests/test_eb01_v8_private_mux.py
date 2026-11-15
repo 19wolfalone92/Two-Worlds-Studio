@@ -81,6 +81,27 @@ class PrivateNoPublicReleaseTests(unittest.TestCase):
                 with self.assertRaises(PrivateMovieBlocked):
                     safe_private_path(base / "test_private.mp4")
 
+    def test_local_git_checkout_denied_without_github_workspace(self):
+        with tempfile.TemporaryDirectory() as td:
+            checkout = Path(td) / "public_checkout"
+            (checkout / ".git").mkdir(parents=True)
+            with patch.dict(os.environ, {"GITHUB_WORKSPACE": ""}):
+                with self.assertRaisesRegex(PrivateMovieBlocked, "Git checkout"):
+                    safe_private_path(checkout / "private" / "actor.mp4")
+
+    def test_symlinked_parent_denied_even_when_target_is_private(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = Path(td)
+            vault = base / "vault"
+            vault.mkdir()
+            alias = base / "alias"
+            try:
+                alias.symlink_to(vault, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("Directory symlinks unavailable")
+            with self.assertRaisesRegex(PrivateMovieBlocked, "Symlinked"):
+                safe_private_path(alias / "review.mp4")
+
     def test_no_frame_duplication_or_generated_fps_in_segment_filter(self):
         for skip in (False, True):
             f = segment_filter(skip)
