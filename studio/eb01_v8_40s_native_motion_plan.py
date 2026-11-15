@@ -251,23 +251,52 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
     }
 
 
-def authorize_v8_scale_up(pilot: Mapping[str, object]) -> dict:
-    """Fail closed BEFORE spending 30 GPU segments on an unapproved pilot.
+def authorize_v8_scale_up(pilot: Mapping[str, object], *,
+                         expected_pilot_sha256: str | None = None) -> dict:
+    """Authorize the 30-take batch only after a separate 2–4s native-detail pilot.
 
-    Optical luma differences and RGB QA cannot certify visible acting.
-    The human review must refer to the exact SHA-locked private MP4, not
-    an unrelated preview. Private durable storage must be access-controlled.
-    This gate authorizes planning only, never GPU submission or publishing.
+    The existing a609d40bc3ee motion A/B is only 33 frames / 1.375s at
+    320x576. It is useful for visual review, but cannot satisfy the controlled
+    2–4s, >=576x1024 pre-scale pilot requirement. The expected SHA must be
+    pinned by the caller and independently echoed by the owner's review
+    receipt. Numerical motion and RGB-QA never substitute for acting review.
+    This gate never submits GPU work or publishes media.
     """
-    expected_sha = "74ee559ecf5d73cd95e0d28e0aa5171e6b546f6e227091974b42126acfea56d6"
     if not isinstance(pilot, Mapping):
         return {"schema": 8, "scale_up_authorized": False,
                 "blocking_gates": ["INVALID_PILOT_EVIDENCE"],
                 "gpu_job_submitted": False, "full_movie_ready": False,
                 "public_media_export": False}
+    sha = pilot.get("pilot_mp4_sha256")
+    reviewed_sha = pilot.get("owner_reviewed_mp4_sha256")
+    frames = pilot.get("decoded_frames")
+    width = pilot.get("native_width")
+    height = pilot.get("native_height")
+    fps = pilot.get("native_fps")
+    duration = pilot.get("pilot_duration_seconds")
+    duration_ok = (
+        isinstance(duration, (int, float)) and not isinstance(duration, bool)
+        and math.isfinite(float(duration)) and 2.0 <= float(duration) <= 4.0
+        and type(frames) is int and frames == round(float(duration) * FPS)
+    )
     checks = {
-        "authentic_pilot_sha": pilot.get("pilot_mp4_sha256") == expected_sha,
-        "true_native_33_frames": type(pilot.get("decoded_frames")) is int and pilot["decoded_frames"] == 33,
+        "expected_pilot_sha_not_pinned": (
+            isinstance(expected_pilot_sha256, str)
+            and HEX64.fullmatch(expected_pilot_sha256) is not None
+        ),
+        "authentic_pilot_sha_not_owner_reviewed": (
+            isinstance(sha, str) and HEX64.fullmatch(sha) is not None
+            and sha == expected_pilot_sha256 and reviewed_sha == expected_pilot_sha256
+        ),
+        "controlled_2_to_4_second_pilot_missing": duration_ok,
+        "native_576x1024_detail_missing": (
+            type(width) is int and width >= MIN_NATIVE_WIDTH
+            and type(height) is int and height >= MIN_NATIVE_HEIGHT
+        ),
+        "native_24_fps_missing": type(fps) is int and fps == FPS,
+        "true_48_to_96_frame_decode_missing": (
+            type(frames) is int and 48 <= frames <= 96
+        ),
         "native_rgb_pass": pilot.get("rgb_status") == "NO_NEON_ARTIFACT_FOUND",
         "private_owner_visual_signoff": pilot.get("owner_visual_review") == "PASS",
         "skeletal_jaw_and_body_physics": pilot.get("skeletal_anatomy_review") == "PASS",
