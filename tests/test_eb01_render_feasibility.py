@@ -2,7 +2,8 @@
 import unittest
 
 from studio.eb01_render_feasibility import (
-    RenderRequest,check_candidate,MODEL_WAN,MODEL_LTX_LEGACY,MODEL_LTX_NEW)
+    RenderRequest,check_candidate,check_native_detail_pilot,
+    MODEL_WAN,MODEL_LTX_LEGACY,MODEL_LTX_NEW)
 
 def q(model=MODEL_WAN, vram=14.56,width=320,height=576,frames=125,
       steps=21,mode="production",license_confirmed=True,paid_service=False):
@@ -101,3 +102,54 @@ class ResourceAwareCinematicTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+class NativeDetailPilotFeasibilityTests(unittest.TestCase):
+    def request(self, model=MODEL_LTX_LEGACY, vram=14.56, width=576,
+                height=1024, frames=49, steps=8, **kwargs):
+        return RenderRequest(
+            model=model, gpu_vram_gib=vram, width=width, height=height,
+            frames=frames, steps=steps, mode="pilot",
+            license_confirmed=True, paid_service=False, **kwargs)
+
+    def test_free_t4_cannot_run_unbenchmarked_native_576x1024_ltx49_pilot(self):
+        result=check_native_detail_pilot(self.request())
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_24GIB_REVIEWED_GPU",result["reasons"])
+        self.assertIn("LEGACY_LTX_UNBENCHMARKED_GPU_PILOT_MAX_33_FRAMES",result["reasons"])
+        self.assertFalse(result["gpu_launched"])
+        self.assertFalse(result["paid_service_used"])
+
+    def test_free_t4_cannot_run_native_detail_wan49_pilot_on_unreviewed_profile(self):
+        result=check_native_detail_pilot(self.request(
+            model=MODEL_WAN,steps=20))
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_24GIB_REVIEWED_GPU",result["reasons"])
+        self.assertFalse(result["gpu_launched"])
+
+    def test_free_t4_cannot_run_ltx25_22b_native_detail_pilot(self):
+        result=check_native_detail_pilot(self.request(
+            model=MODEL_LTX_NEW,steps=20))
+        self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_24GIB_REVIEWED_GPU",result["reasons"])
+        self.assertIn("LTX25_PRODUCTION_HARDWARE_BELOW_PUBLISHED_DESKTOP_FLOOR",result["reasons"])
+
+    def test_native_detail_pilot_requires_portrait_geometry_and_24fps(self):
+        result=check_native_detail_pilot(self.request(
+            model=MODEL_WAN,steps=20,width=704,height=1280,frames=48,fps=30))
+        self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_24GIB_REVIEWED_GPU",result["reasons"])
+        self.assertIn("NATIVE_DETAIL_PILOT_MUST_DECODE_48_TO_96_FRAMES",result["reasons"])
+        self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_24_FPS",result["reasons"])
+
+    def test_reviewed_24gib_wan49_profile_is_only_precheck_not_quality_approval(self):
+        result=check_native_detail_pilot(self.request(
+            model=MODEL_WAN,vram=24.0,steps=20))
+        self.assertEqual(result["status"],"PILOT_PRECHECK_PASS_NOT_QUALITY_APPROVED")
+        self.assertFalse(result["gpu_launched"])
+        self.assertFalse(result["quality_is_proven"])
+        self.assertFalse(result["published"])
+
+    def test_bad_aspect_ratio_and_unaligned_native_size_are_rejected(self):
+        result=check_native_detail_pilot(self.request(
+            model=MODEL_WAN,vram=24.0,width=608,height=1024,steps=20))
+        self.assertIn("NATIVE_DETAIL_PILOT_MUST_REMAIN_9_16_PORTRAIT",result["reasons"])
+        self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_32PX_SPATIAL_ALIGNMENT",result["reasons"])
+

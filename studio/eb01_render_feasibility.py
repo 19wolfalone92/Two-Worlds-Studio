@@ -20,6 +20,7 @@ _SHA = re.compile(r"^[a-f0-9]{64}$")
 MODEL_WAN = "wan22-ti2v-5b"
 MODEL_LTX_LEGACY = "ltx-video-2b-distilled"
 MODEL_LTX_NEW = "ltx-2.5-22b"
+NATIVE_DETAIL_PILOT_MIN_VRAM_GIB = 24.0
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class RenderRequest:
     max_gpu_seconds: int = 2700
     paid_service: bool = False
     license_confirmed: bool = False
+    fps: int = 24
 
 
 def check_candidate(request: RenderRequest, pilot: dict[str, Any] | None = None) -> dict:
@@ -138,3 +140,69 @@ def check_candidate(request: RenderRequest, pilot: dict[str, Any] | None = None)
         "gpu_launched":False,
         "published":False,
     }
+
+def check_native_detail_pilot(request: RenderRequest) -> dict:
+    """Fail-closed preflight for a real 2–4s native portrait-detail pilot.
+
+    This is a resource/policy screen only: it never launches a GPU job and
+    never proves model quality. The 24 GiB floor is a conservative reviewed
+    hardware policy for the currently unbenchmarked >=576x1024 / 49+ frame
+    profile. Known Kaggle T4 capacity (14.56 GiB) cannot pass this gate.
+    """
+    reasons = []
+    if not isinstance(request, RenderRequest):
+        return {
+            "schema": 1, "status": "BLOCKED",
+            "reasons": ["INVALID_RENDER_REQUEST"],
+            "gpu_launched": False, "paid_service_used": False,
+            "quality_is_proven": False, "published": False,
+        }
+
+    def block(reason: str) -> None:
+        if reason not in reasons:
+            reasons.append(reason)
+
+    if request.mode != "pilot":
+        block("NATIVE_DETAIL_GATE_REQUIRES_PILOT_MODE")
+    if type(request.fps) is not int or request.fps != 24:
+        block("NATIVE_DETAIL_PILOT_REQUIRES_24_FPS")
+    if type(request.width) is not int or request.width < 576:
+        block("NATIVE_DETAIL_PILOT_WIDTH_BELOW_576")
+    if type(request.height) is not int or request.height < 1024:
+        block("NATIVE_DETAIL_PILOT_HEIGHT_BELOW_1024")
+    if type(request.width) is int and type(request.height) is int and request.height > 0:
+        if abs((request.width / request.height) - (9 / 16)) > 0.01:
+            block("NATIVE_DETAIL_PILOT_MUST_REMAIN_9_16_PORTRAIT")
+        if request.width % 32 or request.height % 32:
+            block("NATIVE_DETAIL_PILOT_REQUIRES_32PX_SPATIAL_ALIGNMENT")
+    if type(request.frames) is not int or not 48 <= request.frames <= 96:
+        block("NATIVE_DETAIL_PILOT_MUST_DECODE_48_TO_96_FRAMES")
+    elif request.model in (MODEL_LTX_LEGACY, MODEL_LTX_NEW) and (request.frames - 1) % 8:
+        block("LTX_NATIVE_TEMPORAL_LENGTH_MUST_BE_8N_PLUS_1")
+    elif request.model == MODEL_WAN and (request.frames - 1) % 4:
+        block("WAN_NATIVE_TEMPORAL_LENGTH_MUST_BE_4N_PLUS_1")
+
+    if (type(request.gpu_vram_gib) not in (int, float)
+            or not math.isfinite(request.gpu_vram_gib)
+            or request.gpu_vram_gib < NATIVE_DETAIL_PILOT_MIN_VRAM_GIB):
+        block("NATIVE_DETAIL_PILOT_REQUIRES_24GIB_REVIEWED_GPU")
+
+    base = check_candidate(request)
+    for reason in base["reasons"]:
+        block(reason)
+
+    return {
+        "schema": 1,
+        "status": "BLOCKED" if reasons else "PILOT_PRECHECK_PASS_NOT_QUALITY_APPROVED",
+        "reasons": reasons,
+        "model": request.model,
+        "gpu_vram_gib": request.gpu_vram_gib,
+        "native_dimensions": [request.width, request.height],
+        "frames": request.frames,
+        "fps": request.fps,
+        "gpu_launched": False,
+        "paid_service_used": False,
+        "quality_is_proven": False,
+        "published": False,
+    }
+

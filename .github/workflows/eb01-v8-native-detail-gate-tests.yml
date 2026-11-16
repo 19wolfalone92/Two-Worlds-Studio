@@ -8,6 +8,8 @@ on:
       - studio/eb01_v8_40s_native_motion_plan.py
       - studio/eb01_v8_private_mux.py
       - studio/eb01_v8_final_mux_qa.py
+      - studio/eb01_render_feasibility.py
+      - tests/test_eb01_render_feasibility.py
       - tests/test_eb01_v8_40s_native_motion_plan.py
       - tests/test_eb01_v8_private_mux.py
       - tests/test_eb01_v8_final_mux_qa.py
@@ -39,7 +41,8 @@ jobs:
           python -m py_compile \
             studio/eb01_v8_40s_native_motion_plan.py \
             studio/eb01_v8_private_mux.py \
-            studio/eb01_v8_final_mux_qa.py
+            studio/eb01_v8_final_mux_qa.py \
+            studio/eb01_render_feasibility.py
       - name: Run synthetic CPU, native-detail, frame-clock and privacy regressions
         run: |
           set -euo pipefail
@@ -47,4 +50,5 @@ jobs:
             tests.test_eb01_v8_private_mux \
             tests.test_eb01_v8_40s_native_motion_plan \
             tests.test_eb01_v8_final_mux_qa \
+            tests.test_eb01_render_feasibility \
             tests.test_eb01_private_media_custody -v
