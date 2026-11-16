@@ -89,7 +89,8 @@ class SceneAssignmentTests(unittest.TestCase):
         resumed = create_schedule(
             workers,
             verified_tails={scene: {"completed_count": 1,
-                                    "next_conditioning_png_sha256": "a"*64}})
+                                    "next_conditioning_png_sha256": "a"*64}},
+            scene_owner_locks={scene: alias})
         self.assertEqual(resumed["scene_assignments"][scene], alias)
         relevant = [x for x in resumed["planned_first_wave"]
                     if x["account_alias"] == alias]
@@ -104,7 +105,8 @@ class SceneAssignmentTests(unittest.TestCase):
         initial = create_schedule(workers)
         busy = initial["planned_first_wave"][0]
         after = create_schedule(workers,
-            in_flight_scenes={busy["account_alias"]: [busy["scene_id"]]})
+            in_flight_scenes={busy["account_alias"]: [busy["scene_id"]]},
+            scene_owner_locks={busy["scene_id"]:busy["account_alias"]})
         self.assertNotIn(busy["scene_id"],
                          [t["scene_id"] for t in after["planned_first_wave"]])
 
@@ -153,6 +155,38 @@ class SceneAssignmentTests(unittest.TestCase):
             create_schedule(workers,
                 verified_tails={"S02": {"completed_count": 40,
                                         "next_conditioning_png_sha256": "a"*64}})
+
+    def test_running_scene_never_migrates_to_other_account_on_acl_or_quota_loss(self):
+        workers = {"owner": capable("owner"),
+                   "collaborator": capable("collaborator")}
+        initial = create_schedule(workers)
+        assigned_to_second = next(s for s, owner in initial["scene_assignments"].items()
+                                  if owner == "collaborator")
+        now_offline = {"owner": capable("owner"),
+                       "collaborator": capable("collaborator",
+                                                private_source_acl_verified=False)}
+        paused = create_schedule(now_offline,
+            verified_tails={assigned_to_second:
+                {"completed_count": 1, "next_conditioning_png_sha256": "d"*64}},
+            scene_owner_locks={assigned_to_second: "collaborator"})
+        self.assertEqual(paused["scene_assignments"][assigned_to_second],
+                         "collaborator")
+        self.assertNotIn(assigned_to_second,
+            [job["scene_id"] for job in paused["planned_first_wave"]])
+        self.assertIn("PRIVATE_CANONICAL_SOURCE_ACCESS_NOT_VERIFIED",
+                      paused["account_gates"]["collaborator"])
+
+    def test_started_scene_without_persisted_owner_lock_is_refused(self):
+        workers = {"owner": capable("owner"),
+                   "collaborator": capable("collaborator")}
+        with self.assertRaises(ValueError):
+            create_schedule(workers,
+                verified_tails={"S02": {"completed_count": 1,
+                                        "next_conditioning_png_sha256": "a"*64}})
+        with self.assertRaises(ValueError):
+            create_schedule(workers,
+                in_flight_scenes={"owner": ["S02"]},
+                scene_owner_locks={"S02": "collaborator"})
 
     def test_wrong_alias_or_duplicate_inflight_is_rejected(self):
         workers = {"owner": capable("owner"),
