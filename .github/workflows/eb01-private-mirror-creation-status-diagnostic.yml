@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install official Kaggle CLI and source plan parser
-        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<13'
       - name: Check ONLY owner kernel identity, private dataset creation status, files and metadata access
         run: |
           set -euo pipefail
