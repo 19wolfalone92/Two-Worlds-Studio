@@ -142,6 +142,8 @@ class FullPrivateSyncTests(unittest.TestCase):
                 self.assertEqual({x.name for x in stage.iterdir()},
                                  set(expected) | {"dataset-metadata.json"})
                 self.assertTrue(mod.privacy_metadata(stage / "dataset-metadata.json"))
+                meta=json.loads((stage/"dataset-metadata.json").read_text())
+                self.assertEqual(meta["title"].lower().replace(" ","-"), meta["id"].split("/")[1])
                 for filename, digest in expected.items():
                     self.assertEqual(mod.sha256(stage / filename), digest)
             self.assertNotIn("--public", args)
