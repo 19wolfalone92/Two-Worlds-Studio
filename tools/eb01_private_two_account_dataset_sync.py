@@ -241,7 +241,7 @@ def perform_one_authorized_private_sync(owner_token: str,
         validated_extract(archives[0], stage)
         metadata = {
             "id": target,
-            "title": "EB01 Authorized Private Studio Originals",
+            "title": "EB01 Private Studio Inputs V1 " + unique,
             "subtitle": "Private two-character and six original-voice render source archive",
             "description": "Owner-approved original media for a separate legitimate Kaggle collaborator. Private source only. Never public.",
             "licenses": [{"name": "copyright-authors"}],
