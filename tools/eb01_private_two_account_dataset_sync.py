@@ -88,8 +88,9 @@ def kaggle(token: str, args: list[str], *, timeout: int = 120) -> str:
 
 
 def validated_extract(archive: Path, stage: Path,
-                      expected: dict[str, str] = FILE_SHA) -> dict:
+                      expected: dict[str, str] | None = None) -> dict:
     """Extract only canonical bytes; reject tricks, duplicate basenames and ZIP bombs."""
+    expected = FILE_SHA if expected is None else expected
     stage.mkdir(mode=0o700, parents=True, exist_ok=False)
     if archive.stat().st_size > MAX_ARCHIVE_BYTES:
         raise SourceSyncBlocked("PRIVATE_ARCHIVE_TOO_LARGE")
