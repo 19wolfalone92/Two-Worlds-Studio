@@ -52,6 +52,18 @@ jobs:
                           text=True,check=False,timeout=90)
                       if p.returncode==0:
                           record={"result":"OK"}
+                          if category=="owner_dataset_list":
+                              try:
+                                  import csv,io
+                                  reader=csv.DictReader(io.StringIO(p.stdout or ""))
+                                  rows=list(reader)
+                                  names=[str(row.get("ref",row.get("Ref",""))).strip().lower()
+                                         for row in rows]
+                                  record["target_in_owned_dataset_list"]=(ref.lower() in names)
+                                  record["owner_list_rows_scanned"]=len(rows)
+                                  record["format_parsed"]=bool(reader.fieldnames)
+                              except (ValueError,TypeError):
+                                  record["format_parsed"]=False
                           if category=="create_status":
                               try:
                                   raw=json.loads(p.stdout or "{}")
