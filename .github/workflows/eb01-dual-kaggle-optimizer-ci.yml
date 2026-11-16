@@ -1,7 +1,9 @@
 name: EB01 — two independent Kaggle accounts budget and privacy preflight (NO GPU)
 on:
   push:
-    branches: [feature/eb01-two-account-scheduler-20261116]
+    branches:
+      - feature/eb01-two-account-scheduler-20261116
+      - fix/eb01-s02-private-raw-preservation-20261113
     paths:
       - studio/eb01_dual_kaggle_scheduler.py
       - tools/eb01_dual_kaggle_readiness.py
