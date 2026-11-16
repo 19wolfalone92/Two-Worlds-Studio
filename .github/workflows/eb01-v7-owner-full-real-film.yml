@@ -18,6 +18,16 @@ jobs:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Block owner-private media retrieval and public GitHub artifacts in public repositories
+        env:
+          EB01_REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$EB01_REPOSITORY_PRIVATE" != "true" ]]; then
+            echo "::error::EB01 source footage, private actor portraits and voice WAVs cannot enter public GitHub Actions artifacts."
+            exit 1
+          fi
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
