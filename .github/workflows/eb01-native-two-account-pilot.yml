@@ -1,0 +1,72 @@
+name: EB01 — real native 576x1024 private two-account quality pilots
+on:
+  push:
+    branches: [feature/eb01-kaggle-private-source-two-account-sync-20261116]
+    paths: [ops/eb01_native_two_account_pilot.trigger]
+permissions:
+  contents: read
+jobs:
+  independent_shared_source_acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip -q install -r requirements.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Refuse GPU unless both separate accounts download all eight canonical source hashes
+        env:
+          EB01_OWNER_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          EB01_SECOND_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+        run: python -m tools.eb01_dual_source_acceptance
+      - name: Test native geometry and credential contracts without GPU
+        run: python -m unittest tests.test_eb01_native_t4_profile tests.test_eb01_dual_source_acceptance tests.test_eb01_ltx_t4_streamed_diagnostics tests.test_eb01_dual_kaggle_scheduler -v
+  native_pilot:
+    needs: independent_shared_source_acceptance
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - account: owner
+            secret: KAGGLE_API_TOKEN
+            group: two-worlds-kaggle-account
+          - account: collaborator
+            secret: KAGGLE_API_TOKEN2
+            group: two-worlds-kaggle-second-account
+    concurrency:
+      group: ${{ matrix.group }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 58
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip -q install -r requirements.txt -r requirements-private-output.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Submit one bounded native pilot or collect same job on retry
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets[matrix.secret] }}
+          PYTHONUNBUFFERED: '1'
+        run: python -m tools.eb01_native_two_account_pilot --account '${{ matrix.account }}'
+      - name: Preserve numerical result only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_NATIVE_${{ matrix.account }}_NUMERIC
+          path: ${{ runner.temp }}/EB01_NATIVE_${{ matrix.account }}_SAFE.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Return authenticated encrypted footage, never raw media or the private decryption key
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_NATIVE_${{ matrix.account }}_ENCRYPTED_RETURN
+          path: ${{ runner.temp }}/EB01_NATIVE_${{ matrix.account }}.twenc
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+      - name: Destroy all runner copies of private actor media
+        if: always()
+        run: rm -rf "$RUNNER_TEMP"/eb01-native-private-*
