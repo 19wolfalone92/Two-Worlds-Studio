@@ -62,6 +62,7 @@ class SceneSchedule:
     actor_id: str
     canonical_reference_sha256: str
     canonical_voice_sha256: str | None
+    canonical_prompt_sha256: str
     native_segment_count: int
     native_frames_per_segment: int
     overlap_frames_between_segments: int
@@ -83,7 +84,11 @@ def plan() -> dict:
     cursor=0
     total_generated=0
     seen_actors=set()
-    for sid,actor,original_frames,*_ in SHOTS:
+    for sid,actor,original_frames,*shot_tail in SHOTS:
+        prompt = shot_tail[-1] if shot_tail else None
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("Canonical scene prompt missing")
+        prompt_sha = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         if not HEX64.fullmatch(SRC_SHA[actor]):
             raise ValueError("Canonical private original actor SHA contract missing")
         seen_actors.add(actor)
@@ -113,6 +118,7 @@ def plan() -> dict:
             actor_id=actor,
             canonical_reference_sha256=SRC_SHA[actor],
             canonical_voice_sha256=voice_sha,
+            canonical_prompt_sha256=prompt_sha,
             native_segment_count=n,
             native_frames_per_segment=SEGMENT_NATIVE_FRAMES,
             overlap_frames_between_segments=SEGMENT_OVERLAP_FRAMES,
@@ -158,25 +164,31 @@ def plan() -> dict:
 
 
 def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
-    """Verify 30 original takes with continuity in the CORRECT hash domain.
+    """Validate receipt structure only; never infer real media from booleans.
+
+    This function does not receive MP4 bytes, FFprobe output, a Kaggle run
+    attestation, or an owner-signed review. It therefore cannot claim that
+    any segment is genuinely generated or that native model detail is proven.
+    It checks the canonical actor, original voice and exact storyboard prompt
+    hashes, plus the PNG-to-PNG continuity chain. A structurally valid receipt
+    is only a prerequisite for a later private media/provenance verifier.
 
     conditioning_input_frame_sha256 and next_conditioning_frame_sha256 are
-    SHA-256 of the exact canonical PNG files supplied to the I2V worker.
-    last_decoded_frame_sha256 is SHA-256 of raw decoded RGB pixels. Those
-    byte domains are intentionally different and MUST NEVER be compared.
-
-    Each non-final take exports its last decoded RGB frame to one canonical
-    PNG; the next take must consume that exact PNG (same file SHA). The raw
-    decoded RGB digest remains an independent duplicate-tail detector.
+    SHA-256 of exact canonical PNG files. last_decoded_frame_sha256 is SHA-256
+    of raw decoded RGB pixels. These byte domains MUST NEVER be compared.
     """
     p=plan()
     reasons=[]
     if not isinstance(evidence, Mapping):
         return {"schema": 8, "status": "BLOCKED",
                 "reasons": ["INVALID_EVIDENCE_MAPPING"],
+                "receipt_chain_entries_validated": 0,
                 "genuinely_original_segments_verified": 0,
                 "expected_original_segments": p["new_true_inference_segment_count"],
+                "receipt_claimed_native_detail": False,
                 "native_576x1024_detail_verified": False,
+                "media_bytes_independently_verified": False,
+                "model_execution_independently_attested": False,
                 "full_40s_movie_ready": False, "social_published": False}
     if set(evidence)!=set(SEGMENT_COUNTS):
         reasons.append("REQUIRED_7_UNIQUE_SCENE_EVIDENCE_MISSING")
@@ -227,9 +239,15 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
                     (isinstance(next_conditioning,str) and HEX64.fullmatch(next_conditioning)))
                 if not next_export_ok:
                     reasons.append(f"{sid}_{idx}_NEXT_CONDITIONING_EXPORT_SHA_INVALID")
+            if proof.get("canonical_voice_sha256") != row["canonical_voice_sha256"]:
+                reasons.append(f"{sid}_{idx}_CANONICAL_VOICE_SHA_MISMATCH")
+            if proof.get("canonical_prompt_sha256") != row["canonical_prompt_sha256"]:
+                reasons.append(f"{sid}_{idx}_CANONICAL_PROMPT_SHA_MISMATCH")
             core_valid=(
                 all(isinstance(x,str) and HEX64.fullmatch(x)
                     for x in (mp4_sha,conditioning_input,decoded_tail,actor_sha))
+                and proof.get("canonical_voice_sha256") == row["canonical_voice_sha256"]
+                and proof.get("canonical_prompt_sha256") == row["canonical_prompt_sha256"]
                 and actor_sha==row["canonical_reference_sha256"]
                 and mp4_sha not in mp4_seen
                 and type(proof.get("native_frames")) is int
@@ -281,14 +299,20 @@ def verify_real_neural_sources(evidence: Mapping[str,list[dict]]) -> dict:
             chain_valid=chain_ok
             if chain_ok:
                 genuine_count+=1
-    fully_verified=(not reasons and genuine_count==p["new_true_inference_segment_count"])
+    structure_verified=(not reasons and genuine_count==p["new_true_inference_segment_count"])
     return {
         "schema":8,
-        "status":"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED" if fully_verified else "BLOCKED",
+        "status":"RECEIPT_CHAIN_STRUCTURE_PASS_MEDIA_ATTESTATION_REQUIRED" if structure_verified else "BLOCKED",
         "reasons":sorted(set(reasons)),
-        "genuinely_original_segments_verified":genuine_count,
+        "receipt_chain_entries_validated":genuine_count,
+        # Metadata booleans and claimed dimensions are not proof of MP4 bytes
+        # or actual model execution. Keep genuine/media counts at zero here.
+        "genuinely_original_segments_verified":0,
         "expected_original_segments":p["new_true_inference_segment_count"],
-        "native_576x1024_detail_verified":fully_verified,
+        "receipt_claimed_native_detail":structure_verified,
+        "native_576x1024_detail_verified":False,
+        "media_bytes_independently_verified":False,
+        "model_execution_independently_attested":False,
         "full_40s_movie_ready":False,
         "social_published":False,
     }

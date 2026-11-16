@@ -29,6 +29,8 @@ def all_fake_receipts_that_are_only_FOR_UNIT_TESTS():
                 "native_width":576,"native_height":1024,
                 "actual_model_inference":True,
                 "canonical_actor_sha256":row["canonical_reference_sha256"],
+                "canonical_voice_sha256":row["canonical_voice_sha256"],
+                "canonical_prompt_sha256":row["canonical_prompt_sha256"],
                 "rgb_neon_qc":"PASS",
                 "identity_artistic_qc":"PASS",
             }
@@ -78,9 +80,13 @@ class ElizabethNative40sTimelineTests(unittest.TestCase):
     def test_full_synthetic_evidence_is_still_not_a_finished_film(self):
         evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
         result=verify_real_neural_sources(evidence)
-        self.assertEqual(result["status"],"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED")
-        self.assertEqual(result["genuinely_original_segments_verified"],30)
-        self.assertTrue(result["native_576x1024_detail_verified"])
+        self.assertEqual(result["status"],"RECEIPT_CHAIN_STRUCTURE_PASS_MEDIA_ATTESTATION_REQUIRED")
+        self.assertEqual(result["receipt_chain_entries_validated"],30)
+        self.assertEqual(result["genuinely_original_segments_verified"],0)
+        self.assertTrue(result["receipt_claimed_native_detail"])
+        self.assertFalse(result["native_576x1024_detail_verified"])
+        self.assertFalse(result["media_bytes_independently_verified"])
+        self.assertFalse(result["model_execution_independently_attested"])
         self.assertFalse(result["full_40s_movie_ready"])
 
     def test_320x576_upscaled_pilot_cannot_satisfy_native_detail_requirement(self):
@@ -250,8 +256,10 @@ class V8ConditioningHashDomainTests(unittest.TestCase):
     def test_matching_canonical_png_file_sha_preserves_valid_chain(self):
         evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
         result=verify_real_neural_sources(evidence)
-        self.assertEqual(result["status"],"SEGMENT_QA_PASS_OWNER_REVIEW_STILL_REQUIRED")
-        self.assertEqual(result["genuinely_original_segments_verified"],30)
+        self.assertEqual(result["status"],"RECEIPT_CHAIN_STRUCTURE_PASS_MEDIA_ATTESTATION_REQUIRED")
+        self.assertEqual(result["receipt_chain_entries_validated"],30)
+        self.assertEqual(result["genuinely_original_segments_verified"],0)
+        self.assertFalse(result["media_bytes_independently_verified"])
         self.assertFalse(result["full_40s_movie_ready"])
 
 
@@ -261,3 +269,28 @@ class V8ConditioningHashDomainTests(unittest.TestCase):
         result=verify_real_neural_sources(evidence)
         self.assertEqual(result["status"],"BLOCKED")
         self.assertIn("S00_INITIAL_CONDITIONING_INPUT_NOT_CANONICAL",result["reasons"])
+
+class V8CanonicalSourceBindingTests(unittest.TestCase):
+    def test_every_segment_receipt_must_bind_the_exact_original_russian_voice(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        evidence["S02"][0]["canonical_voice_sha256"]="0"*64
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("S02_0_CANONICAL_VOICE_SHA_MISMATCH",result["reasons"])
+
+    def test_every_segment_receipt_must_bind_the_exact_original_storyboard_prompt(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        evidence["S05"][2]["canonical_prompt_sha256"]="0"*64
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["status"],"BLOCKED")
+        self.assertIn("S05_2_CANONICAL_PROMPT_SHA_MISMATCH",result["reasons"])
+
+    def test_receipt_only_verifier_never_claims_real_media_or_gpu_attestation(self):
+        evidence=all_fake_receipts_that_are_only_FOR_UNIT_TESTS()
+        result=verify_real_neural_sources(evidence)
+        self.assertEqual(result["receipt_chain_entries_validated"],30)
+        self.assertEqual(result["genuinely_original_segments_verified"],0)
+        self.assertFalse(result["native_576x1024_detail_verified"])
+        self.assertFalse(result["media_bytes_independently_verified"])
+        self.assertFalse(result["model_execution_independently_attested"])
+
