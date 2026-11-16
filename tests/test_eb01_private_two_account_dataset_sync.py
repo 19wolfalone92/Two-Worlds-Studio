@@ -170,5 +170,56 @@ class FullPrivateSyncTests(unittest.TestCase):
         self.assertEqual(result["gpu_jobs_submitted"], 0)
 
 
+    def test_kaggle_metadata_403_requires_independent_second_sha_and_first_denial(self):
+        expected={k: hashlib.sha256(v).hexdigest() for k,v in SAMPLES.items()}
+        def fake_cli(token,args,timeout=120):
+            if args[2]=="files":
+                raise mod.SourceSyncBlocked("ACCESS_DENIED")
+            if args[2]=="download":
+                dest=Path(args[args.index("-p")+1])
+                dest.mkdir(parents=True,exist_ok=True)
+                sample_archive(dest/"source.zip")
+            return "OK"
+        with patch.object(mod,"FILE_SHA",expected), \
+             patch.object(mod,"query",side_effect=[
+                 ("AUTHENTICATED_READ_ONLY","first-person"),
+                 ("AUTHENTICATED_READ_ONLY","second-person")]), \
+             patch.object(mod,"kaggle",side_effect=fake_cli), \
+             patch.object(mod,"verify_private_mirror",
+                 side_effect=["MIRROR_METADATA_ACCESS_DENIED",
+                              "MIRROR_METADATA_ACCESS_DENIED"]), \
+             patch("tools.eb01_private_two_account_mirror_readback.verify_readback",
+                 return_value={"status":"SECOND_PRIVATE_ACL_AND_ALL_EIGHT_SOURCE_SHAS_VERIFIED"}) as verifier:
+            result=mod.perform_one_authorized_private_sync("tok-owner","tok-second",self.root)
+        self.assertEqual(result["status"],"NEW_PRIVATE_MIRROR_SHA_ACL_VERIFIED")
+        self.assertTrue(result["second_private_copy_verified"])
+        self.assertEqual(verifier.call_count,1)
+
+    def test_metadata_403_without_independent_proof_fails_closed(self):
+        expected={k: hashlib.sha256(v).hexdigest() for k,v in SAMPLES.items()}
+        def fake_cli(token,args,timeout=120):
+            if args[2]=="files":
+                raise mod.SourceSyncBlocked("ACCESS_DENIED")
+            if args[2]=="download":
+                dest=Path(args[args.index("-p")+1])
+                dest.mkdir(parents=True,exist_ok=True)
+                sample_archive(dest/"source.zip")
+            return "OK"
+        with patch.object(mod,"FILE_SHA",expected), \
+             patch.object(mod,"query",side_effect=[
+                 ("AUTHENTICATED_READ_ONLY","first-person"),
+                 ("AUTHENTICATED_READ_ONLY","second-person")]), \
+             patch.object(mod,"kaggle",side_effect=fake_cli), \
+             patch.object(mod,"verify_private_mirror",
+                 side_effect=["MIRROR_METADATA_ACCESS_DENIED",
+                              "MIRROR_METADATA_ACCESS_DENIED"]), \
+             patch("tools.eb01_private_two_account_mirror_readback.verify_readback",
+                 return_value={"status":"BLOCKED_ACCESS_DENIED"}):
+            result=mod.perform_one_authorized_private_sync("tok-owner","tok-second",self.root)
+        self.assertIn("SECOND_READBACK_BLOCKED_ACCESS_DENIED",result["status"])
+        self.assertFalse(result["second_private_copy_verified"])
+        self.assertFalse(result["public_source_copy"])
+
+
 if __name__ == "__main__":
     unittest.main()
