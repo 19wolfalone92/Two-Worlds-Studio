@@ -24,7 +24,7 @@ from pathlib import Path
 from studio.eb01_v7_storyboard import SRC_SHA, VOICE_SHA
 from tools.eb01_kaggle2_auth_probe import query, SOURCE_DATASET
 
-MIRROR_SLUG = "eb01-private-studio-inputs-v1"
+MIRROR_PREFIX = "eb01-private-studio-inputs-v1"
 NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,29}$")
 FILE_SHA = {**{who + ".png": value for who, value in SRC_SHA.items()},
             **{shot + ".wav": value for shot, value in VOICE_SHA.items()}}
@@ -199,7 +199,14 @@ def perform_one_authorized_private_sync(owner_token: str,
             not NAME.fullmatch(second)):
             raise SourceSyncBlocked("DISTINCT_AUTHENTICATED_ACCOUNTS_REQUIRED")
         report["two_distinct_accounts"] = True
-        target = second + "/" + MIRROR_SLUG
+        # A run-specific create-only slug prevents destructive conflicts even
+        # when Kaggle responds 403 to metadata reads for nonexistent private
+        # datasets. No existing dataset is modified, deleted or overwritten.
+        run_id = os.environ.get("GITHUB_RUN_ID", "")
+        if not re.fullmatch(r"[1-9][0-9]{5,20}", run_id):
+            raise SourceSyncBlocked("UNIQUE_GITHUB_RUN_ID_REQUIRED")
+        unique = hashlib.sha256(("eb01-mirror-" + run_id).encode()).hexdigest()[:12]
+        target = second + "/" + MIRROR_PREFIX + "-" + unique
         # If the second user already sees the first private dataset, do
         # not duplicate sensitive originals.
         try:
@@ -217,8 +224,11 @@ def perform_one_authorized_private_sync(owner_token: str,
             report["status"] = "EXISTING_OWNER_APPROVED_PRIVATE_MIRROR_VERIFIED"
             report["second_private_copy_verified"] = True
             return report
-        if existing != "MIRROR_ABSENT":
+        if existing not in ("MIRROR_ABSENT", "MIRROR_METADATA_ACCESS_DENIED"):
             raise SourceSyncBlocked(existing)
+        # A 403 on a *new run-unique slug* is ambiguous, but attempting
+        # a create-only PRIVATE dataset is non-destructive. Never use the
+        # version/update/delete routes. Creation conflicts still block.
         ownerdir = root / "download"
         ownerdir.mkdir(mode=0o700)
         kaggle(owner_token, ["kaggle", "datasets", "download", "-d",
