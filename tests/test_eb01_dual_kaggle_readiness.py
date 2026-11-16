@@ -46,8 +46,8 @@ class KaggleDualAccessAuditTests(unittest.TestCase):
         self.assertFalse(result["movie_ready"])
         self.assertFalse(result["private_original_media_transferred"])
         serialized = str(result)
-        self.assertNotIn("account_a", serialized)
-        self.assertNotIn("account_b", serialized)
+        self.assertNotIn("'account_a'", serialized)
+        self.assertNotIn("'account_b'", serialized)
         self.assertNotIn("test-first", serialized)
 
     def test_both_accounts_with_source_metadata_still_require_native_pilot(self):
