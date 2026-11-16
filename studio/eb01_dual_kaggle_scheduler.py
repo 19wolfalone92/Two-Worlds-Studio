@@ -183,7 +183,9 @@ def create_schedule(workers: Mapping[str, Worker],
     proposals = []
     for alias in usable:
         worker = workers[alias]
-        slots = independent_slots(worker)
+        # Count both explicitly reported live runs and reserved/in-flight
+        # scene locks; undercounting either must never oversubscribe the GPU.
+        slots = max(0, independent_slots(worker) - len(in_flight_scenes.get(alias, [])))
         # No per-account quota double counting: deduct for each candidate slot.
         projected_gpu_seconds = 0.0
         candidates = sorted(
