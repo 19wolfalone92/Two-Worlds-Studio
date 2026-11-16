@@ -101,7 +101,7 @@ def probe_alias(alias, token, run_id, scratch,
         (dest/"kernel_main.py").write_text(CODE,encoding="utf-8")
         meta={
             "id":handle+"/"+slug,
-            "title":"EB01 Private GPU Hardware Probe "+nonce,
+            "title":"EB01 HW Probe "+nonce,
             "code_file":"kernel_main.py",
             "language":"python", "kernel_type":"script",
             "is_private":"true", "enable_gpu":"true",
