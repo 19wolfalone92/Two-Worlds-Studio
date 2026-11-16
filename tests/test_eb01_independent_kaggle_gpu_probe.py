@@ -32,6 +32,7 @@ class PrivateGPUProbeTests(unittest.TestCase):
                 self.assertEqual(cfg["enable_internet"],"false")
                 self.assertEqual(cfg["dataset_sources"],[])
                 self.assertTrue(cfg["id"].startswith("tester/eb01-hw-probe-"))
+                self.assertEqual(cfg["title"].lower().replace(" ", "-"), cfg["id"].split("/")[1])
             if args[1:3] == ["kernels","status"]:
                 return "KernelWorkerStatus.COMPLETE"
             if args[1:3] == ["kernels","output"]:
