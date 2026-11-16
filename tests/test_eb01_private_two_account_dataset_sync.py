@@ -81,6 +81,9 @@ class ArchiveSafetyTests(unittest.TestCase):
 
 class FullPrivateSyncTests(unittest.TestCase):
     def setUp(self):
+        self.envpatch = patch.dict(mod.os.environ, {"GITHUB_RUN_ID": "43898812345"})
+        self.envpatch.start()
+        self.addCleanup(self.envpatch.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -150,7 +153,7 @@ class FullPrivateSyncTests(unittest.TestCase):
                  ("AUTHENTICATED_READ_ONLY", "second-person")]), \
              patch.object(mod, "kaggle", side_effect=fake_cli), \
              patch.object(mod, "verify_private_mirror",
-                          side_effect=["MIRROR_ABSENT",
+                          side_effect=["MIRROR_METADATA_ACCESS_DENIED",
                                        "MIRROR_PRIVATE_SHA_VERIFIED"]):
             result = mod.perform_one_authorized_private_sync("tok-owner",
                                                                "tok-second",
