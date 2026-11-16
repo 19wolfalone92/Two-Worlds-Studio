@@ -1,0 +1,1 @@
+2026-11-16 owner-authorized one-time PRIVATE Kaggle original source mirror to a second independently authenticated account; never public; no GPU; repo main unchanged. This file is a one-shot trigger, not an API token.
