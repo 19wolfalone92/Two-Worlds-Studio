@@ -258,7 +258,18 @@ def perform_one_authorized_private_sync(owner_token: str,
         readback = verify_private_mirror(second_token, target, FILE_SHA,
                                          root / "postcheck")
         if readback != "MIRROR_PRIVATE_SHA_VERIFIED":
-            raise SourceSyncBlocked("NEW_PRIVATE_MIRROR_" + readback)
+            # Some Kaggle personal tokens return HTTP 403 on metadata even
+            # when they can read a dataset. Do NOT bypass the ACL gate:
+            # verify all eight SHA values with the second token AND prove
+            # the uninvited first account cannot read that mirror.
+            from tools.eb01_private_two_account_mirror_readback import verify_readback
+            independent = verify_readback(
+                owner_token, second_token, run_id, root / "negative-control")
+            if independent.get("status") != (
+                "SECOND_PRIVATE_ACL_AND_ALL_EIGHT_SOURCE_SHAS_VERIFIED"):
+                raise SourceSyncBlocked(
+                    "NEW_PRIVATE_MIRROR_" + readback + "_SECOND_READBACK_" +
+                    str(independent.get("status", "UNKNOWN"))[:64])
         report["status"] = "NEW_PRIVATE_MIRROR_SHA_ACL_VERIFIED"
         report["second_private_copy_verified"] = True
         return report
