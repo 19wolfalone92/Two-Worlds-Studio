@@ -1,0 +1,88 @@
+name: EB01 — TWO genuine independent Kaggle T4 GPU hardware proof only (no video)
+on:
+  push:
+    branches:
+      - feature/eb01-kaggle-private-source-two-account-sync-20261116
+    paths:
+      - tools/eb01_independent_kaggle_gpu_probe.py
+      - tests/test_eb01_independent_kaggle_gpu_probe.py
+      - .github/workflows/eb01-independent-two-kaggle-real-gpu-probes.yml
+      - ops/eb01_two_independent_gpu_microprobes_once.trigger
+permissions:
+  contents: read
+jobs:
+  offline_gpu_privacy_checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check GPU microkernel does not import media or publish
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/eb01_independent_kaggle_gpu_probe.py
+          python -m unittest tests.test_eb01_independent_kaggle_gpu_probe -v
+  owner_real_gpu_card_inventory:
+    needs: offline_gpu_privacy_checks
+    if: >-
+      github.repository == '19wolfalone92/Two-Worlds-Studio' &&
+      github.event.head_commit.message == 'ops(eb01): submit two private independent hardware microprobes once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 11
+    concurrency:
+      group: two-worlds-kaggle-account
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official Kaggle CLI without models
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Probe primary separate Kaggle GPU cards with no source media
+        env:
+          EB01_KAGGLE_ACCOUNT_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_independent_kaggle_gpu_probe --account-alias owner
+      - name: Keep only numerical hardware report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_OWNER_KAGGLE_GPU_NUMERIC_HARDWARE
+          path: ${{ runner.temp }}/EB01_HW_owner.json
+          if-no-files-found: warn
+          retention-days: 3
+  collaborator_real_gpu_card_inventory:
+    needs: offline_gpu_privacy_checks
+    if: >-
+      github.repository == '19wolfalone92/Two-Worlds-Studio' &&
+      github.event.head_commit.message == 'ops(eb01): submit two private independent hardware microprobes once'
+    runs-on: ubuntu-latest
+    timeout-minutes: 11
+    concurrency:
+      group: two-worlds-kaggle-second-account
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official Kaggle CLI without models
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Probe second independent Kaggle GPU cards with no source media
+        env:
+          EB01_KAGGLE_ACCOUNT_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_independent_kaggle_gpu_probe --account-alias collaborator
+      - name: Keep only numerical hardware report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_COLLABORATOR_KAGGLE_GPU_NUMERIC_HARDWARE
+          path: ${{ runner.temp }}/EB01_HW_collaborator.json
+          if-no-files-found: warn
+          retention-days: 3
