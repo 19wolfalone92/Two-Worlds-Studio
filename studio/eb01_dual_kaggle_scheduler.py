@@ -120,13 +120,25 @@ def _least_load_assignment(scenes: list[dict], aliases: list[str]) -> dict[str, 
     """Whole-scene bin packing: no mid-scene migration or hidden PNG transfers."""
     if not aliases:
         return {}
-    weights = {alias: 0 for alias in aliases}
-    assignment = {}
-    for scene in sorted(scenes, key=lambda s: (-s["native_segment_count"], s["scene_id"])):
-        alias = min(aliases, key=lambda a: (weights[a], aliases.index(a)))
-        assignment[scene["scene_id"]] = alias
-        weights[alias] += scene["native_segment_count"]
-    return assignment
+    if len(aliases) == 1:
+        return {scene["scene_id"]: aliases[0] for scene in scenes}
+    if len(aliases) != 2:
+        raise ValueError("Only independently authenticated two-account scheduling supported")
+    # Exact subset-sum for seven scenes: 15/15 instead of greedy 14/16.
+    # Prefer deterministic assignments; never split a source/conditioning chain.
+    total = sum(s["native_segment_count"] for s in scenes)
+    half = total // 2
+    states: dict[int, tuple[str, ...]] = {0: ()}
+    for scene in sorted(scenes, key=lambda s: s["scene_id"]):
+        weight = scene["native_segment_count"]
+        for score, chosen in tuple(states.items()):
+            next_score = score + weight
+            if next_score not in states:
+                states[next_score] = (*chosen, scene["scene_id"])
+    ideal = min(states, key=lambda score: (abs(total - 2 * score), abs(half - score), score))
+    owner_scenes = set(states[ideal])
+    return {scene["scene_id"]: (aliases[0] if scene["scene_id"] in owner_scenes else aliases[1])
+            for scene in scenes}
 
 
 def create_schedule(workers: Mapping[str, Worker],
