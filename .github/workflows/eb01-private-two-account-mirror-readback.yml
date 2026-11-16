@@ -1,0 +1,60 @@
+name: EB01 — independent private second Kaggle dataset SHA/ACL proof (NO GPU)
+on:
+  push:
+    branches: [feature/eb01-kaggle-private-source-two-account-sync-20261116]
+    paths:
+      - tools/eb01_private_two_account_mirror_readback.py
+      - tests/test_eb01_private_two_account_mirror_readback.py
+      - .github/workflows/eb01-private-two-account-mirror-readback.yml
+      - ops/eb01_private_mirror_readback_once.trigger
+permissions:
+  contents: read
+concurrency:
+  group: eb01-second-kaggle-private-dataset-audit
+  cancel-in-progress: false
+jobs:
+  offline_privacy_regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Regression guards against false private data claims
+        run: |
+          set -euo pipefail
+          python -m pip -q install 'Pillow>=10,<13'
+          python -m py_compile tools/eb01_private_two_account_mirror_readback.py
+          python -m unittest tests.test_eb01_private_two_account_mirror_readback -v
+  source_readback_with_owner_token_negative_control:
+    needs: [offline_privacy_regressions]
+    if: >-
+      github.repository == '19wolfalone92/Two-Worlds-Studio' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'ops(eb01): audit second Kaggle private mirror with separate tokens'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install independent Kaggle CLI clients and original SHA manifest
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<13'
+      - name: Verify second owner files, negative ACL from first account and eight SHA checks
+        env:
+          EB01_OWNER_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          EB01_SECOND_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+          EB01_MIRROR_CREATE_RUN_ID: "43898617238"
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_private_two_account_mirror_readback
+      - name: Upload only sanitized source custody status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_SECOND_PRIVATE_MIRROR_CUSTODY_REPORT_SAFE
+          path: ${{ runner.temp }}/EB01_MIRROR_CROSS_ACCOUNT_READBACK_SAFE.json
+          if-no-files-found: warn
+          retention-days: 3
