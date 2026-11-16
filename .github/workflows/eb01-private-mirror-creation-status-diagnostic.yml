@@ -1,0 +1,75 @@
+name: EB01 — read-only Kaggle second owner mirror ingestion and token-scope diagnostic
+on:
+  push:
+    branches: [feature/eb01-kaggle-private-source-two-account-sync-20261116]
+    paths:
+      - .github/workflows/eb01-private-mirror-creation-status-diagnostic.yml
+      - ops/eb01_second_mirror_status_readonly.trigger
+permissions:
+  contents: read
+concurrency:
+  group: eb01-private-mirror-status-readonly
+  cancel-in-progress: false
+jobs:
+  report_only_no_media:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      EB01_SECOND_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official Kaggle CLI and source plan parser
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Check ONLY owner kernel identity, private dataset creation status, files and metadata access
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,re,subprocess,json,hashlib,tempfile
+          from pathlib import Path
+          from tools.eb01_kaggle2_auth_probe import query
+          from tools.eb01_private_two_account_mirror_readback import mirror_id
+          from tools.eb01_private_two_account_dataset_sync import classify_error
+          secret=os.environ.get("EB01_SECOND_TOKEN","")
+          status,handle=query(secret)
+          report={"schema":1,"owner_account_status":status,"gpu_submitted":False,
+                  "private_source_copied_to_public_github":False,
+                  "original_source_mutated":False,"published":False}
+          if status=="AUTHENTICATED_READ_ONLY" and handle:
+              ref=mirror_id(handle,"43898617238")
+              env=os.environ.copy();env["KAGGLE_API_TOKEN"]=secret
+              env.pop("KAGGLE_USERNAME",None)
+              for category,args in (
+                  ("create_status",["kaggle","datasets","status",ref,"--format","json"]),
+                  ("read_files",["kaggle","datasets","files",ref]),
+                  ("owner_dataset_list",["kaggle","datasets","list","--mine","--csv"]),
+              ):
+                  try:
+                      p=subprocess.run(args,env=env,stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+                          text=True,check=False,timeout=90)
+                      if p.returncode==0:
+                          record={"result":"OK"}
+                          if category=="create_status":
+                              try:
+                                  raw=json.loads(p.stdout or "{}")
+                                  if isinstance(raw,dict):
+                                      s=raw.get("status",raw.get("statusType"))
+                                      if isinstance(s,str):
+                                          record["status_category"]=(
+                                              re.sub("[^A-Z_]","_",s.upper())[:48])
+                              except (ValueError,TypeError):
+                                  record["status_category"]="SUCCESS_UNPARSEABLE"
+                      else:
+                          record={"result":classify_error((p.stderr or "")+" "+(p.stdout or "")),
+                                  "exit_code":p.returncode}
+                  except (OSError,subprocess.TimeoutExpired):
+                      record={"result":"KAGGLE_CLIENT_OR_NETWORK_UNAVAILABLE"}
+                  report[category]=record
+          else:
+              report["status"]="SECOND_ACCOUNT_API_NOT_CONNECTED"
+          print("EB01_SECOND_PRIVATE_DATASET_STATUS_DIAGNOSTIC",json.dumps(report,sort_keys=True))
+          assert report["gpu_submitted"] is False
+          PY
