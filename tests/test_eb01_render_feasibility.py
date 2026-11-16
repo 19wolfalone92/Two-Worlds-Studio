@@ -134,7 +134,7 @@ class NativeDetailPilotFeasibilityTests(unittest.TestCase):
 
     def test_native_detail_pilot_requires_portrait_geometry_and_24fps(self):
         result=check_native_detail_pilot(self.request(
-            model=MODEL_WAN,steps=20,width=704,height=1280,frames=48,fps=30))
+            model=MODEL_WAN,steps=20,width=704,height=1280,frames=47,fps=30))
         self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_24GIB_REVIEWED_GPU",result["reasons"])
         self.assertIn("NATIVE_DETAIL_PILOT_MUST_DECODE_48_TO_96_FRAMES",result["reasons"])
         self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_24_FPS",result["reasons"])
@@ -149,7 +149,7 @@ class NativeDetailPilotFeasibilityTests(unittest.TestCase):
 
     def test_bad_aspect_ratio_and_unaligned_native_size_are_rejected(self):
         result=check_native_detail_pilot(self.request(
-            model=MODEL_WAN,vram=24.0,width=608,height=1024,steps=20))
+            model=MODEL_WAN,vram=24.0,width=600,height=1024,steps=20))
         self.assertIn("NATIVE_DETAIL_PILOT_MUST_REMAIN_9_16_PORTRAIT",result["reasons"])
         self.assertIn("NATIVE_DETAIL_PILOT_REQUIRES_32PX_SPATIAL_ALIGNMENT",result["reasons"])
 
