@@ -1,0 +1,1 @@
+Verify only the private Kaggle mirror created in Actions run 43898617238, using separate owner and collaborator tokens, all eight original SHA hashes, and negative-owner ACL check. No GPU, publishing, or public assets.
