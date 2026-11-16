@@ -39,6 +39,12 @@ Conservative runtime:
   sharing only the explicitly verified next-frame PNG inside that same
   account's own private storage. Multiple independent scenes may run
   concurrently after worker capacity proves safe.
+- **Durable scene ownership is mandatory on resume.** Every started or
+  in-flight scene requires a persisted owner/collaborator lock. If one
+  account loses private source ACL, quota or GPU availability, its already
+  started scenes PAUSE; they must never migrate to the other account or
+  transmit the conditioning PNG implicitly. Only untouched scenes may be
+  assigned to another available worker.
 - Always reserve 1.5× the independently measured native 33-frame time
   against the **individual account's reported remaining GPU-minute budget**.
   Never assume available weekly quota from an account token or from the
@@ -92,6 +98,11 @@ must remain blocked; never declare an absent dataset based on failure.
   two-T4 process-count benchmark gates.
 - `tools/eb01_dual_kaggle_readiness.py`: read-only two-token authentication
   and metadata ACL check; returns sanitized status, never GPU media.
+- `tools/eb01_kaggle_hardware_probe.py`: within each legitimately
+  launched Kaggle session, record per-card CUDA VRAM and free disk; it
+  never generates video, probes quotas by guessing, or pools T4 memory.
+  Example inside Kaggle notebook: `python -m tools.eb01_kaggle_hardware_probe`
+  (its JSON remains private in the notebook output).
 - `tests/test_eb01_dual_kaggle_scheduler.py` and
   `tests/test_eb01_dual_kaggle_readiness.py`: no-GPU regressions for
   account isolation, denied second source, scene continuity, quotas, VRAM,
