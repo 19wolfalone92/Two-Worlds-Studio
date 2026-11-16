@@ -1,0 +1,75 @@
+name: EB01 — two independent Kaggle accounts budget and privacy preflight (NO GPU)
+on:
+  push:
+    branches: [feature/eb01-two-account-scheduler-20261116]
+    paths:
+      - studio/eb01_dual_kaggle_scheduler.py
+      - tools/eb01_dual_kaggle_readiness.py
+      - tools/eb01_kaggle_hardware_probe.py
+      - tests/test_eb01_kaggle_hardware_probe.py
+      - tests/test_eb01_dual_kaggle_scheduler.py
+      - tests/test_eb01_dual_kaggle_readiness.py
+      - docs/EB01_TWO_KAGGLE_T4X2_OPTIMIZATION_20261116.md
+      - .github/workflows/eb01-dual-kaggle-optimizer-ci.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: eb01-two-accounts-readonly-ci
+  cancel-in-progress: true
+jobs:
+  unit_scheduling_and_privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install minimal plan import dependency, no video/GPU model
+        run: python -m pip -q install 'Pillow>=10,<13'
+      - name: Compile + test 1/2-account balance, pause/resume, VRAM and quota
+        run: |
+          set -euo pipefail
+          python -m py_compile studio/eb01_dual_kaggle_scheduler.py tools/eb01_dual_kaggle_readiness.py tools/eb01_kaggle_hardware_probe.py
+          python -m unittest tests.test_eb01_dual_kaggle_scheduler tests.test_eb01_dual_kaggle_readiness tests.test_eb01_kaggle_hardware_probe -v
+          python - <<'PY'
+          from studio.eb01_dual_kaggle_scheduler import Worker, create_schedule
+          result=create_schedule({
+            "owner":Worker(account_id="owner"),
+            "collaborator":Worker(account_id="collaborator")})
+          assert result["planned_first_wave"] == []
+          assert result["gpu_jobs_submitted"] == 0
+          assert result["full_movie_ready"] is False
+          print("EB01_TWO_ACCOUNT_CPU_SAFE_BLOCKED_UNTIL_PILOT_AND_ACL")
+          PY
+
+  independent_account_auth_and_dataset_acl_only:
+    needs: [unit_scheduling_and_privacy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EB01_OWNER_KAGGLE_SECRET: ${{ secrets.KAGGLE_API_TOKEN }}
+      EB01_COLLABORATOR_KAGGLE_SECRET: ${{ secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install read-only official Kaggle CLI and source plan dependency
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<13'
+      - name: Verify separate credentials and approved shared-source metadata only
+        env:
+          EB01_SAFE_STATUS_PATH: ${{ runner.temp }}/EB01_TWO_ACCOUNTS_READONLY_SAFE.json
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_dual_kaggle_readiness
+          echo "No GPU used; no source files copied; human approval still mandatory."
+      - name: Keep sanitized status only; no video, frames, originals or WAV
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_TWO_ACCOUNTS_READONLY_SAFE_STATUS
+          path: ${{ runner.temp }}/EB01_TWO_ACCOUNTS_READONLY_SAFE.json
+          retention-days: 3
+          if-no-files-found: warn
