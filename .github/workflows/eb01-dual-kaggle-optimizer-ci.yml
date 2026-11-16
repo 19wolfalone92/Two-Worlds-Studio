@@ -49,7 +49,6 @@ jobs:
     env:
       EB01_OWNER_KAGGLE_SECRET: ${{ secrets.KAGGLE_API_TOKEN }}
       EB01_COLLABORATOR_KAGGLE_SECRET: ${{ secrets.KAGGLE_API_TOKEN2 }}
-      EB01_SAFE_STATUS_PATH: ${{ runner.temp }}/EB01_TWO_ACCOUNTS_READONLY_SAFE.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -58,6 +57,8 @@ jobs:
       - name: Install read-only official Kaggle CLI and source plan dependency
         run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<13'
       - name: Verify separate credentials and approved shared-source metadata only
+        env:
+          EB01_SAFE_STATUS_PATH: ${{ runner.temp }}/EB01_TWO_ACCOUNTS_READONLY_SAFE.json
         run: |
           set -euo pipefail
           python -m tools.eb01_dual_kaggle_readiness
