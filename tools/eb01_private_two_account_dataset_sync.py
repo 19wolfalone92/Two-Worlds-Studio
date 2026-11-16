@@ -23,6 +23,7 @@ from pathlib import Path
 
 from studio.eb01_v7_storyboard import SRC_SHA, VOICE_SHA
 from tools.eb01_kaggle2_auth_probe import query, SOURCE_DATASET
+from tools.eb01_kaggle_token_env import token_environment
 
 MIRROR_PREFIX = "eb01-private-studio-inputs-v1"
 NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,29}$")
@@ -69,17 +70,15 @@ def kaggle(token: str, args: list[str], *, timeout: int = 120) -> str:
         raise SourceSyncBlocked("UNAPPROVED_KAGGLE_COMMAND")
     if any(v in args for v in ("--public", "-u", "delete", "version")):
         raise SourceSyncBlocked("PUBLIC_OR_MUTATING_DATASET_COMMAND_BLOCKED")
-    env = os.environ.copy()
-    env["KAGGLE_API_TOKEN"] = token
-    env.pop("KAGGLE_USERNAME", None)
-    try:
-        proc = subprocess.run(args, env=env, stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              text=True, check=False, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise SourceSyncBlocked("CLI_TIMEOUT") from None
-    except OSError:
-        raise SourceSyncBlocked("KAGGLE_CLI_UNAVAILABLE") from None
+    with token_environment(token) as env:
+        try:
+            proc = subprocess.run(args, env=env, stdin=subprocess.DEVNULL,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, check=False, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise SourceSyncBlocked("CLI_TIMEOUT") from None
+        except OSError:
+            raise SourceSyncBlocked("KAGGLE_CLI_UNAVAILABLE") from None
     if proc.returncode != 0:
         raise SourceSyncBlocked(classify_error((proc.stdout or "") + "\n" +
                                               (proc.stderr or "")))

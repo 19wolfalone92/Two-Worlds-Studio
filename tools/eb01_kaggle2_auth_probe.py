@@ -6,6 +6,7 @@ It never sends studio original private pictures/voices to the second account.
 from __future__ import annotations
 import json,os,re,subprocess
 from pathlib import Path
+from tools.eb01_kaggle_token_env import token_environment
 
 HANDLE=re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{1,29}$")
 def config_name(output: str) -> str | None:
@@ -15,26 +16,24 @@ def config_name(output: str) -> str | None:
 def query(token: str, runner=subprocess.run) -> tuple[str,str|None]:
     if not token:
         return "MISSING_GITHUB_SECRET",None
-    env=os.environ.copy()
-    env["KAGGLE_API_TOKEN"]=token
-    env.pop("KAGGLE_USERNAME",None)
-    try:
-        cli=runner(["kaggle","config","view"],env=env,text=True,
-            capture_output=True,timeout=45)
-        if cli.returncode:
-            return "TOKEN_FORMAT_OR_CLI_REJECTED",None
-        name=config_name(cli.stdout)
-        if not name:
-            return "ACCOUNT_NAME_NOT_RESOLVED",None
-        # This ONE read-only network query proves token is usable; metadata
-        # about private datasets/assets is never printed or transferred.
-        ping=runner(["kaggle","kernels","list","--mine","--page-size","1"],
-            env=env,text=True,capture_output=True,timeout=75)
-        if ping.returncode:
-            return "KAGGLE_AUTH_OR_API_ACCESS_FAILED",name
-        return "AUTHENTICATED_READ_ONLY",name
-    except (OSError,subprocess.TimeoutExpired):
-        return "KAGGLE_API_UNAVAILABLE",None
+    with token_environment(token) as env:
+        try:
+            cli=runner(["kaggle","config","view"],env=env,text=True,
+                capture_output=True,timeout=45)
+            if cli.returncode:
+                return "TOKEN_FORMAT_OR_CLI_REJECTED",None
+            name=config_name(cli.stdout)
+            if not name:
+                return "ACCOUNT_NAME_NOT_RESOLVED",None
+            # This ONE read-only network query proves token is usable; metadata
+            # about private datasets/assets is never printed or transferred.
+            ping=runner(["kaggle","kernels","list","--mine","--page-size","1"],
+                env=env,text=True,capture_output=True,timeout=75)
+            if ping.returncode:
+                return "KAGGLE_AUTH_OR_API_ACCESS_FAILED",name
+            return "AUTHENTICATED_READ_ONLY",name
+        except (OSError,subprocess.TimeoutExpired):
+            return "KAGGLE_API_UNAVAILABLE",None
 
 SOURCE_DATASET = "wolf19loner92/eb01-v7-private-production-sources"
 
@@ -42,25 +41,23 @@ def verify_brother_source_access(token: str, *, runner=subprocess.run) -> str:
     """Only metadata access. Never download original portraits/WAVs."""
     if not token:
         return "MISSING_SECRET"
-    env=os.environ.copy()
-    env["KAGGLE_API_TOKEN"]=token
-    env.pop("KAGGLE_USERNAME",None)
-    try:
-        response=runner(
-            ["kaggle","datasets","files",SOURCE_DATASET],
-            env=env,text=True,capture_output=True,timeout=75)
-    except (OSError,subprocess.TimeoutExpired):
-        return "SOURCE_ACL_PROBE_INFRA_UNAVAILABLE"
-    if response.returncode == 0:
-        return "ORIGINAL_OWNER_PRIVATE_DATASET_METADATA_VISIBLE"
-    body=((response.stderr or "")+"\\n"+(response.stdout or "")).lower()
-    if "429" in body or "too many requests" in body:
-        return "KAGGLE_RATE_LIMITED_DO_NOT_RETRY"
-    if "403" in body or "forbidden" in body or "permission" in body:
-        return "PRIVATE_SOURCE_ACCESS_DENIED"
-    if "404" in body or "not found" in body:
-        return "PRIVATE_SOURCE_DATASET_NOT_VISIBLE"
-    return "PRIVATE_SOURCE_ACCESS_NOT_CONFIRMED"
+    with token_environment(token) as env:
+        try:
+            response=runner(
+                ["kaggle","datasets","files",SOURCE_DATASET],
+                env=env,text=True,capture_output=True,timeout=75)
+        except (OSError,subprocess.TimeoutExpired):
+            return "SOURCE_ACL_PROBE_INFRA_UNAVAILABLE"
+        if response.returncode == 0:
+            return "ORIGINAL_OWNER_PRIVATE_DATASET_METADATA_VISIBLE"
+        body=((response.stderr or "")+"\\n"+(response.stdout or "")).lower()
+        if "429" in body or "too many requests" in body:
+            return "KAGGLE_RATE_LIMITED_DO_NOT_RETRY"
+        if "403" in body or "forbidden" in body or "permission" in body:
+            return "PRIVATE_SOURCE_ACCESS_DENIED"
+        if "404" in body or "not found" in body:
+            return "PRIVATE_SOURCE_DATASET_NOT_VISIBLE"
+        return "PRIVATE_SOURCE_ACCESS_NOT_CONFIRMED"
 
 def check(primary: str, brother: str,runner=subprocess.run) -> dict:
     first,n1=query(primary,runner=runner)
