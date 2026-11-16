@@ -116,7 +116,8 @@ def _verified_tails(tails: Mapping[str, Any], scenes: list[dict]) -> dict[str, d
     return result
 
 
-def _least_load_assignment(scenes: list[dict], aliases: list[str]) -> dict[str, str]:
+def _least_load_assignment(scenes: list[dict], aliases: list[str],
+                           initial_load: Mapping[str, int] | None = None) -> dict[str, str]:
     """Whole-scene bin packing: no mid-scene migration or hidden PNG transfers."""
     if not aliases:
         return {}
@@ -127,7 +128,10 @@ def _least_load_assignment(scenes: list[dict], aliases: list[str]) -> dict[str, 
     # Exact subset-sum for seven scenes: 15/15 instead of greedy 14/16.
     # Prefer deterministic assignments; never split a source/conditioning chain.
     total = sum(s["native_segment_count"] for s in scenes)
-    half = total // 2
+    initial_load = initial_load or {}
+    existing = {alias: initial_load.get(alias, 0) for alias in aliases}
+    if any(type(load) is not int or load < 0 for load in existing.values()):
+        raise ValueError('Invalid previously assigned scene load')
     states: dict[int, tuple[str, ...]] = {0: ()}
     for scene in sorted(scenes, key=lambda s: s["scene_id"]):
         weight = scene["native_segment_count"]
@@ -135,7 +139,7 @@ def _least_load_assignment(scenes: list[dict], aliases: list[str]) -> dict[str, 
             next_score = score + weight
             if next_score not in states:
                 states[next_score] = (*chosen, scene["scene_id"])
-    ideal = min(states, key=lambda score: (abs(total - 2 * score), abs(half - score), score))
+    ideal = min(states, key=lambda score: (abs((existing[aliases[0]] + score) - (existing[aliases[1]] + total - score)), score))
     owner_scenes = set(states[ideal])
     return {scene["scene_id"]: (aliases[0] if scene["scene_id"] in owner_scenes else aliases[1])
             for scene in scenes}
@@ -143,7 +147,8 @@ def _least_load_assignment(scenes: list[dict], aliases: list[str]) -> dict[str, 
 
 def create_schedule(workers: Mapping[str, Worker],
                     verified_tails: Mapping[str, dict] | None = None,
-                    in_flight_scenes: Mapping[str, list[str]] | None = None) -> dict:
+                    in_flight_scenes: Mapping[str, list[str]] | None = None,
+                    scene_owner_locks: Mapping[str, str] | None = None) -> dict:
     """Prepare non-authoritative next-take proposals for 1 or 2 accounts.
 
     NEVER submits a job. Do not feed this output directly into `kaggle push`.
@@ -165,6 +170,18 @@ def create_schedule(workers: Mapping[str, Worker],
         raise ValueError("Invalid in-flight accounting")
     cursor = _verified_tails(verified_tails or {}, scenes)
     scene_ids = {s["scene_id"] for s in scenes}
+    if scene_owner_locks is None:
+        scene_owner_locks = {}
+    if (not isinstance(scene_owner_locks, Mapping)
+            or set(scene_owner_locks) - scene_ids
+            or any(owner not in ACCOUNT_IDS for owner in scene_owner_locks.values())):
+        raise ValueError('Unknown scene or account in durable scene ownership locks')
+    # Once any segment is generated, the same account must own that entire
+    # continuation chain. A pause, lost quota or a missing worker must not
+    # transfer the last generated PNG to the other account implicitly.
+    for scene_id, tail in cursor.items():
+        if tail['completed_count'] > 0 and scene_id not in scene_owner_locks:
+            raise ValueError('Started scene requires immutable account ownership')
     occupied = set()
     for account, ids in in_flight_scenes.items():
         if not isinstance(ids, list) or len(ids) != len(set(ids)):
@@ -172,10 +189,18 @@ def create_schedule(workers: Mapping[str, Worker],
         for sid in ids:
             if sid not in scene_ids or sid in occupied:
                 raise ValueError("In-flight scene duplicated across accounts")
+            if scene_owner_locks.get(sid) != account:
+                raise ValueError('In-flight scene requires matching durable owner lock')
             occupied.add(sid)
     blocked = {alias: worker_gates(workers[alias]) for alias in ACCOUNT_IDS}
     usable = [alias for alias in ACCOUNT_IDS if not blocked[alias]]
-    assignment = _least_load_assignment(scenes, usable)
+    assignment = dict(scene_owner_locks)
+    pinned = {alias: 0 for alias in ACCOUNT_IDS}
+    for scene in scenes:
+        if scene['scene_id'] in scene_owner_locks:
+            pinned[scene_owner_locks[scene['scene_id']]] += scene['native_segment_count']
+    unlocked = [s for s in scenes if s['scene_id'] not in scene_owner_locks]
+    assignment.update(_least_load_assignment(unlocked, usable, initial_load=pinned))
     planned_counts = {alias: 0 for alias in ACCOUNT_IDS}
     for scene in scenes:
         if scene["scene_id"] in assignment:
@@ -236,6 +261,7 @@ def create_schedule(workers: Mapping[str, Worker],
                    if proposals else "NO_GPU_JOB_AUTHORIZED"),
         "account_gates": blocked,
         "scene_assignments": assignment,
+        "scene_owner_locks_required_for_all_started_scenes": True,
         "whole_scene_take_split": planned_counts,
         "native_original_take_count": movie["new_true_inference_segment_count"],
         "planned_first_wave": proposals,
