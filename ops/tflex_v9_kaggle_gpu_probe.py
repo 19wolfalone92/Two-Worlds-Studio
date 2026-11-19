@@ -6,6 +6,7 @@ import json, os, re, subprocess, sys, time
 from pathlib import Path
 
 def identity():
+    sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
     from studio.kaggle_identity import resolve_username
     return resolve_username(None)
 
