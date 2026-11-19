@@ -50,7 +50,8 @@ jobs:
     env:
       TFLEX_ACCOUNT_ONE_KGAT: ${{ secrets.KAGGLE_API_TOKEN }}
       TFLEX_ACCOUNT_TWO_KGAT: ${{ secrets.KAGGLE_API_TOKEN2 }}
-      TFLEX_DISTINCT_REPORT: ${{ runner.temp }}/tflex-two-kaggle-distinct-safe.json
+
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -59,6 +60,8 @@ jobs:
       - name: Install official read-only KaggleHub
         run: python -m pip -q install "kagglehub>=1.0.2"
       - name: Verify both protected accounts independently without printing identities
+        env:
+          TFLEX_DISTINCT_REPORT: ${{ runner.temp }}/tflex-two-kaggle-distinct-safe.json
         run: python ops/tflex_v9_verify_distinct_kaggle_identities.py
       - name: Attach only proof booleans
         if: always()
