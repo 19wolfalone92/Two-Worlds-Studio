@@ -8,7 +8,25 @@ from pathlib import Path
 def identity():
     sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
     from studio.kaggle_identity import resolve_username
-    return resolve_username(os.environ.get('KAGGLE_USERNAME'))
+    explicit=os.environ.get('KAGGLE_USERNAME')
+    if explicit:return resolve_username(explicit)
+    try:
+        return resolve_username(None)
+    except Exception:
+        # Kaggle v2 tokens can authenticate while `config view` has no username.
+        import csv, io
+        r=subprocess.run(['kaggle','kernels','list','--mine','--page-size','5','--csv'],
+                         capture_output=True,text=True,timeout=45)
+        if r.returncode != 0:
+            raise RuntimeError('Kaggle CLI auth/list failed. Check token validity and KAGGLE_USERNAME repo variable') from None
+        for line in csv.reader(io.StringIO(r.stdout)):
+            if not line:continue
+            first=line[0].strip()
+            if '/' in first:
+                who=first.split('/',1)[0]
+                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{1,29}',who):
+                    return who
+        raise RuntimeError('No account username; set KAGGLE_USERNAME or KAGGLE_USERNAME2 GitHub Actions variable')
 
 def prepare():
     who=identity()
