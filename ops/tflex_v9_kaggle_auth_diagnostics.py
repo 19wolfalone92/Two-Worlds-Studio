@@ -64,6 +64,27 @@ def run():
             report["result"]="cli_timeout_no_retry"
         except (OSError,ValueError):
             report["result"]="cli_execution_unavailable"
+    report["official_kagglehub_identity_verified"]=False
+    report["kagglehub_error_type"]="not_attempted"
+    if env is not None and report["result"]!="rate_limited_429":
+        # Independent official library check; never print the whoami() response.
+        try:
+            import kagglehub
+            previous=os.environ.get("KAGGLE_API_TOKEN")
+            os.environ["KAGGLE_API_TOKEN"]=env.get("KAGGLE_API_TOKEN","")
+            try:
+                identity=kagglehub.auth.whoami(verbose=False)
+                report["official_kagglehub_identity_verified"]=bool(identity.get("username"))
+                report["kagglehub_error_type"]="none" if report["official_kagglehub_identity_verified"] else "empty_identity"
+            finally:
+                if previous is None:os.environ.pop("KAGGLE_API_TOKEN",None)
+                else:os.environ["KAGGLE_API_TOKEN"]=previous
+        except Exception as exc:
+            t=type(exc).__name__
+            report["kagglehub_error_type"]=t if t in {
+                "UnauthenticatedError","KaggleAuthError","HTTPError",
+                "RuntimeError","ValueError","ConnectionError","Timeout","ImportError"
+                } else "unrecognized_safe_error"
     # Save only safe enums; no account identifiers, usernames, outputs, or contents.
     target=os.getenv("TFLEX_KAGGLE_DIAGNOSTIC_REPORT","")
     if target:
