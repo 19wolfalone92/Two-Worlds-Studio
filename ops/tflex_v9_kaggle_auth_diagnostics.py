@@ -1,6 +1,6 @@
 """Kaggle v2 token diagnostic for TWO AUTHORIZED accounts, CPU/read-only.
 Never print/log tokens, usernames, private datasets, kernel names or raw stderr.
-One authenticated read-only quota attempt per configured secret.
+One authenticated read-only private-kernel-list attempt per configured secret.
 """
 from __future__ import annotations
 import json,os,subprocess,sys
@@ -31,7 +31,7 @@ def classify(s):
     if "429" in s or "too many requests" in s or "rate limit" in s:return "rate_limited_429"
     if "401" in s or "unauthorized" in s or "authentication required" in s:return "authentication_401"
     if "403" in s or "forbidden" in s:return "forbidden_403"
-    if "expired" in s:return "expired_token"
+    if "expired" in s:return "expired_token"\n    if "invalid" in s or "token" in s or "credential" in s or "authenticate" in s or "login" in s:return "authentication_or_token_invalid"\n    if "not enough values to unpack" in s:return "upstream_cli_duration_bug"\n    if "unexpected argument" in s or "unrecognized arguments" in s:return "kaggle_cli_argument_error"
     if "not found" in s or "404" in s:return "resource_404"
     if "ssl" in s or "dns" in s or "name resolution" in s:return "network_unavailable"
     return "unclassified_cli_error"
@@ -43,11 +43,11 @@ def run():
             "credentials_printed":False,"result":"not_attempted"}
     if env is not None:
         try:
-            p=subprocess.run(["kaggle","quota","--format","json"],
+            p=subprocess.run(["kaggle","kernels","list","--mine","--page-size","1","--format","json"],
                              env=env,capture_output=True,text=True,timeout=90,check=False)
             if p.returncode==0:
                 report["account_verified"]=True
-                report["result"]="authorized_quota_read_ok"
+                report["result"]="authorized_private_kernel_listing_ok"
             else:
                 report["result"]=classify((p.stderr or "")+"\n"+(p.stdout or ""))
         except subprocess.TimeoutExpired:
