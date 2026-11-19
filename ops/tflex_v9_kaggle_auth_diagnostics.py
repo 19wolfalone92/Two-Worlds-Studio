@@ -24,7 +24,7 @@ def shape_and_env():
             return "legacy_username_key",env
         except (ValueError,TypeError):
             return "legacy_json_invalid",None
-    return "personal_access_token",env
+    return ("KGAT_access_token_format" if raw.startswith("KGAT_") else "nonstandard_token_format"),env
 
 def classify(s):
     s=s.lower()
@@ -37,7 +37,13 @@ def classify(s):
     if "unexpected argument" in s or "unrecognized arguments" in s:return "kaggle_cli_argument_error"
     if "not found" in s or "404" in s:return "resource_404"
     if "ssl" in s or "dns" in s or "name resolution" in s:return "network_unavailable"
-    return "unclassified_cli_error"
+    if "valueerror" in s:return "kaggle_cli_valueerror"
+    if "typeerror" in s:return "kaggle_cli_typeerror"
+    if "keyerror" in s:return "kaggle_cli_keyerror"
+    if "attributeerror" in s:return "kaggle_cli_attributeerror"
+    if "grpc" in s or "deadline" in s:return "kaggle_upstream_rpc_error"
+    if "400" in s:return "http_400_bad_request"
+    if "500" in s or "502" in s or "503" in s:return "server_unavailable_5xx"\n    return "unclassified_cli_error"
 
 def run():
     mode,env=shape_and_env()
