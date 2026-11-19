@@ -49,7 +49,7 @@ def classify(s):
 def run():
     mode,env=shape_and_env()
     report={"type":"T-Flex/Kaggle-authorization-readonly","credential_format":mode,
-            "account_verified":False,"gpu_started":False,"images_transferred":False,
+            "account_verified":False,"kernel_api_access_verified":False,"gpu_started":False,"images_transferred":False,
             "credentials_printed":False,"official_kagglehub_identity_verified":False,
             "kagglehub_error_type":"not_attempted","result":"not_attempted"}
     if env is not None:
@@ -64,6 +64,7 @@ def run():
                 username=identity.get("username")
                 report["official_kagglehub_identity_verified"]=bool(username)
                 report["kagglehub_error_type"]="none" if username else "empty_identity"
+                report["account_verified"]=bool(username)
                 if username:
                     env["KAGGLE_USERNAME"]=username
             finally:
@@ -82,7 +83,7 @@ def run():
                 p=subprocess.run(["kaggle","kernels","list","--mine","--page-size","1"],
                                  env=env,capture_output=True,text=True,timeout=90,check=False)
                 if p.returncode==0:
-                    report["account_verified"]=True
+                    report["kernel_api_access_verified"]=True
                     report["result"]="authorized_private_kernel_listing_ok"
                 else:
                     report["result"]=classify((p.stderr or "")+"\\n"+(p.stdout or ""))
