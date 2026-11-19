@@ -43,7 +43,8 @@ def classify(s):
     if "attributeerror" in s:return "kaggle_cli_attributeerror"
     if "grpc" in s or "deadline" in s:return "kaggle_upstream_rpc_error"
     if "400" in s:return "http_400_bad_request"
-    if "500" in s or "502" in s or "503" in s:return "server_unavailable_5xx"\n    return "unclassified_cli_error"
+    if "500" in s or "502" in s or "503" in s:return "server_unavailable_5xx"
+    return "unclassified_cli_error"
 
 def run():
     mode,env=shape_and_env()
