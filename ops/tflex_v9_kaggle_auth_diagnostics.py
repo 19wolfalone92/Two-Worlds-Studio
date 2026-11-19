@@ -50,46 +50,54 @@ def run():
     mode,env=shape_and_env()
     report={"type":"T-Flex/Kaggle-authorization-readonly","credential_format":mode,
             "account_verified":False,"gpu_started":False,"images_transferred":False,
-            "credentials_printed":False,"result":"not_attempted"}
+            "credentials_printed":False,"official_kagglehub_identity_verified":False,
+            "kagglehub_error_type":"not_attempted","result":"not_attempted"}
     if env is not None:
-        try:
-            p=subprocess.run(["kaggle","kernels","list","--mine","--page-size","1","--format","json"],
-                             env=env,capture_output=True,text=True,timeout=90,check=False)
-            if p.returncode==0:
-                report["account_verified"]=True
-                report["result"]="authorized_private_kernel_listing_ok"
-            else:
-                report["result"]=classify((p.stderr or "")+"\n"+(p.stdout or ""))
-        except subprocess.TimeoutExpired:
-            report["result"]="cli_timeout_no_retry"
-        except (OSError,ValueError):
-            report["result"]="cli_execution_unavailable"
-    report["official_kagglehub_identity_verified"]=False
-    report["kagglehub_error_type"]="not_attempted"
-    if env is not None and report["result"]!="rate_limited_429":
-        # Independent official library check; never print the whoami() response.
+        # Kaggle CLI 2.x cannot infer username from every modern KGAT setup.
+        # Resolve privately through official KaggleHub; never print or save username.
         try:
             import kagglehub
             previous=os.environ.get("KAGGLE_API_TOKEN")
             os.environ["KAGGLE_API_TOKEN"]=env.get("KAGGLE_API_TOKEN","")
             try:
                 identity=kagglehub.auth.whoami(verbose=False)
-                report["official_kagglehub_identity_verified"]=bool(identity.get("username"))
-                report["kagglehub_error_type"]="none" if report["official_kagglehub_identity_verified"] else "empty_identity"
+                username=identity.get("username")
+                report["official_kagglehub_identity_verified"]=bool(username)
+                report["kagglehub_error_type"]="none" if username else "empty_identity"
+                if username:
+                    env["KAGGLE_USERNAME"]=username
             finally:
-                if previous is None:os.environ.pop("KAGGLE_API_TOKEN",None)
-                else:os.environ["KAGGLE_API_TOKEN"]=previous
+                if previous is None:
+                    os.environ.pop("KAGGLE_API_TOKEN",None)
+                else:
+                    os.environ["KAGGLE_API_TOKEN"]=previous
         except Exception as exc:
-            t=type(exc).__name__
-            report["kagglehub_error_type"]=t if t in {
+            kind=type(exc).__name__
+            report["kagglehub_error_type"]=kind if kind in {
                 "UnauthenticatedError","KaggleAuthError","HTTPError",
                 "RuntimeError","ValueError","ConnectionError","Timeout","ImportError"
                 } else "unrecognized_safe_error"
-    # Save only safe enums; no account identifiers, usernames, outputs, or contents.
+        if report["official_kagglehub_identity_verified"]:
+            try:
+                p=subprocess.run(["kaggle","kernels","list","--mine","--page-size","1"],
+                                 env=env,capture_output=True,text=True,timeout=90,check=False)
+                if p.returncode==0:
+                    report["account_verified"]=True
+                    report["result"]="authorized_private_kernel_listing_ok"
+                else:
+                    report["result"]=classify((p.stderr or "")+"\\n"+(p.stdout or ""))
+            except subprocess.TimeoutExpired:
+                report["result"]="cli_timeout_no_retry"
+            except (OSError,ValueError):
+                report["result"]="cli_execution_unavailable"
+        else:
+            report["result"]="kagglehub_identity_not_verified"
+    # Safe enums only; no identities, screenshots, or tokens in artifacts.
     target=os.getenv("TFLEX_KAGGLE_DIAGNOSTIC_REPORT","")
     if target:
-        path=Path(target);path.parent.mkdir(parents=True,exist_ok=True)
-        path.write_text(json.dumps(report,sort_keys=True,indent=2)+"\n")
+        path=Path(target)
+        path.parent.mkdir(parents=True,exist_ok=True)
+        path.write_text(json.dumps(report,sort_keys=True,indent=2)+"\\n")
     print("TFLEX_KAGGLE_ACCOUNT_DIAGNOSTIC",json.dumps(report,sort_keys=True))
     return 0 if report["account_verified"] else 2
 
