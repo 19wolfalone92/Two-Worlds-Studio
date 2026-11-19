@@ -1,0 +1,52 @@
+name: T-FLEX V9 200mm - dual Kaggle T4 GPU real check
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - ops/tflex_v9_kaggle_gpu_probe.py
+      - .github/workflows/tflex-v9-dual-kaggle-preflight.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  private-kaggle-accelerator:
+    name: Private Kaggle GPU account ${{ matrix.account }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    strategy:
+      fail-fast: false
+      matrix:
+        account: [1, 2]
+    concurrency:
+      group: tflex-v9-private-gpu-probe-account-${{ matrix.account }}
+      cancel-in-progress: false
+    env:
+      KAGGLE_API_TOKEN: ${{ matrix.account == 1 && secrets.KAGGLE_API_TOKEN || secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify credential presence without revealing any value
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$KAGGLE_API_TOKEN" ]]; then
+            echo "::error::Kaggle account ${{ matrix.account }} secret unavailable in this repository."
+            exit 2
+          fi
+      - name: Install Kaggle CLI (read-only except private kernel job)
+        run: python -m pip install "kaggle>=2.2.4"
+      - name: Assemble account-private T4 kernel
+        run: python ops/tflex_v9_kaggle_gpu_probe.py prepare
+      - name: Launch on assigned account's Kaggle GPU quota
+        run: kaggle kernels push -p dist/tflex_v9_gpu_probe --accelerator NvidiaTeslaT4 --timeout 1200
+      - name: Verify private GPU kernel really completed
+        run: python ops/tflex_v9_kaggle_gpu_probe.py poll
+      - name: Privacy and scope record
+        run: |
+          echo "No game screenshots were transferred."
+          echo "No 3D master generated. This is a real GPU provisioning probe only."
+          echo "All outputs remain in private Kaggle kernel."
