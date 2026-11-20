@@ -4,6 +4,7 @@ on:
     branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
     paths:
       - .github/workflows/tflex-v98-cpu-hunyuan-import.yml
+      - ops/tflex_v98_kaggle_cpu_hunyuan_import.py
   workflow_dispatch:
 permissions:
   contents: read
