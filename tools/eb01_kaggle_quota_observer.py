@@ -1,9 +1,9 @@
 """Read official accelerator quota and bounded live stage labels; never submit a job."""
 from __future__ import annotations
-import argparse,hashlib,json,math,os,re,subprocess,tempfile
+import argparse,ast,base64,hashlib,json,math,os,re,subprocess,tempfile
 from pathlib import Path
 from tools.eb01_native_two_account_pilot import call,PilotBlocked,STATE
-from tools.eb01_kaggle2_auth_probe import query
+from tools.eb01_kaggle2_auth_probe import query,SOURCE_DATASET
 from tools.eb01_bounded_inference import latest_stage
 from tools.eb01_kaggle_token_env import token_environment
 
@@ -44,6 +44,25 @@ def observe(alias,token,source_run):
     except (PilotBlocked,ValueError,KeyError,TypeError):report['quota_status']='OFFICIAL_QUOTA_COMMAND_OR_ACCESS_UNAVAILABLE'
     slug='eb01-echo-'+hashlib.sha256(('eb01-echo-v1-'+source_run+'-'+alias).encode()).hexdigest()[:16]
     kernel=handle+'/'+slug
+    try:
+        with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'],prefix='eb01-server-readback-private-') as temp:
+            folder=Path(temp)
+            call(token,['kaggle','kernels','pull',kernel,'-p',str(folder),'-m'],timeout=65)
+            meta=json.loads((folder/'kernel-metadata.json').read_text())
+            code=Path(meta['code_file'])
+            if code.name!=str(code):raise ValueError('Unexpected server source path')
+            tree=ast.parse((folder/code).read_text())
+            configs=[ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign)
+                     and any(isinstance(t,ast.Name) and t.id=='CONFIG_B64' for t in n.targets)]
+            if len(configs)!=1:raise ValueError('Server source config missing or ambiguous')
+            cfg=json.loads(base64.b64decode(configs[0],validate=True))
+            source=json.loads(Path('ops/eb01_echo_collect.json').read_text())
+            report['server_private_kernel_verified']=meta.get('is_private') is True
+            report['server_shared_dataset_attached']=meta.get('dataset_sources')==[SOURCE_DATASET]
+            report['server_pinned_source_verified']=(cfg.get('revision')==source['source_revision'] and
+                cfg.get('account_alias')==alias and cfg.get('private') is True and cfg.get('no_paid_services') is True)
+            report['server_requested_t4_shape_verified']=meta.get('machine_shape')=='NvidiaTeslaT4'
+    except (PilotBlocked,ValueError,KeyError,TypeError,OSError):report['server_readback_status']='UNVERIFIED'
     try:
         states=STATE.findall(call(token,['kaggle','kernels','status',kernel],timeout=65))
         report['kaggle_state']=states[0] if len(states)==1 else 'UNRECOGNIZED_STATUS'

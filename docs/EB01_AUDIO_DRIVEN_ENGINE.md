@@ -94,3 +94,19 @@ encoder and performs a real 24 kHz → 16 kHz → 25-frame forward. Both CPU
 preflights `44818627372` and `44818907308` passed before the corrected GPU
 attempt. The renderer and RGB artifact decoder close process pipes on both
 success and error, including batch rendering.
+
+## Independent human lip-sync measurement
+
+`tools.eb01_syncnet_cpu_review` uses the pinned original SyncNet source
+`907c0b579c2e2d83f0eae1b2ac9e720cde4e5623` and SHA-locked official pretrained
+weights. It runs entirely on CPU and requires a visually reviewed human face
+crop. Analysis crops are separate from the original native MP4. A second
+analysis introduces exactly 200 ms of audio delay to check that the metric
+responds by five 25 FPS frames; the source MP4 is never altered.
+
+Calibration against the authors' public example reproduced offset 3 frames,
+confidence 10.081 (authors ~10.021), and distance 5.348 (authors ~5.353).
+The short-clip analysis path also detected the deliberately shifted five
+frames. These calibration results are public test fixtures, NOT Elizabeth
+Bones renders. The metric does not approve art, does not validate a skeleton,
+and does not replace review of Russian articulation in the actual MP4.

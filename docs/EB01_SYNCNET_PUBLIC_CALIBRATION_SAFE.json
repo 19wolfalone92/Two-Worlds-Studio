@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "only_public_author_fixture": true,
+  "private_studio_video_evaluated": false,
+  "offset_frames": 3,
+  "confidence": 10.081464767456055,
+  "minimum_distance": 5.348048210144043,
+  "wall_seconds": 46.355,
+  "cpu_only": true,
+  "upstream_sha": "907c0b579c2e2d83f0eae1b2ac9e720cde4e5623"
+}

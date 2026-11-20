@@ -1,1 +1,1 @@
-2026-11-21 observation 3: read official quota and latest live inference stages of existing attempt 2; zero GPU submissions.
+2026-11-21 observation 4: verify actual server privacy, dataset attachment, pinned source, official quotas and latest stages; no new GPU allocation.
