@@ -28,7 +28,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install Kaggle CLI
-        run: python -m pip -q install "kaggle>=2.2.4" "kagglehub>=1.0.2"
+        run: python -m pip -q install "kaggle>=2.2.4" "kagglehub>=1.0.2" "six>=1.16,<2"
       - name: One authorized read-only request; fail if unauthorized
         env:
           TFLEX_KAGGLE_DIAGNOSTIC_REPORT: ${{ runner.temp }}/tflex-kaggle-account-${{ matrix.account }}-safe.json
@@ -89,7 +89,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install official packages
-        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2"
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2" "six>=1.16,<2"
       - name: Use Python API under complete stdout/stderr redaction
         env:
           TFLEX_PYTHON_API_SAFE_REPORT: ${{ runner.temp }}/tflex-client-${{ matrix.account }}.json
