@@ -1,5 +1,7 @@
 # Elizabeth Bones E01 — two independent Kaggle GPU workers (16 November 2026)
 
+**Обновление 20 ноября:** общий исходник скачан и SHA-проверен обоими аккаунтами; два настоящих 576×1024 MP4 получены. Движение почти статично, полный рендер остаётся заблокирован. См. [актуальную приёмку](EB01_DUAL_KAGGLE_ACCEPTANCE_20261120_RU.md). Ниже сохранена историческая записка до выполнения этих пилотов.
+
 ## Scope and truth boundary
 
 This change introduces **working CPU-tested scene scheduling and read-only

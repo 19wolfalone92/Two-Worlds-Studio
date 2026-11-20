@@ -102,6 +102,8 @@ def verify_output(output: Path, alias: str, revision: str) -> dict:
     p = subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(video),
                         "-f", "null", "-"], capture_output=True, timeout=100)
     motion = gray_motion(video)
+    from tools.eb01_native_pixel_evidence import decoded_pixel_evidence
+    pixels = decoded_pixel_evidence(video)
     checks = {
         "native_geometry": meta["width"] == 576 and meta["height"] == 1024,
         "native_frames": meta["frames"] == 33 and qc["decoded_frames"] == 33,
@@ -112,11 +114,13 @@ def verify_output(output: Path, alias: str, revision: str) -> dict:
         "receipt_native_profile": receipt.get("pilot_profile") == PROFILE,
         "receipt_no_upscale": receipt.get("source_video_upscaled") is False,
         "receipt_correct_actor": receipt.get("shot") == SHOTS[alias],
+        "all_native_rgb_frames_distinct": pixels["unique_decoded_rgb_frames"] == 33
+            and pixels["adjacent_exact_duplicate_pairs"] == 0,
     }
     result.update(mp4_sha256=digest, bytes=video.stat().st_size, probe=meta,
                   checks=checks, technical_pass=all(checks.values()),
                   color_status=qc["status"], motion_proxy=motion,
-                  actual_inference_seconds=receipt.get("actual_gpu_seconds"))
+                  actual_inference_seconds=receipt.get("actual_gpu_seconds"), **pixels)
     resource = output / "EB01_NATIVE_RESOURCES_SAFE.json"
     if resource.is_file():
         data = json.loads(resource.read_text())
