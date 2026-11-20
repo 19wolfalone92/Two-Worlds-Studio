@@ -18,6 +18,11 @@ def classify_exception(error):
     if typ in ("SSLError","ConnectionError"):return "network"
     if typ in ("ValueError","TypeError","KeyError","AttributeError","RuntimeError","ImportError","SystemExit"):
         return "python_"+typ.lower()
+    # Expose ONLY validated exception class and module, NEVER exception args.
+    import re
+    mod=str(type(error).__module__)
+    if re.fullmatch(r"[A-Za-z0-9_.]{1,90}",mod) and re.fullmatch(r"[A-Za-z0-9_]{1,70}",typ):
+        return "exception_"+mod+"."+typ
     return "other_safe_exception"
 
 def run():
