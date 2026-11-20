@@ -2,6 +2,8 @@
 
 ## Current working contracts
 
+- [EB01: приёмка двух аккаунтов, реальные нативные MP4 и оставшиеся ограничения](EB01_DUAL_KAGGLE_ACCEPTANCE_20261120_RU.md).
+
 - \`DEVELOPMENT.md\`: local setup, canonical CLI, dependency extras, test matrix.
 - \`STUDIO_V2_STATUS.md\`: three-part assembly and production constraints.
 - \`STUDIO_V3_FREE_PROVIDERS.md\`: verified offline provider capabilities and limits.

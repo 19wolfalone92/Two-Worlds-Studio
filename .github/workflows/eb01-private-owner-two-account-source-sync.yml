@@ -1,0 +1,65 @@
+name: EB01 — verified private source authorization for TWO different Kaggle owners
+on:
+  push:
+    branches:
+      - feature/eb01-kaggle-private-source-two-account-sync-20261116
+    paths:
+      - tools/eb01_private_two_account_dataset_sync.py
+      - tests/test_eb01_private_two_account_dataset_sync.py
+      - .github/workflows/eb01-private-owner-two-account-source-sync.yml
+      - ops/eb01_owner_private_second_dataset_sync_once.trigger
+permissions:
+  contents: read
+concurrency:
+  group: eb01-private-owner-source-mirror-one-off
+  cancel-in-progress: false
+jobs:
+  validate_source_privacy_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run archive SHA, dataset ACL, token isolation and no-leak tests
+        run: |
+          set -euo pipefail
+          python -m pip -q install 'Pillow>=10,<13'
+          python -m py_compile tools/eb01_private_two_account_dataset_sync.py
+          python -m unittest tests.test_eb01_private_two_account_dataset_sync -v
+  authorize_private_second_source_copy_once:
+    needs: validate_source_privacy_contract
+    if: >-
+      github.repository == '19wolfalone92/Two-Worlds-Studio' &&
+      github.event_name == 'push' &&
+      github.event.head_commit.message == 'ops(eb01): execute private source sync authorized by owner'
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official Kaggle CLI and canonical source SHA verifier
+        run: python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'Pillow>=10,<13'
+      - name: Privately share EXACT original SHA-verified 2 portraits + 6 WAVs with authorized second Kaggle owner
+        env:
+          EB01_OWNER_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          EB01_SECOND_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+        run: |
+          set -euo pipefail
+          python -m tools.eb01_private_two_account_dataset_sync
+      - name: Upload ONLY sanitized non-media status, never originals
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_PRIVATE_SECOND_SOURCE_STATUS_NO_ACTOR_MEDIA
+          path: ${{ runner.temp }}/EB01_TWO_ACCOUNT_SOURCE_SAFE_REPORT.json
+          if-no-files-found: warn
+          retention-days: 3
+      - name: Ensure temporary originals are destroyed
+        if: always()
+        run: |
+          set -euo pipefail
+          rm -rf "${RUNNER_TEMP}"/eb01-privatesync-*

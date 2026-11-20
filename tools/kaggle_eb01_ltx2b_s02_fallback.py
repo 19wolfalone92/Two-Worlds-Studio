@@ -31,18 +31,22 @@ def sha(p):
 
 def main():
     cfg=json.loads(base64.b64decode(CONFIG_B64,validate=True))
-    if not (cfg.get("schema")==7 and cfg.get("shot")=="S02"
+    native_profile=cfg.get("pilot_profile")=="native-576x1024-tiled-fp32-vae-v1"
+    shot=cfg.get("shot")
+    if not (cfg.get("schema")==7 and (shot in ("S01","S02") if native_profile else shot=="S02")
         and cfg.get("private") is True and cfg.get("no_paid_services") is True
         and cfg.get("new_gpu_jobs")==1 and cfg.get("allow_social_publish") is False
         and cfg.get("mode")=="pilot" and cfg.get("pilot_frames")==33
         and cfg.get("source_dataset")=="wolf19loner92/eb01-v7-private-production-sources"
-        and cfg.get("branch")=="fix/eb01-s02-private-raw-preservation-20261113"
+        and cfg.get("branch") in (("feature/eb01-kaggle-private-source-two-account-sync-20261116",)
+            if native_profile else ("fix/eb01-s02-private-raw-preservation-20261113",))
         and re.fullmatch(r"[a-f0-9]{40}",str(cfg.get("revision","")))):
         raise RuntimeError("Unsafe/changed original private I2V request")
     # Only a genuinely short 33-frame (<1.4-second) native pilot is
     # permitted on free T4. Old 125-frame CUDA OOM / 2600s timeout is
     # intentionally forbidden. No quality approval can be inferred.
     pilot_frames=33
+    width,height=(576,1024) if native_profile else (320,576)
     try:
         import torch
         if not torch.cuda.is_available() or torch.cuda.get_device_properties(0).total_memory<14*2**30:
@@ -66,6 +70,11 @@ def main():
         scene=next(x for x in SHOTS if x[0]=="S02")
         if scene[2]!=125 or source_sha(reference)!=REVIEWED_SOURCE_SHA["S02"]:
             raise RuntimeError("Original Kostya still or 125-frame storyboard changed")
+        if native_profile:
+            from studio.eb01_native_t4_profile import native_reference
+            reference=INPUT/"native"/(shot+".png")
+            native_source=native_reference(Path("/kaggle/input"),reference,shot)
+            scene=next(x for x in SHOTS if x[0]==shot)
         print("EB01_ALT_ENGINE_ORIGINAL_PHOTO_AND_VOICE_LOCK_PASS",flush=True)
         run(["git","clone","--depth","1","https://github.com/Lightricks/LTX-Video.git",LTX],timeout=240)
         run(["git","fetch","--depth","1","origin",LTX_SHA],cwd=LTX)
@@ -173,6 +182,9 @@ def main():
             "        print('EB01_STAGE_BEGIN_TRANSFORMER',flush=True)\n\n"
             +stage_after)
         stages.write_text(pipe)
+        if native_profile:
+            from studio.eb01_native_t4_profile import patch_native_sources
+            native_patch_sha=patch_native_sources(source,stages,LTX/"ltx_video/models/autoencoders/vae.py")
         patched=sha(source)
         stage_sha=sha(stages)
         print("EB01_T4_NATIVE_PRECISION_POLICY",
@@ -220,12 +232,24 @@ settings=InferenceConfig(pipeline_config=os.environ['LTX_CONFIG'],prompt=os.envi
   conditioning_strengths=[1.0],conditioning_start_frames=[0],
   image_cond_noise_scale=0.15,
   output_path=os.environ['LTX_OUTPUT'])
+if os.environ.get('LTX_NATIVE_PILOT')=='1':
+    settings.width=576
+    settings.height=1024
+    from tools.eb01_resource_sampler import start
+    finish=start('/kaggle/working/EB01_NATIVE_RESOURCES_SAFE.json')
+else:
+    finish=lambda: None
 print('EB01_LTX_REAL_NATIVE_33_FRAME_PILOT_START',flush=True)
-infer(settings)
+try:
+    infer(settings)
+finally:
+    finish()
 """
         env=os.environ.copy()
         env.update(LTX_CONFIG=str(c),LTX_PROMPT=scene[-1],LTX_INPUT=str(reference),
                    LTX_OUTPUT=str(generated))
+        if native_profile:
+            env.update(LTX_NATIVE_PILOT="1",PYTHONPATH=str(ROOT)+os.pathsep+env.get("PYTHONPATH",""))
         # Preserve the actual sampler output even when the bounded GPU deadline
         # expires. A timeout is not evidence that native frames were produced.
         # Do not automatically retry the same expensive configuration.
@@ -270,7 +294,7 @@ infer(settings)
         quality_checks={
             "native_frames_33":meta["frames"]==pilot_frames,
             "native_24fps":meta["fps"]=="24",
-            "native_320x576":meta["width"]==320 and meta["height"]==576,
+            "native_requested_geometry":meta["width"]==width and meta["height"]==height,
             "all_33_decoded":qc["decoded_frames"]==pilot_frames,
             "no_neon":qc["status"]=="NO_NEON_ARTIFACT_FOUND",
         }
@@ -338,6 +362,12 @@ infer(settings)
                 "audio_conditioned_lipsync_verified":False,
                 "whole_movie_ready":False,"published":False,
             }
+            if native_profile:
+                review.update(shot=shot,pilot_profile=cfg["pilot_profile"],
+                              source_video_upscaled=False,synthetic_frames=0,
+                              original_character_sha256=SRC_SHA[scene[1]],
+                              original_reference_sha256=source_sha(reference),
+                              native_source=native_source)
             JOB.write_text(json.dumps(review,ensure_ascii=False,indent=2)+"\n")
             print("EB01_TRUE_GPU_NATIVE_OUTPUT_PRESERVED_PRIVATE_QA_BLOCKED",
                   "frames",meta["frames"],"seconds",pilot_seconds,
@@ -360,11 +390,27 @@ infer(settings)
            "six_original_russian_voice_sha256":VOICE_SHA,
            "clip_sha256":source_sha(video),"frame_count":pilot_frames,"fps":24,
            "actual_gpu_seconds":pilot_seconds,"mode":"pilot",
-           "width":320,"height":576,"true_gpu_neural_inference":True,
+           "width":width,"height":height,"true_gpu_neural_inference":True,
            "invideo_used":False,"paid_inference_used":False,
            "human_artistic_approved":False,"whole_movie_ready":False,"published":False,
            "audio_conditioned_lipsync_verified":False,
            "skel_bone_jaw_animation_art_verified":False,}
+        if native_profile:
+            proof.update(shot=shot, pilot_profile=cfg["pilot_profile"],
+                         original_reference_sha256=source_sha(reference),
+                         original_character_sha256=SRC_SHA[scene[1]],
+                         native_source=native_source,native_patch_sha256=native_patch_sha,
+                         vae_spatial_tile_pixels=256,vae_temporal_tiling=False,
+                         source_video_upscaled=False,synthetic_frames=0,
+                         native_generated_dimensions=[width,height],
+                         original_russian_voice_sha256=VOICE_SHA[shot],
+                         audio_input_to_video_model=False)
+            (OUT/"EB01_NATIVE_CHECKPOINT_CONTEXT.json").write_text(json.dumps({
+                "schema":1,"studio_revision":cfg["revision"],"shot":shot,
+                "reference_sha256":source_sha(reference),"model_source_sha":LTX_SHA,
+                "dimensions":[width,height],"frames":pilot_frames,
+                "seed":202611132,"native_profile":cfg["pilot_profile"],
+                "denoised_latents_sha256":sha(OUT/"EB01_NATIVE_PREDECODE.safetensors")},sort_keys=True))
         JOB.write_text(json.dumps(proof,ensure_ascii=False,indent=2)+"\n")
         print("EB01_ACTUAL_LTX_33FRAME_PILOT_ONLY_PRODUCED",proof["clip_sha256"],flush=True)
     except BaseException as exc:

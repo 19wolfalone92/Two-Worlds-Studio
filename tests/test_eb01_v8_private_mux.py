@@ -46,6 +46,7 @@ class RealCodecFrameTests(unittest.TestCase):
                 self.assertEqual(v["height"], 1024)
                 self.assertEqual(v["avg_frame_rate"], "24/1")
                 self.assertEqual(int(v["nb_read_frames"]), expected)
+                self.assertAlmostEqual(float(v["duration"]), expected / 24, places=5)
 
     def test_320x576_pilot_cannot_enter_native_v8_source_pool(self):
         with tempfile.TemporaryDirectory() as td:
