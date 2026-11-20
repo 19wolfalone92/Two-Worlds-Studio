@@ -1,0 +1,62 @@
+name: EB01 — collect same private Echo pilot without allocating GPUs
+on:
+  push:
+    branches: [feature/eb01-audio-driven-actors-20261120]
+    paths: [ops/eb01_echo_collect.json]
+permissions:
+  contents: read
+jobs:
+  collect_existing_only:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - account: owner
+            secret: KAGGLE_API_TOKEN
+          - account: collaborator
+            secret: KAGGLE_API_TOKEN2
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: python -m pip -q install -r requirements.txt -r requirements-private-output.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Read status and collect immutable original job only; no push path
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets[matrix.secret] }}
+          EB01_MODEL_LOCK_B64: e30=
+          EB01_COLLECT_ACCOUNT: ${{ matrix.account }}
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python - <<'PY'
+          import json,os,subprocess,sys
+          from pathlib import Path
+          c=json.loads(Path('ops/eb01_echo_collect.json').read_text())
+          result=subprocess.run([sys.executable,'-m','tools.eb01_echo_kaggle_pilot',
+              '--account',os.environ['EB01_COLLECT_ACCOUNT'],'--collect-run',c['source_run'],
+              '--collect-revision',c['source_revision'],'--poll-seconds','45'])
+          raise SystemExit(result.returncode)
+          PY
+      - name: Save numerical status only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_ECHO_${{ matrix.account }}_NUMERIC
+          path: ${{ runner.temp }}/EB01_ECHO_${{ matrix.account }}_SAFE.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Return original MP4 and private diagnostics through authenticated encryption
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_ECHO_${{ matrix.account }}_ENCRYPTED_RETURN
+          path: ${{ runner.temp }}/EB01_ECHO_${{ matrix.account }}.twenc
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+      - name: Destroy private runner media
+        if: always()
+        run: rm -rf "$RUNNER_TEMP"/eb01-echo-private-*

@@ -63,7 +63,7 @@ def verify_output(output,alias,revision):
                 'BEGIN_TRANSFORMER','DENOISE_STEP_START','BEGIN_DECODE'} else 'UNKNOWN_PRIVATE_STAGE'
         return result
     receipt=json.loads((output/'EB01_ECHO_ACTUAL_RECEIPT.json').read_text())
-    meta=_probe(video);qc=inspect_clip(video)
+    meta=_probe(video);qc=inspect_clip(video,expected_fps=25)
     pixels=decoded_pixel_evidence(video,frames=spec['frames'])
     digest=hashlib.sha256(video.read_bytes()).hexdigest()
     decoded=subprocess.run(['ffmpeg','-v','error','-xerror','-i',str(video),'-f','null','-'],capture_output=True,timeout=100)
@@ -148,7 +148,7 @@ def run_pilot(alias,token,root,run_id,revision,attempt,lock,*,collect_run=None,c
                 report['encrypted_private_return_created']=True
                 report['status']='REAL_AUDIO_DRIVEN_MP4_TECHNICAL_PASS_REVIEW_REQUIRED' if verified['technical_pass'] else 'AUDIO_DRIVEN_PILOT_FAILED_OR_QA_BLOCKED'
                 return report
-            time.sleep(40)
+            time.sleep(min(40,max(0,deadline-time.monotonic())))
         report['status']='SAME_PILOT_STILL_QUEUED_OR_RUNNING_COLLECT_ONLY'
     except (PilotBlocked,OSError,ValueError,subprocess.TimeoutExpired) as exc:
         report['status']='BLOCKED_'+(str(exc) if isinstance(exc,PilotBlocked) else type(exc).__name__)

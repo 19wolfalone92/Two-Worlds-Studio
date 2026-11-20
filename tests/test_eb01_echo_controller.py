@@ -26,7 +26,7 @@ class EchoControllerTests(unittest.TestCase):
                         report=run_pilot('owner','private',Path(temp),'1234567','a'*40,attempt,{},collect_run=collect)
                 self.assertEqual(report['gpu_submission_attempts'],0)
                 self.assertEqual(api.call_args.args[1][2],'status')
-    def test_wrong_voice_receipt_cannot_become_quality_approval(self):
+    def test_private_setup_failure_exposes_only_predefined_error_category(self):
         # A no-MP4 setup failure is categorized without leaking raw diagnostic text.
         from tools.eb01_echo_kaggle_pilot import failure_category
         with tempfile.TemporaryDirectory() as temp:

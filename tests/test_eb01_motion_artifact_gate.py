@@ -55,6 +55,19 @@ class E01MotionArtifactTests(unittest.TestCase):
         frame[55:57,12:148,:]=[10,35,215]
         self.assertGreater(neon_streak_line_geometry(frame),.005)
 
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg/ffprobe not installed")
+    def test_audio_engine_25fps_decodes_without_relaxing_the_default_24fps_contract(self):
+        with tempfile.TemporaryDirectory() as temp:
+            movie=Path(temp)/"clock25.mp4"
+            subprocess.run(["ffmpeg","-v","error","-f","lavfi","-i",
+                "color=c=0x221e19:s=160x288:r=25:d=0.84","-c:v","libx264","-pix_fmt","yuv420p",str(movie)],
+                check=True,capture_output=True,timeout=40)
+            with self.assertRaises(ArtifactRejected):inspect_clip(movie)
+            report=inspect_clip(movie,expected_fps=25)
+            self.assertEqual(report["decoded_frames"],21)
+            self.assertEqual(report["status"],"NO_NEON_ARTIFACT_FOUND")
+            self.assertFalse(report["actor_motion_artistically_approved"])
+
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "ffmpeg/ffprobe not installed")
     def test_persistent_blue_palette_review_only_never_false_green(self):
