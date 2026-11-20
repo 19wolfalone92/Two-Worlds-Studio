@@ -1,5 +1,5 @@
 # PyTorch/torchvision come from the CUDA worker or the explicit CPU preflight.
-numpy==1.26.4
+numpy==2.1.3
 Pillow>=10,<12
 einops==0.8.1
 safetensors>=0.5,<0.6
@@ -8,7 +8,7 @@ diffusers==0.32.2
 transformers==4.49.0
 accelerate==1.2.1
 omegaconf==2.3.0
-sentencepiece==0.2.0
+sentencepiece==0.2.1
 ftfy==6.3.1
 opencv-python-headless==4.11.0.86
 imageio[ffmpeg]==2.37.0

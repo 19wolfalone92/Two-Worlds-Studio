@@ -24,6 +24,22 @@ def main():
             subprocess.run(argv,stdout=f,stderr=subprocess.STDOUT,stdin=subprocess.DEVNULL,check=True,timeout=timeout)
     try:
         print('EB01_ECHO_PRIVATE_BOOTSTRAP_BEGIN',flush=True)
+        probe = """
+import json,sys,torch,psutil,shutil
+from pathlib import Path
+assert torch.cuda.is_available() and torch.cuda.device_count()==2
+r={'schema':1,'python':sys.version.split()[0],'torch':torch.__version__,
+   'cuda_runtime':torch.version.cuda,'cpu_count':psutil.cpu_count(),
+   'host_ram_gib':round(psutil.virtual_memory().total/2**30,4),
+   'scratch_free_gib':round(shutil.disk_usage('/kaggle/temp').free/2**30,4),
+   'vram_is_pooled':False,'devices':[]}
+for i in range(2):
+ p=torch.cuda.get_device_properties(i);free,total=torch.cuda.mem_get_info(i)
+ r['devices'].append({'index':i,'name':p.name,'physical_gib':round(p.total_memory/2**30,4),
+                      'free_gib':round(free/2**30,4),'capability':list(torch.cuda.get_device_capability(i))})
+Path('/kaggle/working/EB01_ECHO_ENVIRONMENT_SAFE.json').write_text(json.dumps(r,sort_keys=True))
+"""
+        command([sys.executable,'-c',probe],60)
         command(['git','clone','--depth','1','--branch',cfg['branch'],
                  'https://github.com/19wolfalone92/Two-Worlds-Studio.git',str(studio)],180)
         command(['git','-C',str(studio),'fetch','--depth','1','origin',cfg['revision']],120)
@@ -40,12 +56,13 @@ def main():
         # Keep preinstalled GPU PyTorch/CUDA. The dependency set excludes paid
         # services and unused face detectors, and does not install CUDA wheels.
         command([sys.executable,'-m','pip','install','--quiet','--disable-pip-version-check',
+                 '--only-binary=numpy,sentencepiece,scipy,tokenizers,safetensors,numba,llvmlite,opencv-python-headless',
                  '-r',str(studio/'requirements-echo-runtime.txt')],420)
         from tools.eb01_bounded_inference import run_native_bounded
         cfg.update(runtime=str(runtime),work=str(root),studio_revision=cfg['revision'])
         config=root/'private-native-config.json';config.write_text(json.dumps(cfg))
         env=dict(os.environ)
-        env.update(PYTHONPATH=str(studio),PYTHONUNBUFFERED='1',HF_HOME=str(root/'hf-cache'),
+        env.update(PYTHONPATH=str(studio),PYTHONUNBUFFERED='1',USE_TF='0',USE_FLAX='0',HF_HOME=str(root/'hf-cache'),
                    HF_HUB_DISABLE_XET='1',HF_HUB_DISABLE_TELEMETRY='1',
                    TOKENIZERS_PARALLELISM='false',PYTORCH_CUDA_ALLOC_CONF='expandable_segments:True')
         run_native_bounded([sys.executable,'-u','-m','tools.eb01_echo_native_infer','--config',str(config)],

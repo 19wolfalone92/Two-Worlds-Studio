@@ -32,6 +32,7 @@ def model_lock():
 
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--runtime',type=Path);args=parser.parse_args()
+    os.environ['USE_TF']='0';os.environ['USE_FLAX']='0'
     root=args.runtime or Path(os.environ['RUNNER_TEMP'])/'eb01-echo-cpu-source'
     if not root.exists():subprocess.run(['git','clone','--depth','1',UPSTREAM,str(root)],check=True,capture_output=True,timeout=180)
     actual=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()

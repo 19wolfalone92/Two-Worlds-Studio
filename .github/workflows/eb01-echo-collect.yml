@@ -38,6 +38,12 @@ jobs:
           result=subprocess.run([sys.executable,'-m','tools.eb01_echo_kaggle_pilot',
               '--account',os.environ['EB01_COLLECT_ACCOUNT'],'--collect-run',c['source_run'],
               '--collect-revision',c['source_revision'],'--poll-seconds','45'])
+          if result.returncode:
+              report=json.loads((Path(os.environ['RUNNER_TEMP'])/
+                  ('EB01_ECHO_'+os.environ['EB01_COLLECT_ACCOUNT']+'_SAFE.json')).read_text())
+              if report.get('status')=='SAME_PILOT_STILL_QUEUED_OR_RUNNING_COLLECT_ONLY':
+                  print('STATUS_READ_SUCCESS_PILOT_PENDING_QUALITY_NOT_APPROVED')
+                  raise SystemExit(0)
           raise SystemExit(result.returncode)
           PY
       - name: Save numerical status only

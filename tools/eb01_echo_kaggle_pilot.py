@@ -136,7 +136,7 @@ def run_pilot(alias,token,root,run_id,revision,attempt,lock,*,collect_run=None,c
                 # leave the private runner only inside authenticated encryption.
                 selected={'EB01_ECHO_RUSSIAN_NATIVE.mp4','EB01_ECHO_ACTUAL_RECEIPT.json',
                     'EB01_ECHO_DENOISED_LATENTS.safetensors','EB01_ECHO_RESOURCES_SAFE.json',
-                    'EB01_ECHO_MODEL_SHA_SAFE.json','EB01_ECHO_FAILURE_SAFE.json',
+                    'EB01_ECHO_MODEL_SHA_SAFE.json','EB01_ECHO_FAILURE_SAFE.json','EB01_ECHO_ENVIRONMENT_SAFE.json',
                     'EB01_ECHO_PRIVATE_NATIVE.log','EB01_ECHO_PRIVATE_SETUP.log'}
                 archive=root/'private-return.zip'
                 with zipfile.ZipFile(archive,'x',compression=zipfile.ZIP_DEFLATED) as z:
