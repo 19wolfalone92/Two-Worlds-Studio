@@ -1,0 +1,30 @@
+name: T-FLEX V97 — Kaggle CPU official model source connectivity
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - .github/workflows/tflex-v97-cpu-public-model-probe.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  kaggle-cpu-only-public-model-environment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official Kaggle v2 and required six
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2" "six>=1.16,<2"
+      - name: Check syntax without Kaggle GPU
+        run: python -m py_compile ops/tflex_v97_kaggle_cpu_controller.py ops/tflex_v97_kaggle_cpu_network_kernel.py
+      - name: Submit one private CPU-only network preflight
+        run: python -m ops.tflex_v97_kaggle_cpu_controller launch
+      - name: Confirm CPU notebook completed
+        run: python -m ops.tflex_v97_kaggle_cpu_controller wait
+      - name: Read safe true network/module results from private CPU job
+        run: python -m ops.tflex_v97_kaggle_cpu_controller verify
