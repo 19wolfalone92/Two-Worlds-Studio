@@ -1,0 +1,27 @@
+name: T-FLEX V94 — inspect prior Kaggle real Hunyuan pilot failure (READ ONLY)
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - .github/workflows/tflex-v94-readonly-error-inspection.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect-existing-private-run-no-new-gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official authenticated SDK
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2" "six>=1.16,<2"
+      - name: Read only existing private Kaggle pilot's safe JSON
+        run: python -m ops.tflex_v94_kaggle_demo_controller diagnose
+      - name: Never launch new GPU or expose personal artwork
+        if: always()
+        run: echo "Read-only Kaggle output retrieval. No original images or GPU job started."
