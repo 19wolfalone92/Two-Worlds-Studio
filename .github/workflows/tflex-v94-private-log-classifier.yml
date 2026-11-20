@@ -1,0 +1,28 @@
+name: T-FLEX — private Hunyuan3D Kaggle error classification (NO GPU)
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - ops/tflex_v94_private_log_classifier.py
+      - .github/workflows/tflex-v94-private-log-classifier.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-known-private-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official Kaggle SDK
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2" "six>=1.16,<2"
+      - name: Inspect prior PRIVATE notebook error class without private output
+        run: python ops/tflex_v94_private_log_classifier.py
+      - name: No new generation or data transfer
+        if: always()
+        run: echo "Read-only. No GPU allocated and no original images accessed."
