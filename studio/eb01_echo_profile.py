@@ -56,7 +56,7 @@ def patch_upstream(runtime:Path):
                 signature=ast.get_source_segment(text,node).split('):',1)[0]+'):'
                 body='''
     # Exact SDPA equivalent for our unwindowed, deterministic inference path.
-    if window_size != (-1,-1):
+    if tuple(window_size) != (-1,-1):
         raise ValueError("Unreviewed sliding-window attention requested")
     batch,ql,heads,_=q.shape
     kl=k.shape[1]
