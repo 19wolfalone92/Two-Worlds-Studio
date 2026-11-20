@@ -1,0 +1,39 @@
+name: T-FLEX V9 — private original-reference Kaggle dataset discovery
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - ops/tflex_v9_private_dataset_discovery.py
+      - .github/workflows/tflex-v9-private-source-search.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-private-dataset-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      matrix:
+        account: [1,2]
+    env:
+      KAGGLE_API_TOKEN: ${{ matrix.account == 1 && secrets.KAGGLE_API_TOKEN || secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official Kaggle CLI with required compatibility
+        run: python -m pip -q install "kaggle==2.2.5" "six>=1.16,<2"
+      - name: List one page of user's own Kaggle dataset metadata (no downloads)
+        env:
+          TFLEX_KAGGLE_DATASET_SCAN_OUT: ${{ runner.temp }}/private-tflex-dataset-scan-safe.json
+        run: python ops/tflex_v9_private_dataset_discovery.py
+      - name: Only numeric safe metadata; no dataset identifiers in public artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TFLEX_PRIVATE_DATASET_METADATA_SAFE_ACCOUNT_${{ matrix.account }}
+          path: ${{ runner.temp }}/private-tflex-dataset-scan-safe.json
+          retention-days: 3
+          if-no-files-found: warn
