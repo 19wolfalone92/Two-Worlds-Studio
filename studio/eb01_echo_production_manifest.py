@@ -11,9 +11,16 @@ from studio.eb01_v7_storyboard import SHOTS,SRC_SHA,VOICE_SHA,VOICE_SECONDS
 from studio.eb01_v8_40s_native_motion_plan import SEGMENT_COUNTS,plan as fallback_plan
 
 OWNER_SCENES=frozenset(('S02','S04','S06'))
+MODEL_REVISIONS={'base':'fc913c34361f4ec879e2f9c78b4f11ae50a937d1',
+    'flash':'311e176905a8c4c24b240b530488fe636ce4d249',
+    'audio':'3991242c806928916fff4a8c0e4f76acf661b743'}
 
 
-def plan():
+def plan(*,profile=PROFILE,verified_parallel_processes=1):
+    from studio.eb01_echo_parallel_profile import PROFILE as parallel_profile
+    if (profile not in (PROFILE,parallel_profile) or verified_parallel_processes not in (1,2) or
+        profile==PROFILE and verified_parallel_processes!=1):
+        raise ValueError('Unknown or unverified engine capacity profile')
     previous={s['scene_id']:s for s in fallback_plan()['scenes']}
     scenes=[];jobs=[];cursor=0
     for scene_index,scene in enumerate(SHOTS):
@@ -32,7 +39,7 @@ def plan():
         offset=0;predecessor=None;scene_jobs=[]
         for index,frames in enumerate(lengths):
             seed=2026112100+scene_index*100+index
-            context={'profile':PROFILE,'upstream_sha':UPSTREAM_SHA,'scene':sid,'actor_sha256':SRC_SHA[actor],
+            context={'profile':profile,'upstream_sha':UPSTREAM_SHA,'model_revisions':MODEL_REVISIONS,'scene':sid,'actor_sha256':SRC_SHA[actor],
                 'voice_sha256':VOICE_SHA.get(sid),'prompt_sha256':hashlib.sha256(scene[-1].encode()).hexdigest(),
                 'native_fps':25,'native_frames':frames,'start_scene_frame':offset,'seed':seed,'account':account}
             identity=hashlib.sha256(json.dumps(context,sort_keys=True,separators=(',',':')).encode()).hexdigest()
@@ -41,7 +48,7 @@ def plan():
                 'segment_index':index,'native_frames':frames,'native_width':576,'native_height':1024,
                 'native_fps':25,'seed':seed,'start_scene_frame':offset,
                 'end_scene_frame_exclusive':offset+frames,'predecessor_job_id':predecessor,
-                'first_conditioning_source':'EXACT_CANONICAL_PORTRAIT' if index==0 else 'PREDECESSOR_VERIFIED_DECODED_TAIL_PNG',
+                'first_conditioning_source':'NATIVE_FRAME_DERIVED_FROM_CANONICAL_ORIGINAL' if index==0 else 'PREDECESSOR_VERIFIED_DECODED_TAIL_PNG',
                 'canonical_portrait_sha256':SRC_SHA[actor],'canonical_voice_sha256':VOICE_SHA.get(sid),
                 'audio_conditioning':'SLICE_OF_FULL_SCENE_25FPS_ACOUSTIC_CONTEXT' if voice_frames else 'ZERO_AUDIO_EMBEDDINGS',
                 'discard_first_overlap_frame_in_assembly':index>0,
@@ -60,13 +67,13 @@ def plan():
     if len(jobs)!=30 or len({j['job_id'] for j in jobs})!=30 or split!={'owner':15,'collaborator':15}:
         raise ValueError('Production jobs duplicated or original balanced allocation changed')
     if cursor/25<40:raise ValueError('Native full movie cannot be shorter than approved story')
-    return {'schema':1,'status':'BLOCKED_PRODUCTION_PROPOSAL_NOT_EXECUTED','engine_profile':PROFILE,
+    return {'schema':1,'status':'BLOCKED_PRODUCTION_PROPOSAL_NOT_EXECUTED','engine_profile':profile,'model_revisions':MODEL_REVISIONS,
         'native_width':576,'native_height':1024,'native_fps':25,'total_original_jobs':30,
         'job_allocation':split,'generated_native_frames':sum(j['native_frames'] for j in jobs),
         'unique_final_native_frames':cursor,'native_duration_seconds':cursor/25,
         'original_voice_lines':6,'assembly_scene_order':[s['scene_id'] for s in scenes],
-        'scenes':scenes,'jobs':jobs,'verified_parallel_processes_per_account':1,
-        'two_simultaneous_generators_per_account_approved':False,
+        'scenes':scenes,'jobs':jobs,'verified_parallel_processes_per_account':verified_parallel_processes,
+        'two_simultaneous_generators_per_account_approved':verified_parallel_processes==2,
         'production_blockers':['TWO_ACTOR_ARTISTIC_QUALITY_CONFIRMATION_REQUIRED',
             'AUDIO_CONDITIONED_CONTINUATION_PILOT_REQUIRED','PRIVATE_EXECUTION_RECEIPT_RECHECK_REQUIRED',
             'FRESH_ACCOUNT_QUOTA_RECHECK_REQUIRED'],

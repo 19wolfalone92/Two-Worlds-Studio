@@ -1,1 +1,1 @@
-2026-11-21 observation 4: verify actual server privacy, dataset attachment, pinned source, official quotas and latest stages; no new GPU allocation.
+2026-11-21 observation 5: read bounded two-single-card-worker benchmark and verify server private metadata; zero GPU submissions.

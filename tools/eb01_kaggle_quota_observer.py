@@ -42,7 +42,11 @@ def observe(alias,token,source_run):
         report['accelerator_quota']=parse_quota(call(token,['kaggle','quota','--format','json'],timeout=65))
         report['quota_status']='ACTUAL_OFFICIAL_API_QUOTA_READ'
     except (PilotBlocked,ValueError,KeyError,TypeError):report['quota_status']='OFFICIAL_QUOTA_COMMAND_OR_ACCESS_UNAVAILABLE'
-    slug='eb01-echo-'+hashlib.sha256(('eb01-echo-v1-'+source_run+'-'+alias).encode()).hexdigest()[:16]
+    source_file=Path('ops/eb01_echo_observation_source.json')
+    source=json.loads(source_file.read_text()) if source_file.is_file() else json.loads(Path('ops/eb01_echo_collect.json').read_text())
+    if source.get('kind')=='parallel':
+        slug='eb01-echo-2gpu-'+hashlib.sha256(('eb01-echo-parallel-v1-'+source_run+'-'+alias).encode()).hexdigest()[:14]
+    else:slug='eb01-echo-'+hashlib.sha256(('eb01-echo-v1-'+source_run+'-'+alias).encode()).hexdigest()[:16]
     kernel=handle+'/'+slug
     try:
         with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'],prefix='eb01-server-readback-private-') as temp:
@@ -56,7 +60,7 @@ def observe(alias,token,source_run):
                      and any(isinstance(t,ast.Name) and t.id=='CONFIG_B64' for t in n.targets)]
             if len(configs)!=1:raise ValueError('Server source config missing or ambiguous')
             cfg=json.loads(base64.b64decode(configs[0],validate=True))
-            source=json.loads(Path('ops/eb01_echo_collect.json').read_text())
+            source=json.loads(source_file.read_text()) if source_file.is_file() else json.loads(Path('ops/eb01_echo_collect.json').read_text())
             report['server_private_kernel_verified']=meta.get('is_private') is True
             report['server_shared_dataset_attached']=meta.get('dataset_sources')==[SOURCE_DATASET]
             report['server_pinned_source_verified']=(cfg.get('revision')==source['source_revision'] and
@@ -80,7 +84,8 @@ def observe(alias,token,source_run):
                 except subprocess.TimeoutExpired as exc:stream=exc.stdout or b''
             raw+='\n'+stream.decode('utf-8',errors='replace')
             report['bounded_live_stream_observed']=True
-        report['bootstrap_started']='EB01_ECHO_PRIVATE_BOOTSTRAP_BEGIN' in raw
+        report['bootstrap_started']='EB01_ECHO_PRIVATE_BOOTSTRAP_BEGIN' in raw or 'EB01_PARALLEL_PRIVATE_BOOTSTRAP_BEGIN' in raw
+        report['shared_text_encoder_released_before_workers']='EB01_TEXT_PROCESS_EXITED_START_INDEPENDENT_GPU_WORKERS' in raw
         # Never echo notebook logs: only stage allowlist and numeric times leave temp.
         with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'],prefix='eb01-stage-private-') as temp:
             log=Path(temp)/'notebook.log';log.write_text(raw)
@@ -91,7 +96,7 @@ def observe(alias,token,source_run):
             report['last_native_stage']=markers[-1][0] if markers[-1][0] in {
                 'NO_NATIVE_STAGE_MARKER','BEGIN_MODEL_LOAD','END_MODEL_LOAD','BEGIN_CONDITIONING_VAE',
                 'BEGIN_TRANSFORMER','DENOISE_STEP_START','BEGIN_DECODE','NATIVE_VIDEO_OUTPUT_READY'} else 'UNKNOWN_STAGE'
-        report['private_failure_marker_seen']='EB01_ECHO_PRIVATE_FAILURE' in raw
+        report['private_failure_marker_seen']='EB01_ECHO_PRIVATE_FAILURE' in raw or 'EB01_PARALLEL_PRIVATE_FAILURE' in raw
     except PilotBlocked:report['live_stage_status']='NOTEBOOK_LOGS_API_UNAVAILABLE'
     return report
 
@@ -99,7 +104,8 @@ def observe(alias,token,source_run):
 def main():
     p=argparse.ArgumentParser();p.add_argument('--account',choices=('owner','collaborator'),required=True)
     args=p.parse_args();os.umask(0o077)
-    source=json.loads(Path('ops/eb01_echo_collect.json').read_text())['source_run']
+    source_file=Path('ops/eb01_echo_observation_source.json')
+    source=json.loads((source_file if source_file.is_file() else Path('ops/eb01_echo_collect.json')).read_text())['source_run']
     r=observe(args.account,os.environ.get('EB01_ACCOUNT_TOKEN',''),source)
     dest=Path(os.environ['RUNNER_TEMP'])/('EB01_QUOTA_'+args.account+'_SAFE.json')
     dest.write_text(json.dumps(r,indent=2,sort_keys=True)+'\n')
