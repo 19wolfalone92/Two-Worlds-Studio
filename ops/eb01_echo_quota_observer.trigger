@@ -1,1 +1,1 @@
-2026-11-21 observation 2: official quota and bounded live SSE stage replay for existing attempt 2 only; zero GPU submissions.
+2026-11-21 observation 3: read official quota and latest live inference stages of existing attempt 2; zero GPU submissions.

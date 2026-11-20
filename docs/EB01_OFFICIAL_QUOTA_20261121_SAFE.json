@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "observed_at_utc": "2026-11-20T21:25:54Z",
+  "evidence_workflow_run": 44820162390,
+  "source_pilot_run": 44818907329,
+  "accounts": [
+    {
+      "accelerator_quota": {
+        "GPU": {
+          "refresh_at": "2026-11-21T00:00:00+00:00",
+          "remaining_hours": 29.7,
+          "total_hours": 30,
+          "used_hours": 0.3
+        },
+        "TPU": {
+          "refresh_at": "2026-11-21T00:00:00+00:00",
+          "remaining_hours": 20,
+          "total_hours": 20,
+          "used_hours": 0
+        }
+      },
+      "account_alias": "collaborator",
+      "authentication": "AUTHENTICATED_READ_ONLY",
+      "bootstrap_started": true,
+      "bounded_live_stream_observed": true,
+      "gpu_submissions": 0,
+      "kaggle_state": "RUNNING",
+      "last_bounded_worker_seconds": 300,
+      "last_native_stage": "BEGIN_CONDITIONING_VAE",
+      "private_failure_marker_seen": false,
+      "quality_approved": false,
+      "quota_status": "ACTUAL_OFFICIAL_API_QUOTA_READ",
+      "schema": 1,
+      "source_run": "44818907329",
+      "whole_movie_approved": false
+    },
+    {
+      "accelerator_quota": {
+        "GPU": {
+          "refresh_at": "2026-11-21T00:00:00+00:00",
+          "remaining_hours": 25.76,
+          "total_hours": 30,
+          "used_hours": 4.24
+        },
+        "TPU": {
+          "refresh_at": "2026-11-21T00:00:00+00:00",
+          "remaining_hours": 20,
+          "total_hours": 20,
+          "used_hours": 0
+        }
+      },
+      "account_alias": "owner",
+      "authentication": "AUTHENTICATED_READ_ONLY",
+      "bootstrap_started": true,
+      "bounded_live_stream_observed": true,
+      "gpu_submissions": 0,
+      "kaggle_state": "RUNNING",
+      "last_bounded_worker_seconds": 260,
+      "last_native_stage": "BEGIN_CONDITIONING_VAE",
+      "private_failure_marker_seen": false,
+      "quality_approved": false,
+      "quota_status": "ACTUAL_OFFICIAL_API_QUOTA_READ",
+      "schema": 1,
+      "source_run": "44818907329",
+      "whole_movie_approved": false
+    }
+  ],
+  "movie_ready": false,
+  "quality_approved": false
+}
