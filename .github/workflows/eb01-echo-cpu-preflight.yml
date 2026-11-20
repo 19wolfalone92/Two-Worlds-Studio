@@ -1,0 +1,43 @@
+name: EB01 — real Echo audio-engine CPU import and pinned model preflight
+on:
+  push:
+    branches: [feature/eb01-audio-driven-actors-20261120]
+    paths:
+      - studio/eb01_echo_profile.py
+      - tools/eb01_echo_preflight.py
+      - requirements-echo-runtime.txt
+      - .github/workflows/eb01-echo-cpu-preflight.yml
+      - ops/eb01_echo_cpu_preflight.trigger
+permissions:
+  contents: read
+concurrency:
+  group: eb01-echo-cpu-import-preflight
+  cancel-in-progress: true
+jobs:
+  actual_cpu_import_and_checkpoint_access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install reviewed CPU PyTorch and exact audio-engine dependencies, no CUDA
+        run: |
+          python -m pip -q install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip -q install -r requirements-echo-runtime.txt
+      - name: Validate source-locked complete original-voice pilot clocks
+        run: python -m unittest tests.test_eb01_echo_profile -v
+      - name: Import original patched neural modules and verify true SDPA math and public checkpoint access
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: python -m tools.eb01_echo_preflight
+      - name: Save public model revision and CPU import proof only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_ECHO_REAL_CPU_PREFLIGHT_NO_PRIVATE_MEDIA
+          path: ${{ runner.temp }}/EB01_ECHO_CPU_PREFLIGHT_SAFE.json
+          if-no-files-found: warn
+          retention-days: 14
