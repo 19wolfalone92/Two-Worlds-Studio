@@ -50,7 +50,7 @@ def status():
         time.sleep(80)
     raise TimeoutError("Kaggle sample pilot still in progress; no false success")
 
-def verify():
+def verify(strict=True):
     who=owner()
     d=Path("dist/tflex_v94_result");d.mkdir(parents=True,exist_ok=True)
     run_safe_command(["kaggle","kernels","output",who+"/"+SLUG,"-p",str(d),
@@ -61,7 +61,7 @@ def verify():
     safe={k:r.get(k) for k in ("gpu_count","model_loaded","inference_executed",
         "glb_generated","faces","gpu_peak_allocated_gib","seconds","error_type","error_phase")}
     print("TFLEX_V94_REAL_GPU_SHAPE_PILOT",json.dumps(safe,sort_keys=True))
-    if not r.get("glb_generated") or r.get("faces",0)<3000:
+    if strict and (not r.get("glb_generated") or r.get("faces",0)<3000):
         raise RuntimeError("Hunyuan official sample pilot failed to generate mesh")
     if r.get("real_personal_figure_generated") is not False:
         raise RuntimeError("This sample pilot cannot claim user's figure")
@@ -69,6 +69,7 @@ def verify():
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
-    parser.add_argument("mode",choices=("prepare","launch","status","verify"))
+    parser.add_argument("mode",choices=("prepare","launch","status","verify","diagnose"))
     mode=parser.parse_args().mode
-    {"prepare":prepare,"launch":launch,"status":status,"verify":verify}[mode]()
+    {"prepare":prepare,"launch":launch,"status":status,"verify":verify,
+     "diagnose":lambda:verify(strict=False)}[mode]()
