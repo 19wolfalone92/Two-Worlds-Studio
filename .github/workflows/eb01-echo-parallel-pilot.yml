@@ -1,0 +1,97 @@
+name: EB01 — four real video generators and audio-conditioned continuation pilots
+on:
+  push:
+    branches: [feature/eb01-audio-driven-actors-20261120]
+    paths: [ops/eb01_echo_parallel_pilot.trigger]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  actual_precomputed_context_cpu_and_source_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    outputs:
+      model_lock_b64: ${{ steps.engine.outputs.model_lock_b64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require both original full-voice native GPU pilots to have actually passed
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const r = await github.rest.actions.getWorkflowRun({owner: context.repo.owner, repo: context.repo.repo, run_id: 44818907329});
+            if (r.data.status !== 'completed' || r.data.conclusion !== 'success') throw new Error('Both original actor pilots must pass first');
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: |
+          python -m pip -q install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip -q install -r requirements-echo-runtime.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Check complete voice clocks, separate worker cards, scene dependencies and no duplicated benchmark submission
+        run: python -m unittest tests.test_eb01_echo_profile tests.test_eb01_echo_parallel_profile tests.test_eb01_echo_parallel_controller tests.test_eb01_echo_production_manifest -v
+      - name: Test original real acoustic encoder and actual pipeline with supplied text embeddings and no live text encoder
+        id: engine
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: python -m tools.eb01_echo_preflight --precomputed-contract
+      - name: Verify independent tokens and all eight private original source bytes on both accounts
+        env:
+          EB01_OWNER_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          EB01_SECOND_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+        run: python -m tools.eb01_dual_source_acceptance
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EB01_PARALLEL_CPU_AND_SHARED_SOURCE_NUMERIC
+          path: |
+            ${{ runner.temp }}/EB01_ECHO_CPU_PREFLIGHT_SAFE.json
+            ${{ runner.temp }}/EB01_DUAL_SOURCE_ACCEPTANCE_SAFE.json
+          retention-days: 14
+  two_single_card_video_workers:
+    needs: actual_precomputed_context_cpu_and_source_gate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - account: owner
+            secret: KAGGLE_API_TOKEN
+            group: two-worlds-kaggle-account
+          - account: collaborator
+            secret: KAGGLE_API_TOKEN2
+            group: two-worlds-kaggle-second-account
+    concurrency:
+      group: ${{ matrix.group }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: python -m pip -q install -r requirements.txt -r requirements-private-output.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: One private notebook per account, two separate single-T4 processes, zero production jobs
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets[matrix.secret] }}
+          EB01_MODEL_LOCK_B64: ${{ needs.actual_precomputed_context_cpu_and_source_gate.outputs.model_lock_b64 }}
+          PYTHONUNBUFFERED: '1'
+        run: python -m tools.eb01_echo_parallel_pilot --account '${{ matrix.account }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EB01_PARALLEL_${{ matrix.account }}_NUMERIC
+          path: ${{ runner.temp }}/EB01_PARALLEL_${{ matrix.account }}_SAFE.json
+          retention-days: 14
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EB01_PARALLEL_${{ matrix.account }}_ENCRYPTED_RETURN
+          path: ${{ runner.temp }}/EB01_PARALLEL_${{ matrix.account }}.twenc
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: warn
+      - name: Destroy temporary private runner copies
+        if: always()
+        run: rm -rf "$RUNNER_TEMP"/eb01-parallel-private-*

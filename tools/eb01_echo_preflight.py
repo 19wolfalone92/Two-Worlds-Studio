@@ -60,7 +60,7 @@ def real_acoustic_encoder_check(lock, root):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--runtime',type=Path);args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--runtime',type=Path);parser.add_argument('--precomputed-contract',action='store_true');args=parser.parse_args()
     os.environ['USE_TF']='0';os.environ['USE_FLAX']='0'
     root=args.runtime or Path(os.environ['RUNNER_TEMP'])/'eb01-echo-cpu-source'
     if not root.exists():subprocess.run(['git','clone','--depth','1',UPSTREAM,str(root)],check=True,capture_output=True,timeout=180)
@@ -68,7 +68,11 @@ def main():
     if actual!=UPSTREAM_SHA:
         subprocess.run(['git','-C',str(root),'fetch','--depth','1','origin',UPSTREAM_SHA],check=True,capture_output=True,timeout=120)
         subprocess.run(['git','-C',str(root),'checkout','--detach',UPSTREAM_SHA],check=True,capture_output=True)
-    patch=patch_upstream(root);sys.path.insert(0,str(root))
+    patch=patch_upstream(root)
+    if args.precomputed_contract:
+        from studio.eb01_echo_parallel_profile import upgrade_precomputed
+        patch['src/pipeline_wan_fun_inpaint_audio_2512.py']=upgrade_precomputed(root)
+    sys.path.insert(0,str(root))
     for name in ('src.wav2vec2','src.wan_vae','src.wan_image_encoder','src.wan_text_encoder',
                  'src.wan_transformer3d_audio_2512','src.pipeline_wan_fun_inpaint_audio_2512'):
         importlib.import_module(name)
@@ -79,10 +83,25 @@ def main():
     got=attention(q,k,v,k_lens=torch.tensor([3]))
     wanted=torch.nn.functional.scaled_dot_product_attention(q.transpose(1,2),k[:,:3].transpose(1,2),v[:,:3].transpose(1,2)).transpose(1,2)
     if not torch.allclose(got,wanted,atol=1e-5,rtol=1e-5):raise ValueError('SDPA padding changes model semantics')
+    if args.precomputed_contract:
+        from accelerate import init_empty_weights
+        from src.wan_vae import AutoencoderKLWan
+        from src.pipeline_wan_fun_inpaint_audio_2512 import WanFunInpaintAudioPipeline
+        from src.fm_solvers_unipc import FlowUniPCMultistepScheduler
+        with init_empty_weights():vae=AutoencoderKLWan()
+        pipe=WanFunInpaintAudioPipeline(tokenizer=None,text_encoder=None,vae=vae,
+            transformer=None,clip_image_encoder=None,scheduler=FlowUniPCMultistepScheduler())
+        context=torch.zeros(1,3,4096,dtype=torch.float16)
+        actual,negative=pipe.encode_prompt(prompt=None,negative_prompt=None,
+            prompt_embeds=context,negative_prompt_embeds=context,
+            do_classifier_free_guidance=True,device=torch.device('cpu'))
+        if actual is not context or negative is not context:raise ValueError('Precomputed pipeline changes supplied context')
+        del pipe,vae
     lock=model_lock()
     acoustic=real_acoustic_encoder_check(lock,root.parent)
     result={'schema':1,'upstream_sha':UPSTREAM_SHA,'cpu_imports_verified':True,
             'sdpa_padding_math_verified':True,'real_acoustic_encoder':acoustic,'models':lock,'source_patch_sha256':patch,
+            'precomputed_context_without_live_text_encoder_verified':args.precomputed_contract,
             'gpu_jobs_submitted':0,'movie_approved':False}
     path=Path(os.environ['RUNNER_TEMP'])/'EB01_ECHO_CPU_PREFLIGHT_SAFE.json'
     path.write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
