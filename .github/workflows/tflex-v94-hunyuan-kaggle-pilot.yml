@@ -1,11 +1,5 @@
 name: T-FLEX V9.4 — real Hunyuan3D 2MV public sample CUDA pilot
 on:
-  push:
-    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
-    paths:
-      - ops/tflex_v94_kaggle_demo_controller.py
-      - ops/tflex_v94_public_sample_hunyuan_kernel.py
-      - .github/workflows/tflex-v94-hunyuan-kaggle-pilot.yml
   workflow_dispatch:
 permissions:
   contents: read
