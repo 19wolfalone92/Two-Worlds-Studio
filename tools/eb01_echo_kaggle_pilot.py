@@ -39,7 +39,8 @@ def prepare(root,alias,handle,run_id,revision,lock):
 def failure_category(output):
     raw='\n'.join(p.read_text(errors='replace')[-120000:] for p in output.glob('EB01_ECHO_PRIVATE*.log'))
     lower=raw.lower()
-    return ('CUDA_OUT_OF_MEMORY' if 'out of memory' in lower else
+    return ('DEPENDENCY_WHEEL_UNAVAILABLE' if 'failed building wheel' in lower else
+            'CUDA_OUT_OF_MEMORY' if 'out of memory' in lower else
             'PRIVATE_SOURCE_SHA_OR_VOICE_CLOCK' if 'voice clock' in lower or 'portrait missing' in lower or 'wav sha' in lower else
             'CHECKPOINT_ARCHITECTURE_MISMATCH' if 'completely match' in lower or 'tensor shape mismatch' in lower else
             'MODEL_SETUP_OR_FORWARD_FAILED')
@@ -53,7 +54,18 @@ def verify_output(output,alias,revision):
     spec=pilot_spec(alias);video=output/'EB01_ECHO_RUSSIAN_NATIVE.mp4'
     result={'actual_mp4_created':video.is_file(),'technical_pass':False,
             'human_artistic_approved':False,'lipsync_quality_approved':False}
+    environment=output/'EB01_ECHO_ENVIRONMENT_SAFE.json'
+    if environment.is_file():
+        data=json.loads(environment.read_text())
+        result['environment']={k:data.get(k) for k in ('python','torch','cuda_runtime','cpu_count',
+            'host_ram_gib','scratch_free_gib','vram_is_pooled','devices')}
     if not video.is_file():
+        resource=output/'EB01_ECHO_RESOURCES_SAFE.json'
+        if resource.is_file():
+            data=json.loads(resource.read_text())
+            result['resources']={k:data.get(k) for k in ('samples','per_device','host_ram_peak_gib',
+                'process_rss_peak_gib','cpu_percent_peak','cpu_logical_count','host_ram_total_gib',
+                'host_ram_available_gib','disk_free_gib','wall_seconds','finished')}
         result['failure_category']=failure_category(output)
         fail=output/'EB01_ECHO_FAILURE_SAFE.json'
         if fail.is_file():

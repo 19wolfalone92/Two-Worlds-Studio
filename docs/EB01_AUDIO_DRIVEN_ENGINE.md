@@ -79,3 +79,18 @@ preservation, flicker and deformation. In particular, animation of the skeleton
 must not acquire human facial tissue. Frame uniqueness and motion deltas
 cannot prove any of these artistic properties. Production and main merge stay
 blocked until a successful pilot and explicit quality confirmation.
+
+## Verified runtime incident and correction
+
+The first Echo attempt (`44817318833`) failed before neural model loading:
+Kaggle's actual interpreter was Python 3.13, and the original SentencePiece
+pin attempted an unsupported source build. Both private setup logs confirm
+that same cause. A Kaggle COMPLETE state therefore does not prove a video.
+
+The runtime now uses NumPy 2.1.3 and SentencePiece 0.2.1, with binary wheels
+required for native libraries. CPU preflight runs Python 3.13 and PyTorch
+2.6; it also downloads/hash-checks the actual public pretrained acoustic
+encoder and performs a real 24 kHz → 16 kHz → 25-frame forward. Both CPU
+preflights `44818627372` and `44818907308` passed before the corrected GPU
+attempt. The renderer and RGB artifact decoder close process pipes on both
+success and error, including batch rendering.
