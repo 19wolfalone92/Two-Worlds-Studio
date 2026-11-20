@@ -1,10 +1,11 @@
 """Read official accelerator quota and bounded live stage labels; never submit a job."""
 from __future__ import annotations
-import argparse,hashlib,json,math,os,re,tempfile
+import argparse,hashlib,json,math,os,re,subprocess,tempfile
 from pathlib import Path
 from tools.eb01_native_two_account_pilot import call,PilotBlocked,STATE
 from tools.eb01_kaggle2_auth_probe import query
 from tools.eb01_bounded_inference import latest_stage
+from tools.eb01_kaggle_token_env import token_environment
 
 
 def parse_quota(raw):
@@ -49,6 +50,18 @@ def observe(alias,token,source_run):
     except PilotBlocked:report['kaggle_state']='STATUS_READ_UNAVAILABLE'
     try:
         raw=call(token,['kaggle','kernels','logs',kernel],timeout=65)
+        if report.get('kaggle_state')=='RUNNING':
+            # The persisted blob may be empty until completion. The official
+            # live SSE stream replays current log lines; stop after 18 seconds.
+            with token_environment(token) as env:
+                try:
+                    p=subprocess.run(['kaggle','kernels','logs',kernel,'--follow'],env=env,
+                        capture_output=True,stdin=subprocess.DEVNULL,timeout=18)
+                    stream=p.stdout
+                except subprocess.TimeoutExpired as exc:stream=exc.stdout or b''
+            raw+='\n'+stream.decode('utf-8',errors='replace')
+            report['bounded_live_stream_observed']=True
+        report['bootstrap_started']='EB01_ECHO_PRIVATE_BOOTSTRAP_BEGIN' in raw
         # Never echo notebook logs: only stage allowlist and numeric times leave temp.
         with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'],prefix='eb01-stage-private-') as temp:
             log=Path(temp)/'notebook.log';log.write_text(raw)
