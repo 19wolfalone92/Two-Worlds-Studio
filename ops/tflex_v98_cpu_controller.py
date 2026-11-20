@@ -6,7 +6,7 @@ import argparse,json,shutil,subprocess,time,re,os
 import kagglehub
 from kaggle.api.kaggle_api_extended import KaggleApi
 
-SLUG="tflex-v98-cpu-public-model-probe"
+SLUG="tflex-v98-cpu-hunyuan-import-probe"
 TITLE="TFlex V98 CPU Hunyuan Import Probe"
 FOLDER=Path("dist/tflex_v98_cpu_preflight")
 
