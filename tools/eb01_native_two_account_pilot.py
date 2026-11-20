@@ -126,7 +126,7 @@ def verify_output(output: Path, alias: str, revision: str) -> dict:
 
 
 def run_pilot(alias: str, token: str, root: Path, run_id: str, revision: str,
-              attempt: int, *, collect_run: str | None = None) -> dict:
+              attempt: int, *, collect_run: str | None = None, poll_seconds: int = 2700) -> dict:
     report = {"schema": 1, "account_alias": alias, "pilot_profile": PROFILE,
               "gpu_submission_attempts": 0, "production_jobs_submitted": 0,
               "public_media_uploaded": False, "movie_ready": False,
@@ -143,7 +143,7 @@ def run_pilot(alias: str, token: str, root: Path, run_id: str, revision: str,
             report["gpu_submission_attempts"] = 1
             call(token, ["kaggle", "kernels", "push", "-p", str(folder),
                          "--timeout", "3600", "--accelerator", "NvidiaTeslaT4"], timeout=220)
-        deadline = time.monotonic() + 2700
+        deadline = time.monotonic() + poll_seconds
         while time.monotonic() < deadline:
             state_raw = call(token, ["kaggle", "kernels", "status", kernel], timeout=65)
             found = STATE.findall(state_raw)
@@ -157,7 +157,12 @@ def run_pilot(alias: str, token: str, root: Path, run_id: str, revision: str,
                 output.mkdir(mode=0o700)
                 call(token, ["kaggle", "kernels", "output", kernel,
                              "-p", str(output), "--force"], timeout=300)
-                verified = verify_output(output, alias, revision)
+                try:
+                    verified = verify_output(output, alias, revision)
+                except Exception as exc:
+                    verified = {"actual_mp4_created": (output/"S02_PILOT33.mp4").is_file(),
+                                "technical_pass": False, "error_type": type(exc).__name__,
+                                "private_diagnostics_preserved": True}
                 report["native_output"] = verified
                 # Preserve original output even after a color/actor QA reject.
                 # Only genuine MP4, small receipts and diagnostic log are packed.

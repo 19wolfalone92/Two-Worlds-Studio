@@ -1,0 +1,50 @@
+name: EB01 — collect original native pilots only, NO GPU submission
+on:
+  push:
+    branches: [feature/eb01-kaggle-private-source-two-account-sync-20261116]
+    paths: [ops/eb01_collect_original_native_pilots.trigger]
+permissions:
+  contents: read
+jobs:
+  readonly_collect:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - account: owner
+            secret: KAGGLE_API_TOKEN
+          - account: collaborator
+            secret: KAGGLE_API_TOKEN2
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip -q install -r requirements.txt -r requirements-private-output.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Collect the same pinned job and classify real result without resubmission
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets[matrix.secret] }}
+          PYTHONUNBUFFERED: '1'
+        run: python -m tools.eb01_collect_existing_native_pilots --account '${{ matrix.account }}'
+      - name: Preserve safe numerical classification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_EXISTING_NATIVE_${{ matrix.account }}_NUMERIC
+          path: ${{ runner.temp }}/EB01_NATIVE_${{ matrix.account }}_SAFE.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Return authenticated encrypted original footage if present
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_EXISTING_NATIVE_${{ matrix.account }}_ENCRYPTED_RETURN
+          path: ${{ runner.temp }}/EB01_NATIVE_${{ matrix.account }}.twenc
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+      - name: Wipe private runner media
+        if: always()
+        run: rm -rf "$RUNNER_TEMP"/eb01-native-private-*

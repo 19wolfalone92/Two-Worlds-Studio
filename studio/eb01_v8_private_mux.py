@@ -241,6 +241,9 @@ def transcode_one(src: Path, dst: Path, skip: bool, fps=24) -> None:
           "-frames:v", "32" if skip else "33",
           "-c:v", "libx264", "-preset", "medium", "-crf", "17",
           "-bf", "0", "-g", "24", "-pix_fmt", "yuv420p",
+          # FFmpeg 7 passthrough otherwise assigns zero duration to the final
+          # packet. Use one native frame per MP4 tick; never synthesize frames.
+          "-video_track_timescale", str(fps),
           str(dst)], "private neural segment transcode", timeout=250)
     p = ffprobe(dst)
     v = next((s for s in p.get("streams", []) if s.get("codec_type") == "video"), {})
