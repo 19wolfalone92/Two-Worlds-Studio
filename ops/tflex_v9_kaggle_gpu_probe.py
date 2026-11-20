@@ -1,82 +1,107 @@
-"""T-Flex 200 mm sculpt project: private Kaggle accelerator PROBE only.
-Does not read original user screenshots; publishes hardware status only.
-Never prints or stores auth tokens; does not run image generation.
+"""PRIVATE one-shot Kaggle T4 GPU capacity proof for the T-Flex 200mm figure.
+
+Only executes code that checks CUDA and writes a non-sensitive hardware report.
+Original user pictures, model weights, printed secrets or personal account
+handles are NEVER placed in a public GitHub artifact, command log or repository.
+Uses separately authorized KGAT on each legitimate Kaggle account.
 """
-import json, os, re, subprocess, sys, time
+from __future__ import annotations
+import argparse,contextlib,io,json,os,re,subprocess,sys,time
 from pathlib import Path
 
-def identity():
-    sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-    from studio.kaggle_identity import resolve_username
-    explicit=os.environ.get('KAGGLE_USERNAME')
-    if explicit:return resolve_username(explicit)
+KERNEL_SLUG="tflex-v9-200mm-gpu-hardware-check"
+
+def owner():
+    import kagglehub
+    with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
+        u=kagglehub.auth.whoami(verbose=False).get("username")
+    if not isinstance(u,str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{1,29}",u):
+        raise RuntimeError("authenticated Kaggle account identity unavailable")
+    return u
+
+def sanitized_error(output):
+    text=output.lower()
+    if "429" in text or "rate limit" in text or "too many requests" in text:return "RATE_LIMIT"
+    if "401" in text or "unauthorized" in text:return "AUTH_401"
+    if "403" in text or "forbidden" in text:return "ACL_403"
+    if "quota" in text or "out of gpu" in text:return "QUOTA_OR_GPU_UNAVAILABLE"
+    if "timeout" in text:return "TIMEOUT"
+    if "permission" in text:return "PERMISSION"
+    if "not found" in text or "404" in text:return "RESOURCE_MISSING"
+    return "UNCLASSIFIED_SAFE_ERROR"
+
+def run_safe_command(args,limit=120):
     try:
-        return resolve_username(None)
-    except Exception:
-        # Kaggle v2 tokens can authenticate while `config view` has no username.
-        import csv, io
-        r=subprocess.run(['kaggle','kernels','list','--mine','--page-size','5','--csv'],
-                         capture_output=True,text=True,timeout=45)
-        if r.returncode != 0:
-            raise RuntimeError('Kaggle CLI auth/list failed. Check token validity and KAGGLE_USERNAME repo variable') from None
-        for line in csv.reader(io.StringIO(r.stdout)):
-            if not line:continue
-            first=line[0].strip()
-            if '/' in first:
-                who=first.split('/',1)[0]
-                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{1,29}',who):
-                    return who
-        raise RuntimeError('No account username; set KAGGLE_USERNAME or KAGGLE_USERNAME2 GitHub Actions variable')
+        r=subprocess.run(args,text=True,capture_output=True,timeout=limit)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("KAGGLE_CLI_TIMEOUT") from None
+    if r.returncode:
+        raise RuntimeError("KAGGLE_"+sanitized_error((r.stderr or "")+"\\n"+(r.stdout or "")))
+    return r.stdout
 
 def prepare():
-    who=identity()
-    root=Path('dist/tflex_v9_gpu_probe');root.mkdir(parents=True,exist_ok=True)
-    code='''import json, os, platform, time
+    name=owner()
+    root=Path("dist/tflex_v9_gpu_probe")
+    root.mkdir(parents=True,exist_ok=True)
+    script='''"""Only hardware test for one PRIVATE Kaggle account."""
+import json,torch,time
 from pathlib import Path
-import torch
-p=Path('/kaggle/working/tflex_v9_gpu_proof.json')
 devices=[]
 for i in range(torch.cuda.device_count()):
-    x=torch.cuda.get_device_properties(i)
-    devices.append({"ordinal":i,"name":x.name,"total_vram_gib":round(x.total_memory/2**30,2)})
-report={"project":"T-Flex V9 200mm","gpu_count":len(devices),"devices":devices,
-        "torch_version":torch.__version__,"cuda_version":torch.version.cuda,
-        "private_user_images_received":False,"generated_3d_master":False}
-p.write_text(json.dumps(report,indent=2))
-print("TFLEX_PRIVATE_GPU_CAPABILITY:",json.dumps(report))
-if len(devices)<1: raise RuntimeError("No Kaggle GPU assigned")
+    props=torch.cuda.get_device_properties(i)
+    devices.append({"ordinal":i,"gpu_family":props.name,
+      "vram_gib":round(props.total_memory/(1024**3),2)})
+data={"gpu_count":len(devices),"devices":devices,
+      "cuda":str(torch.version.cuda),"torch":str(torch.__version__),
+      "image_references_received":False,"real_3d_model_generated":False}
+p=Path("/kaggle/working/tflex_v9_hardware_proof.json")
+p.write_text(json.dumps(data,indent=2))
+print("PRIVATE_TFLEX_GPU_PROOF_COUNT",len(devices))
+if len(devices)==0:raise RuntimeError("No assigned accelerator")
 '''
-    (root/'probe.py').write_text(code,encoding='utf8')
-    meta={"id":f"{who}/tflex-v9-private-3d-gpu-probe","title":"TFlex V9 private 3D GPU probe",
-          "code_file":"probe.py","language":"python","kernel_type":"script",
-          "is_private":True,"enable_gpu":True,"enable_internet":False,
-          "machine_shape":"NvidiaTeslaT4","dataset_sources":[],"competition_sources":[],
-          "kernel_sources":[],"model_sources":[]}
-    (root/'kernel-metadata.json').write_text(json.dumps(meta,indent=2),encoding='utf8')
-    print("PRIVATE_KERNEL_CONFIG_READY",who,"images=NONE")
-    return meta['id']
+    (root/"probe.py").write_text(script,encoding="utf8")
+    info={"id":name+"/"+KERNEL_SLUG,
+      "title":"TFlex 200mm private T4 hardware check",
+      "code_file":"probe.py","language":"python","kernel_type":"script",
+      "is_private":"true","enable_gpu":"true","enable_internet":"false",
+      "machine_shape":"NvidiaTeslaT4","dataset_sources":[],
+      "competition_sources":[],"kernel_sources":[],"model_sources":[]}
+    (root/"kernel-metadata.json").write_text(json.dumps(info,indent=2))
+    print("PRIVATE_KAGGLE_HARDWARE_JOB_PREPARED true images=NONE")
+    return info["id"]
 
-def poll(kernel,limit=1100):
-    deadline=time.monotonic()+limit;last=None
-    while time.monotonic()<deadline:
-        r=subprocess.run(['kaggle','kernels','status',kernel],capture_output=True,text=True,timeout=90)
-        if r.returncode==0:
-            # Status CLI output contains no secrets; only emit normalized state
-            message=r.stdout.lower()
-            state=next((s for s in ['complete','error','failed','cancelled','running','queued','pending'] if s in message),'unknown')
-            if state!=last:print('KAGGLE_KERNEL_STATE',state,flush=True);last=state
-            if state=='complete':return True
-            if state in ['error','failed','cancelled']:raise RuntimeError(f'Kaggle kernel ended {state}')
-        else:
-            print('KAGGLE_STATUS_API_UNAVAILABLE',r.returncode,flush=True)
-            if ('429' in r.stderr or 'quota' in r.stderr.lower()):
-                raise RuntimeError('Kaggle API rate/quota limited; not bypassing limits')
-        time.sleep(70)
-    raise TimeoutError('Kaggle task not observed COMPLETE by deadline')
+def launch():
+    key=prepare()
+    run_safe_command(["kaggle","kernels","push","-p","dist/tflex_v9_gpu_probe",
+                      "--accelerator","NvidiaTeslaT4","--timeout","1200"],limit=180)
+    print("PRIVATE_KAGGLE_GPU_JOB_SUBMITTED true")
+    return key
 
-if __name__=='__main__':
-    import argparse
-    p=argparse.ArgumentParser();p.add_argument('mode',choices=['prepare','poll'])
-    a=p.parse_args()
-    k=prepare() if a.mode=='prepare' else f"{identity()}/tflex-v9-private-3d-gpu-probe"
-    if a.mode=='poll':poll(k)
+def poll(max_seconds=1000):
+    key=owner()+"/"+KERNEL_SLUG
+    end=time.monotonic()+max_seconds
+    prev=None
+    while time.monotonic()<end:
+        result=run_safe_command(["kaggle","kernels","status",key],limit=60)
+        match=re.search(r"KERNELWORKERSTATUS[.]([A-Z_]+)",result.upper())
+        status=match.group(1) if match else "UNRECOGNIZED"
+        if status!=prev:
+            print("PRIVATE_KAGGLE_GPU_JOB_STATUS",status)
+            prev=status
+        if status=="COMPLETE":
+            print("PRIVATE_KAGGLE_GPU_HARDWARE_RUN_COMPLETED true")
+            return
+        if status in ("ERROR","CANCEL_REQUESTED","CANCEL_ACKNOWLEDGED"):
+            raise RuntimeError("Private Kaggle job status "+status)
+        if status not in ("QUEUED","RUNNING","NEW_SCRIPT"):
+            raise RuntimeError("Unrecognized Kaggle GPU status")
+        time.sleep(55)
+    raise TimeoutError("Private Kaggle GPU check did not complete within deadline")
+
+if __name__=="__main__":
+    p=argparse.ArgumentParser()
+    p.add_argument("mode",choices=("prepare","launch","poll"))
+    args=p.parse_args()
+    if args.mode=="prepare":prepare()
+    elif args.mode=="launch":launch()
+    else:poll()
