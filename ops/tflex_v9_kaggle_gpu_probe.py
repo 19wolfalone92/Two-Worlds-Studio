@@ -72,8 +72,12 @@ if len(devices)==0:raise RuntimeError("No assigned accelerator")
 
 def launch():
     key=prepare()
-    run_safe_command(["kaggle","kernels","push","-p","dist/tflex_v9_gpu_probe",
+    response=run_safe_command(["kaggle","kernels","push","-p","dist/tflex_v9_gpu_probe",
                       "--accelerator","NvidiaTeslaT4","--timeout","1200"],limit=180)
+    # Official CLI can exit 0 while reporting "Kernel push error".
+    # A genuine version response must exist before saying the GPU was submitted.
+    if "successfully pushed" not in response.lower():
+        raise RuntimeError("KAGGLE_PUSH_NOT_CONFIRMED_"+sanitized_error(response))
     print("PRIVATE_KAGGLE_GPU_JOB_SUBMITTED true")
     return key
 
