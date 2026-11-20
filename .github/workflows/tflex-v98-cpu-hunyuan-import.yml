@@ -1,0 +1,29 @@
+name: T-FLEX V98 — real Hunyuan3D CPU import preflight (NO GPU)
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - .github/workflows/tflex-v98-cpu-hunyuan-import.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verified-private-kaggle-hunyuan-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+      - name: Install official Kaggle client
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2" "six>=1.16,<2"
+      - name: Check CPU Hunyuan import syntax
+        run: python -m py_compile ops/tflex_v98_cpu_controller.py ops/tflex_v98_kaggle_cpu_hunyuan_import.py
+      - name: Launch one private CPU-only genuine upstream source import
+        run: python -m ops.tflex_v98_cpu_controller launch
+      - name: Require remote Kaggle session COMPLETE
+        run: python -m ops.tflex_v98_cpu_controller wait
+      - name: Read phase-specific public-model compatibility result
+        run: python -m ops.tflex_v98_cpu_controller verify
