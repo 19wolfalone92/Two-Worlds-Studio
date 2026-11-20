@@ -1,0 +1,39 @@
+name: T-FLEX V9 — verify previous PRIVATE Kaggle job after 409
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - ops/tflex_v9_existing_private_kernel_status.py
+      - .github/workflows/tflex-v9-existing-job-readonly.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  read-only-two-legitimate-accounts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        account: [1,2]
+    env:
+      KAGGLE_API_TOKEN: ${{ matrix.account == 1 && secrets.KAGGLE_API_TOKEN || secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Kaggle SDK and mandatory six
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2" "six>=1.16,<2"
+      - name: Query previous private hardware kernel without running GPU
+        env:
+          TFLEX_KAGGLE_EXISTING_STATUS_REPORT: ${{ runner.temp }}/existing-kernel-safe.json
+        run: python ops/tflex_v9_existing_private_kernel_status.py
+      - name: Preserve only sanitized status, never account or private images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TFLEX_EXISTING_PRIVATE_KERNEL_STATUS_ACCOUNT_${{ matrix.account }}
+          path: ${{ runner.temp }}/existing-kernel-safe.json
+          retention-days: 3
+          if-no-files-found: warn
