@@ -1,0 +1,41 @@
+name: T-FLEX V9.4 — real Hunyuan3D 2MV public sample CUDA pilot
+on:
+  push:
+    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
+    paths:
+      - ops/tflex_v94_kaggle_demo_controller.py
+      - ops/tflex_v94_public_sample_hunyuan_kernel.py
+      - .github/workflows/tflex-v94-hunyuan-kaggle-pilot.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-demo-real-gpu-shape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 42
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    concurrency:
+      group: tflex-v94-hunyuan-owner-official-public-demo-once
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Kaggle authenticated toolchain
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2" "six>=1.16,<2"
+      - name: Check syntax locally before spending any Kaggle GPU
+        run: python -m py_compile ops/tflex_v94_public_sample_hunyuan_kernel.py ops/tflex_v94_kaggle_demo_controller.py
+      - name: Launch one private official-example Hunyuan3D-2mv GPU pilot
+        run: python -m ops.tflex_v94_kaggle_demo_controller launch
+      - name: Verify genuine Kaggle GPU notebook is complete
+        run: python -m ops.tflex_v94_kaggle_demo_controller status
+      - name: Verify real GLB mesh and CUDA memory, not a fake print-ready figure
+        run: python -m ops.tflex_v94_kaggle_demo_controller verify
+      - name: Confirm privacy scope
+        if: always()
+        run: |
+          echo "Kaggle code uses only official PUBLIC demo images."
+          echo "No user private reference photos moved to public GitHub or Kaggle."
+          echo "No finished 200mm figure claimed from this sample."
