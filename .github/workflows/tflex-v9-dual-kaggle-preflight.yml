@@ -4,6 +4,7 @@ on:
     branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
     paths:
       - ops/tflex_v9_kaggle_auth_diagnostics.py
+      - ops/tflex_v9_kaggle_python_api_smoke.py
       - ops/tflex_v9_verify_distinct_kaggle_identities.py
       - .github/workflows/tflex-v9-dual-kaggle-preflight.yml
   workflow_dispatch:
@@ -69,5 +70,35 @@ jobs:
         with:
           name: TFLEX_KAGGLE_DISTINCT_ACCOUNT_VERIFICATION_SAFE
           path: ${{ runner.temp }}/tflex-two-kaggle-distinct-safe.json
+          retention-days: 3
+          if-no-files-found: warn
+
+  python-client-direct:
+    name: Private Kaggle Python client - account ${{ matrix.account }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        account: [1, 2]
+    env:
+      KAGGLE_API_TOKEN: ${{ matrix.account == 1 && secrets.KAGGLE_API_TOKEN || secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install official packages
+        run: python -m pip -q install "kaggle==2.2.5" "kagglehub>=1.0.2"
+      - name: Use Python API under complete stdout/stderr redaction
+        env:
+          TFLEX_PYTHON_API_SAFE_REPORT: ${{ runner.temp }}/tflex-client-${{ matrix.account }}.json
+        run: python ops/tflex_v9_kaggle_python_api_smoke.py
+      - name: Safe account capability status only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TFLEX_PYTHON_API_ACCOUNT_${{ matrix.account }}_SAFE
+          path: ${{ runner.temp }}/tflex-client-${{ matrix.account }}.json
           retention-days: 3
           if-no-files-found: warn
