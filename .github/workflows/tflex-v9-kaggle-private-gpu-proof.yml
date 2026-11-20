@@ -1,10 +1,5 @@
 name: T-FLEX V9 — real independent Kaggle T4 hardware check (private)
 on:
-  push:
-    branches: ["research/tflex-v9-dual-kaggle-preflight-20261120"]
-    paths:
-      - ops/tflex_v9_kaggle_gpu_probe.py
-      - .github/workflows/tflex-v9-kaggle-private-gpu-proof.yml
   workflow_dispatch:
 
 permissions:
