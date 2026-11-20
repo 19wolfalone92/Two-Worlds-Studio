@@ -1,0 +1,464 @@
+{
+  "automatic_gpu_dispatch": false,
+  "jobs": [
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "0301d69973a2fdcfffee6aa2e4e1fdae2ab65613460c88b8f5bef54eba40be81",
+      "canonical_voice_sha256": null,
+      "index": 0,
+      "job_id": "S00_00",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": null,
+      "scene": "S00"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "0301d69973a2fdcfffee6aa2e4e1fdae2ab65613460c88b8f5bef54eba40be81",
+      "canonical_voice_sha256": null,
+      "index": 1,
+      "job_id": "S00_01",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S00_00",
+      "scene": "S00"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "0301d69973a2fdcfffee6aa2e4e1fdae2ab65613460c88b8f5bef54eba40be81",
+      "canonical_voice_sha256": null,
+      "index": 2,
+      "job_id": "S00_02",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S00_01",
+      "scene": "S00"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "be7aede58eb72364974f8915159528e7a00b1c5c7085478119540de91c6247b6",
+      "canonical_voice_sha256": "58763966f8084cafd7a82221e7846c0f57b1ffe5234c4905afc4ce1691c5bc26",
+      "index": 0,
+      "job_id": "S01_00",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": null,
+      "scene": "S01"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "be7aede58eb72364974f8915159528e7a00b1c5c7085478119540de91c6247b6",
+      "canonical_voice_sha256": "58763966f8084cafd7a82221e7846c0f57b1ffe5234c4905afc4ce1691c5bc26",
+      "index": 1,
+      "job_id": "S01_01",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S01_00",
+      "scene": "S01"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "be7aede58eb72364974f8915159528e7a00b1c5c7085478119540de91c6247b6",
+      "canonical_voice_sha256": "58763966f8084cafd7a82221e7846c0f57b1ffe5234c4905afc4ce1691c5bc26",
+      "index": 2,
+      "job_id": "S01_02",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S01_01",
+      "scene": "S01"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "be7aede58eb72364974f8915159528e7a00b1c5c7085478119540de91c6247b6",
+      "canonical_voice_sha256": "58763966f8084cafd7a82221e7846c0f57b1ffe5234c4905afc4ce1691c5bc26",
+      "index": 3,
+      "job_id": "S01_03",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S01_02",
+      "scene": "S01"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "1cae20d12b40bdd923bbf07e0b9325d8b39782da7e1c16b6de0204b94783a692",
+      "canonical_voice_sha256": "d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+      "index": 0,
+      "job_id": "S02_00",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": null,
+      "scene": "S02"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "1cae20d12b40bdd923bbf07e0b9325d8b39782da7e1c16b6de0204b94783a692",
+      "canonical_voice_sha256": "d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+      "index": 1,
+      "job_id": "S02_01",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S02_00",
+      "scene": "S02"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "1cae20d12b40bdd923bbf07e0b9325d8b39782da7e1c16b6de0204b94783a692",
+      "canonical_voice_sha256": "d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+      "index": 2,
+      "job_id": "S02_02",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S02_01",
+      "scene": "S02"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "1cae20d12b40bdd923bbf07e0b9325d8b39782da7e1c16b6de0204b94783a692",
+      "canonical_voice_sha256": "d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+      "index": 3,
+      "job_id": "S02_03",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S02_02",
+      "scene": "S02"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "1cae20d12b40bdd923bbf07e0b9325d8b39782da7e1c16b6de0204b94783a692",
+      "canonical_voice_sha256": "d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+      "index": 4,
+      "job_id": "S02_04",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S02_03",
+      "scene": "S02"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "1cae20d12b40bdd923bbf07e0b9325d8b39782da7e1c16b6de0204b94783a692",
+      "canonical_voice_sha256": "d4be318dbe660ade3a0a0289a482244f5b336a66001f0bdfc1c16b5051964b33",
+      "index": 5,
+      "job_id": "S02_05",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S02_04",
+      "scene": "S02"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "e7d1a9671f5fbf646e667db5cbbd583f83065f632b5839fe6ca3ea725362b34a",
+      "canonical_voice_sha256": "21c5bffae7bccdd179365cd0d139222d2ed484b74b7e7e792937b31d1d895296",
+      "index": 0,
+      "job_id": "S03_00",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": null,
+      "scene": "S03"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "e7d1a9671f5fbf646e667db5cbbd583f83065f632b5839fe6ca3ea725362b34a",
+      "canonical_voice_sha256": "21c5bffae7bccdd179365cd0d139222d2ed484b74b7e7e792937b31d1d895296",
+      "index": 1,
+      "job_id": "S03_01",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S03_00",
+      "scene": "S03"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "e7d1a9671f5fbf646e667db5cbbd583f83065f632b5839fe6ca3ea725362b34a",
+      "canonical_voice_sha256": "21c5bffae7bccdd179365cd0d139222d2ed484b74b7e7e792937b31d1d895296",
+      "index": 2,
+      "job_id": "S03_02",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S03_01",
+      "scene": "S03"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "c862719d2242a323a93da6668e122b08de3df6caf4f2fb954ea2c93347f868a8",
+      "canonical_voice_sha256": "6fd367739292a710ade59887d10b2d7ec19a67d563eec19cbd2c1aff355f1965",
+      "index": 0,
+      "job_id": "S04_00",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": null,
+      "scene": "S04"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "c862719d2242a323a93da6668e122b08de3df6caf4f2fb954ea2c93347f868a8",
+      "canonical_voice_sha256": "6fd367739292a710ade59887d10b2d7ec19a67d563eec19cbd2c1aff355f1965",
+      "index": 1,
+      "job_id": "S04_01",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S04_00",
+      "scene": "S04"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "c862719d2242a323a93da6668e122b08de3df6caf4f2fb954ea2c93347f868a8",
+      "canonical_voice_sha256": "6fd367739292a710ade59887d10b2d7ec19a67d563eec19cbd2c1aff355f1965",
+      "index": 2,
+      "job_id": "S04_02",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S04_01",
+      "scene": "S04"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "c862719d2242a323a93da6668e122b08de3df6caf4f2fb954ea2c93347f868a8",
+      "canonical_voice_sha256": "6fd367739292a710ade59887d10b2d7ec19a67d563eec19cbd2c1aff355f1965",
+      "index": 3,
+      "job_id": "S04_03",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S04_02",
+      "scene": "S04"
+    },
+    {
+      "account": "owner",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "c862719d2242a323a93da6668e122b08de3df6caf4f2fb954ea2c93347f868a8",
+      "canonical_voice_sha256": "6fd367739292a710ade59887d10b2d7ec19a67d563eec19cbd2c1aff355f1965",
+      "index": 4,
+      "job_id": "S04_04",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S04_03",
+      "scene": "S04"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "bddeaf18010ccfefdb80e76a0d1de41d53416ad3c9a15df45346d70a165b234a",
+      "canonical_voice_sha256": "a047e6ecedbeb33524f41e37ac61e2d7785b9051c669318460edbbc6a37cd5e8",
+      "index": 0,
+      "job_id": "S05_00",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": null,
+      "scene": "S05"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "bddeaf18010ccfefdb80e76a0d1de41d53416ad3c9a15df45346d70a165b234a",
+      "canonical_voice_sha256": "a047e6ecedbeb33524f41e37ac61e2d7785b9051c669318460edbbc6a37cd5e8",
+      "index": 1,
+      "job_id": "S05_01",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S05_00",
+      "scene": "S05"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "bddeaf18010ccfefdb80e76a0d1de41d53416ad3c9a15df45346d70a165b234a",
+      "canonical_voice_sha256": "a047e6ecedbeb33524f41e37ac61e2d7785b9051c669318460edbbc6a37cd5e8",
+      "index": 2,
+      "job_id": "S05_02",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S05_01",
+      "scene": "S05"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "bddeaf18010ccfefdb80e76a0d1de41d53416ad3c9a15df45346d70a165b234a",
+      "canonical_voice_sha256": "a047e6ecedbeb33524f41e37ac61e2d7785b9051c669318460edbbc6a37cd5e8",
+      "index": 3,
+      "job_id": "S05_03",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S05_02",
+      "scene": "S05"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "7c691765a9f7cf3c190d110f114ce7d3b8a2f39eb681ecfe3056817c8e9a58a1",
+      "canonical_prompt_sha256": "bddeaf18010ccfefdb80e76a0d1de41d53416ad3c9a15df45346d70a165b234a",
+      "canonical_voice_sha256": "a047e6ecedbeb33524f41e37ac61e2d7785b9051c669318460edbbc6a37cd5e8",
+      "index": 4,
+      "job_id": "S05_04",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S05_03",
+      "scene": "S05"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "615f089586893036e5f02631a144cb849e6cf6edf5d809b072cb636993b6ecf8",
+      "canonical_voice_sha256": "a9e29b7fa792e840d8c9fc02775a119c52ea1527bc9d96624506b7663c69ce21",
+      "index": 0,
+      "job_id": "S06_00",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": null,
+      "scene": "S06"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "615f089586893036e5f02631a144cb849e6cf6edf5d809b072cb636993b6ecf8",
+      "canonical_voice_sha256": "a9e29b7fa792e840d8c9fc02775a119c52ea1527bc9d96624506b7663c69ce21",
+      "index": 1,
+      "job_id": "S06_01",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S06_00",
+      "scene": "S06"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "615f089586893036e5f02631a144cb849e6cf6edf5d809b072cb636993b6ecf8",
+      "canonical_voice_sha256": "a9e29b7fa792e840d8c9fc02775a119c52ea1527bc9d96624506b7663c69ce21",
+      "index": 2,
+      "job_id": "S06_02",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S06_01",
+      "scene": "S06"
+    },
+    {
+      "account": "collaborator",
+      "canonical_portrait_sha256": "447373a1ee3162dd81ab29e07f5cbff24dbe4bab44ddbbc7394213ecb6ca0afd",
+      "canonical_prompt_sha256": "615f089586893036e5f02631a144cb849e6cf6edf5d809b072cb636993b6ecf8",
+      "canonical_voice_sha256": "a9e29b7fa792e840d8c9fc02775a119c52ea1527bc9d96624506b7663c69ce21",
+      "index": 3,
+      "job_id": "S06_03",
+      "native_dimensions": [
+        576,
+        1024
+      ],
+      "native_frames": 33,
+      "predecessor": "S06_02",
+      "scene": "S06"
+    }
+  ],
+  "manifest_sha256": "a671a834160792e838a364d5226411e92aca909aa17de5c4be83afa64250ac2f",
+  "native_actor_and_russian_lipsync_approval_required": true,
+  "production_authorized": false,
+  "remaining_quota_per_account_required": true,
+  "schema": 1,
+  "takes_per_account": {
+    "collaborator": 15,
+    "owner": 15
+  }
+}

@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -75,6 +76,8 @@ def prepare(root: Path, alias: str, handle: str, run_id: str, revision: str) -> 
 
 def verify_output(output: Path, alias: str, revision: str) -> dict:
     """Independently decode actual bytes; a kernel receipt alone cannot pass."""
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise PilotBlocked("ACCEPTANCE_RUNNER_FFMPEG_OR_FFPROBE_MISSING")
     from studio.comfy_neural import _probe
     from studio.eb01_motion_artifact_gate import inspect_clip
     from tools.eb01_true_gpu_clip_numbers import gray_motion

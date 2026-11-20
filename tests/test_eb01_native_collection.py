@@ -24,6 +24,11 @@ class ExistingNativeCollectionTests(unittest.TestCase):
         self.assertTrue(calls)
         self.assertTrue(all(args[2] in ('status','output') for args in calls))
 
+    def test_missing_decoder_is_explicit_acceptance_infrastructure_failure(self):
+        with patch.object(m.shutil,'which',return_value=None):
+            with self.assertRaisesRegex(m.PilotBlocked,'FFMPEG_OR_FFPROBE_MISSING'):
+                m.verify_output(Path('/nonexistent'),'owner','a'*40)
+
     def test_unknown_kernel_state_fails_closed_without_generation(self):
         with tempfile.TemporaryDirectory() as t:
             with patch.object(m,'query',return_value=('AUTHENTICATED_READ_ONLY','first')), \
