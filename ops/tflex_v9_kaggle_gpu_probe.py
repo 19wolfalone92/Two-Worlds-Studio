@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse,contextlib,io,json,os,re,subprocess,sys,time
 from pathlib import Path
 
-KERNEL_SLUG="tflex-v9-200mm-gpu-hardware-check"
+KERNEL_SLUG="tflex-v9-200mm-qa-probe-nov20"
 
 def owner():
     import kagglehub
@@ -61,7 +61,7 @@ if len(devices)==0:raise RuntimeError("No assigned accelerator")
 '''
     (root/"probe.py").write_text(script,encoding="utf8")
     info={"id":name+"/"+KERNEL_SLUG,
-      "title":"TFlex 200mm private T4 hardware check",
+      "title":"TFlex V9 200mm QA Probe Nov20",
       "code_file":"probe.py","language":"python","kernel_type":"script",
       "is_private":"true","enable_gpu":"true","enable_internet":"false",
       "machine_shape":"NvidiaTeslaT4","dataset_sources":[],
