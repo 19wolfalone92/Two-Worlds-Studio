@@ -27,7 +27,8 @@ def work():
         data["git_pinned_repo_checkout"]=True
         phase="pip_minimal"
         subprocess.run([sys.executable,"-m","pip","install","-q",
-             "trimesh>=4.5","omegaconf","einops","accelerate>=1.0"],
+             "trimesh>=4.5","omegaconf","einops","accelerate>=1.0",
+             "pymeshlab","opencv-python-headless","pygltflib","xatlas"],
             check=True,capture_output=True,timeout=320)
         data["required_minimal_wheels_installed"]=True
         phase="import_hy3d"
@@ -37,6 +38,11 @@ def work():
     except BaseException as exc:
         data["failure_phase"]=phase
         data["failure_type"]=type(exc).__name__
+        if isinstance(exc,ModuleNotFoundError):
+            import re
+            name=getattr(exc,"name","")
+            data["missing_public_dependency"]=(name if isinstance(name,str) and
+                 re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_.]{0,70}",name) else "unknown")
     finally:
         out.write_text(json.dumps(data,indent=2))
         print("TFLEX_V98_CPU_HUNYUAN_IMPORT_STATUS",json.dumps(data,sort_keys=True))
