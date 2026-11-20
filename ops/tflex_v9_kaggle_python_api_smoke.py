@@ -10,6 +10,12 @@ from pathlib import Path
 
 def classify_exception(error):
     typ=type(error).__name__
+    if isinstance(error,ModuleNotFoundError):
+        import re
+        module=getattr(error,"name","")
+        if isinstance(module,str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]{0,70}",module):
+            return "missing_module_"+module
+        return "module_not_found"
     resp=getattr(error,"response",None)
     status=getattr(resp,"status_code",None)
     if isinstance(status,int) and 100<=status<=599:
