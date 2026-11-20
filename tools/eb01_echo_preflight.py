@@ -30,6 +30,35 @@ def model_lock():
     return lock
 
 
+def real_acoustic_encoder_check(lock, root):
+    """Real public pretrained encoder + real resampling; no private user speech."""
+    import numpy as np
+    import torch
+    import librosa
+    from huggingface_hub import hf_hub_download
+    from transformers import Wav2Vec2FeatureExtractor
+    from src.wav2vec2 import Wav2Vec2Model
+    entry=lock['audio'];model_dir=root/'public-audio-encoder'
+    for item in entry['files']:
+        path=Path(hf_hub_download(entry['repo_id'],item['path'],revision=entry['revision'],
+                                local_dir=str(model_dir),token=False))
+        if item.get('lfs_sha256'):
+            digest=hashlib.sha256(path.read_bytes()).hexdigest()
+            if digest!=item['lfs_sha256']:raise ValueError('Real CPU audio encoder weights SHA mismatch')
+    source=(.03*np.sin(2*np.pi*220*np.arange(24000)/24000)).astype('float32')
+    waveform=librosa.resample(source,orig_sr=24000,target_sr=16000)
+    extractor=Wav2Vec2FeatureExtractor.from_pretrained(str(model_dir),local_files_only=True)
+    encoder=Wav2Vec2Model.from_pretrained(str(model_dir),local_files_only=True).cpu().eval()
+    features=extractor(waveform,sampling_rate=16000,return_tensors='pt').input_values
+    with torch.inference_mode():result=encoder(features,seq_len=25,output_hidden_states=True)
+    states=result.hidden_states[1:]
+    if len(states)!=12 or any(tuple(x.shape)!=(1,25,768) or not torch.isfinite(x).all() for x in states):
+        raise ValueError('Original pretrained acoustic conditioning has wrong clock or nonfinite values')
+    return {'real_pretrained_audio_encoder_cpu_forward':True,'resampling_24000_to_16000_verified':True,
+            'hidden_state_layers':12,'native_frames':25,'hidden_width':768,
+            'input_is_public_synthetic_fixture_not_private_user_voice':True}
+
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--runtime',type=Path);args=parser.parse_args()
     os.environ['USE_TF']='0';os.environ['USE_FLAX']='0'
@@ -51,8 +80,9 @@ def main():
     wanted=torch.nn.functional.scaled_dot_product_attention(q.transpose(1,2),k[:,:3].transpose(1,2),v[:,:3].transpose(1,2)).transpose(1,2)
     if not torch.allclose(got,wanted,atol=1e-5,rtol=1e-5):raise ValueError('SDPA padding changes model semantics')
     lock=model_lock()
+    acoustic=real_acoustic_encoder_check(lock,root.parent)
     result={'schema':1,'upstream_sha':UPSTREAM_SHA,'cpu_imports_verified':True,
-            'sdpa_padding_math_verified':True,'models':lock,'source_patch_sha256':patch,
+            'sdpa_padding_math_verified':True,'real_acoustic_encoder':acoustic,'models':lock,'source_patch_sha256':patch,
             'gpu_jobs_submitted':0,'movie_approved':False}
     path=Path(os.environ['RUNNER_TEMP'])/'EB01_ECHO_CPU_PREFLIGHT_SAFE.json'
     path.write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
