@@ -98,10 +98,33 @@ def poll(max_seconds=1000):
         time.sleep(55)
     raise TimeoutError("Private Kaggle GPU check did not complete within deadline")
 
+def verify():
+    key=owner()+"/"+KERNEL_SLUG
+    target=Path("dist/tflex_v9_hardware_download")
+    target.mkdir(parents=True,exist_ok=True)
+    run_safe_command(["kaggle","kernels","output",key,"-p",str(target),
+       "--file-pattern",r"^tflex_v9_hardware_proof[.]json$"],limit=120)
+    matches=list(target.rglob("tflex_v9_hardware_proof.json"))
+    if len(matches)!=1:raise RuntimeError("Kaggle hardware report missing")
+    report=json.loads(matches[0].read_text())
+    count=report.get("gpu_count")
+    if not isinstance(count,int) or count<1 or count>4:raise RuntimeError("No valid T4 GPU measurement")
+    if report.get("image_references_received") is not False:
+        raise RuntimeError("Private art should not be sent by hardware check")
+    for x in report.get("devices",[]):
+        if not isinstance(x.get("vram_gib"),(int,float)):
+            raise RuntimeError("Invalid VRAM result")
+    result={"gpu_devices_observed":count,"vram_gib_each":[x["vram_gib"] for x in report["devices"]],
+            "private_hardware_report_verified":True,"original_images_uploaded":False,
+            "3d_character_generated":False}
+    print("TFLEX_SAFE_KAGGLE_HARDWARE_RESULT",json.dumps(result,sort_keys=True))
+    return result
+
 if __name__=="__main__":
     p=argparse.ArgumentParser()
-    p.add_argument("mode",choices=("prepare","launch","poll"))
+    p.add_argument("mode",choices=("prepare","launch","poll","verify"))
     args=p.parse_args()
     if args.mode=="prepare":prepare()
     elif args.mode=="launch":launch()
-    else:poll()
+    elif args.mode=="poll":poll()
+    else:verify()
