@@ -1,0 +1,5 @@
+source_pilot=44818907329
+frozen_latent_restore_only=true
+new_denoising_steps=0
+production_jobs=0
+bounded_free_gpu_recovery_acceptance=2026-11-21

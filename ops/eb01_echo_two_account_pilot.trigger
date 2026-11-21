@@ -1,0 +1,1 @@
+2026-11-21 attempt 2: Python 3.13 CPU preflight PASSED; fix numpy and sentencepiece wheels; real pretrained acoustic CPU forward required before two private native audio-driven pilots; no production launch.

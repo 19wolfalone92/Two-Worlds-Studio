@@ -1,0 +1,55 @@
+name: EB01 — real full native checkpoint recovery without repeated diffusion
+on:
+  push:
+    branches: [feature/eb01-audio-driven-actors-20261120]
+    paths: [ops/eb01_echo_checkpoint_restore.trigger]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  restore_frozen_original_pilot:
+    concurrency:
+      group: two-worlds-kaggle-second-account
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Require completed original actor and parallel native pilots
+        uses: actions/github-script@v7
+        with:
+          script: |
+            for (const run_id of [44818907329, 44826550221]) {
+              const r = await github.rest.actions.getWorkflowRun({owner: context.repo.owner, repo: context.repo.repo, run_id});
+              if (r.data.status !== 'completed' || r.data.conclusion !== 'success') throw new Error('Actual completed GPU pilots required');
+            }
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: python -m pip -q install -r requirements.txt -r requirements-private-output.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Verify no new denoising and no duplicated recovery submission
+        run: python -m unittest tests.test_eb01_echo_restore tests.test_eb01_echo_capacity -v
+      - name: Restore actual frozen private 65-frame checkpoint with only the original FP32 VAE
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+          PYTHONUNBUFFERED: '1'
+        run: python -m tools.eb01_echo_restore_pilot
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EB01_CHECKPOINT_RESTORE_NUMERIC
+          path: ${{ runner.temp }}/EB01_RESTORE_SAFE.json
+          retention-days: 14
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EB01_CHECKPOINT_RESTORE_ENCRYPTED_RETURN
+          path: ${{ runner.temp }}/EB01_RESTORE.twenc
+          compression-level: 0
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Destroy temporary raw private runner copies
+        if: always()
+        run: rm -rf "$RUNNER_TEMP"/eb01-restore-private-*

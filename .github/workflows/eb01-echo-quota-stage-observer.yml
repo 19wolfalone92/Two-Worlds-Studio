@@ -1,0 +1,36 @@
+name: EB01 — read actual official Kaggle quotas and existing private pilot stages
+on:
+  push:
+    branches: [feature/eb01-audio-driven-actors-20261120]
+    paths: [ops/eb01_echo_quota_observer.trigger]
+permissions:
+  contents: read
+jobs:
+  read_only_observation:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - account: owner
+            secret: KAGGLE_API_TOKEN
+          - account: collaborator
+            secret: KAGGLE_API_TOKEN2
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip -q install -r requirements.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Read official GPU/TPU quotas and allowlisted live stage labels, never raw logs or new jobs
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets[matrix.secret] }}
+        run: python -m tools.eb01_kaggle_quota_observer --account '${{ matrix.account }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: EB01_OFFICIAL_QUOTA_${{ matrix.account }}_NUMERIC
+          path: ${{ runner.temp }}/EB01_QUOTA_${{ matrix.account }}_SAFE.json
+          if-no-files-found: warn
+          retention-days: 14

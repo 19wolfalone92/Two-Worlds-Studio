@@ -1,0 +1,90 @@
+{
+  "account_alias": "collaborator",
+  "encrypted_private_return_created": true,
+  "gpu_submission_attempts": 1,
+  "kaggle_state": "COMPLETE",
+  "new_original_takes": 0,
+  "official_quota_before": {
+    "refresh_at": "2026-11-28T00:00:00+00:00",
+    "remaining_hours": 30,
+    "total_hours": 30,
+    "used_hours": 0
+  },
+  "production_jobs_submitted": 0,
+  "quality_approved": false,
+  "restoration_only": true,
+  "run_id": "44890620496",
+  "schema": 1,
+  "server_private_kernel_verified": true,
+  "server_private_source_kernel_attached": true,
+  "source_pilot_run": "44818907329",
+  "status": "REAL_FULL_CHECKPOINT_RESTORE_TECHNICAL_PASS",
+  "verification": {
+    "actual_restored_mp4": true,
+    "adjacent_exact_duplicate_pairs": 0,
+    "checks": {
+      "native_geometry_and_clock": true,
+      "no_neon": true,
+      "no_new_diffusion_or_models": true,
+      "original_full_voice": true,
+      "original_rgb_restored_within_half_level": true,
+      "original_vae_sha": true,
+      "pinned_restore_revision": true,
+      "restored_sha": true,
+      "saved_latent_sha": true,
+      "source_original_sha": true,
+      "unique_original_frames": true
+    },
+    "decoded_frame_hash_chain_sha256": "bf5f93f55cb0e8ea1495c33196ce3699e20157251e64e3e9c376446615e75c68",
+    "decoded_rgb_identical": true,
+    "decoded_rgb_mean_absolute_error": 0,
+    "mp4_bytes_identical": true,
+    "new_original_takes": 0,
+    "nonidentical_pixels_do_not_prove_natural_acting": true,
+    "probe": {
+      "fps": "25",
+      "frames": 65,
+      "height": 1024,
+      "seconds": 2.6,
+      "width": 576
+    },
+    "quality_approved": false,
+    "resources": {
+      "cpu_logical_count": 4,
+      "cpu_percent_peak": 102.2,
+      "disk_free_gib": 19.4841,
+      "finished": true,
+      "host_ram_available_gib": 28.6001,
+      "host_ram_peak_gib": 2.6105,
+      "host_ram_total_gib": 31.3466,
+      "per_device": [
+        {
+          "device_memory_used_peak_gib": 13.6532,
+          "index": 0,
+          "name": "Tesla T4",
+          "physical_gib": 14.5622,
+          "torch_max_allocated_gib": 10.7721,
+          "torch_max_reserved_gib": 13.5312
+        },
+        {
+          "device_memory_used_peak_gib": 0.1024,
+          "index": 1,
+          "name": "Tesla T4",
+          "physical_gib": 14.5622,
+          "torch_max_allocated_gib": 0,
+          "torch_max_reserved_gib": 0
+        }
+      ],
+      "process_rss_peak_gib": 1.9848,
+      "samples": 105,
+      "schema": 1,
+      "vrams_are_pooled": false,
+      "wall_seconds": 206.861
+    },
+    "restoration_only": true,
+    "technical_pass": true,
+    "unique_decoded_rgb_frames": 65,
+    "vae_decode_seconds": 183.842
+  },
+  "whole_movie_approved": false
+}

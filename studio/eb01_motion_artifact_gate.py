@@ -172,14 +172,14 @@ def classify(values: list[float]) -> dict:
             "baseline": baseline, "threshold": threshold}
 
 
-def inspect_clip(path: Path) -> dict:
+def inspect_clip(path: Path, *, expected_fps: int = 24) -> dict:
     if not path.is_file() or path.stat().st_size < 512:
         raise ArtifactRejected("Source MP4 missing or invalid")
     meta = probe(path)
     w, h = int(meta["width"]), int(meta["height"])
     fps = meta.get("avg_frame_rate")
-    if w < 128 or h < 128 or w*h > 1600*1000 or fps != "24/1":
-        raise ArtifactRejected("Only native 24 fps, bounded Wan pilot permitted")
+    if expected_fps not in (24,25) or w < 128 or h < 128 or w*h > 1600*1000 or fps != f"{expected_fps}/1":
+        raise ArtifactRejected("Native pilot must match its locked 24 or 25 fps model clock")
     frame_bytes = w*h*3
     command = ["ffmpeg", "-hide_banner", "-nostdin", "-loglevel", "error",
                "-i", str(path), "-an", "-pix_fmt", "rgb24",
@@ -211,6 +211,8 @@ def inspect_clip(path: Path) -> dict:
         if proc.poll() is None:
             proc.kill()
             proc.wait()
+        if proc.stdout:proc.stdout.close()
+        if proc.stderr:proc.stderr.close()
     result = classify(values)
     # FAIL-CLOSED except when an anomaly is proven to be restricted to the
     # already-detected corrupt terminal suffix. In that narrow case the

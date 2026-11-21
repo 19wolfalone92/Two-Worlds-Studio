@@ -1,0 +1,70 @@
+{
+  "collaborator": {
+    "audio_encoding": "ORIGINAL_AAC_PACKETS_COPIED",
+    "checks": {
+      "all_aac_packet_bytes_identical": true,
+      "all_final_rgb_frames_distinct": true,
+      "every_native_rgb_frame_identical": true,
+      "exact_native_frames": true
+    },
+    "human_quality_approved": false,
+    "mp4_sha256": "e1ad787308e0e8c9f4b1c691f122618ace2ee11cbe5551b9319438d3f177f3ac",
+    "native_rgb_hash_chain_sha256": "5a9780662ffa456663823b73d36342d18626a7899c627ccc0d06969529f1f5b7",
+    "new_diffusion_steps": 0,
+    "new_original_takes": 0,
+    "overlap_frames_discarded": 1,
+    "probe": {
+      "fps": "25",
+      "frames": 65,
+      "height": 1024,
+      "seconds": 2.6,
+      "width": 576
+    },
+    "schema": 1,
+    "second_lossy_compression": false,
+    "source_audio_mp4_sha256": "35687c418c7b8cf57067989b1bc0d1556e6d39e5da7572a89d0e083ca82ed210",
+    "source_segment_sha256": [
+      "156310b2708cfe84e35c56e69a5d29c8135416cfb71e7749b8ae244e0918997f",
+      "dec7c97657e47f91aab73842c0f5dbedaa9d290307c7cf2acf3c571b3f89aaae"
+    ],
+    "source_video_upscaled": false,
+    "status": "LOSSLESS_NATIVE_ASSEMBLY_TECHNICAL_PASS",
+    "synthetic_frames": 0,
+    "video_encoding": "H264_LOSSLESS_CRF0",
+    "whole_movie_ready": false
+  },
+  "owner": {
+    "audio_encoding": "ORIGINAL_AAC_PACKETS_COPIED",
+    "checks": {
+      "all_aac_packet_bytes_identical": true,
+      "all_final_rgb_frames_distinct": true,
+      "every_native_rgb_frame_identical": true,
+      "exact_native_frames": true
+    },
+    "human_quality_approved": false,
+    "mp4_sha256": "a78bacb5dece98d5c7ae4d26156beacfceb80bc89db76375966beaaae2938fec",
+    "native_rgb_hash_chain_sha256": "3c7836bdbb3408d9df897b0f5911ed6690ac68a16b12eec25a4c3be64cd42482",
+    "new_diffusion_steps": 0,
+    "new_original_takes": 0,
+    "overlap_frames_discarded": 1,
+    "probe": {
+      "fps": "25",
+      "frames": 89,
+      "height": 1024,
+      "seconds": 3.56,
+      "width": 576
+    },
+    "schema": 1,
+    "second_lossy_compression": false,
+    "source_audio_mp4_sha256": "e5e2beff92aa3a5542d7d752a53e0cdd36f839e5dfa23b2141748ac64a5b8991",
+    "source_segment_sha256": [
+      "1921047afa9e1ff887f6575b5505ecd24c8f9022a53d4833b0d3a528db165bb5",
+      "44073a2691a76df6c993b7fa44cc72bae12ed5396677349e5839abdff1e94b03"
+    ],
+    "source_video_upscaled": false,
+    "status": "LOSSLESS_NATIVE_ASSEMBLY_TECHNICAL_PASS",
+    "synthetic_frames": 0,
+    "video_encoding": "H264_LOSSLESS_CRF0",
+    "whole_movie_ready": false
+  }
+}

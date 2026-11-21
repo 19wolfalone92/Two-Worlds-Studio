@@ -338,6 +338,11 @@ def render(episode: Path, output: Path, assets: Path, width: int, height: int, f
                 proc.kill()
             proc.wait()
             raise
+        finally:
+            for stream in (proc.stdin,proc.stderr):
+                if stream:
+                    try:stream.close()
+                    except OSError:pass
         actual_duration = total_frames / fps
         make_audio(audio, actual_duration)
         mux = ["ffmpeg","-nostdin","-v","error","-y","-i",str(silent),

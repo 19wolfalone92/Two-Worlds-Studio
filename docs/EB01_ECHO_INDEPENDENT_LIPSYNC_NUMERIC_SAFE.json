@@ -1,0 +1,180 @@
+{
+  "confidence_is_not_a_probability": true,
+  "continued_S01": {
+    "analysis_speech_seconds": 2.16,
+    "cpu_only": true,
+    "human_artistic_approved": false,
+    "human_lipsync_approved": false,
+    "manual_face_crop_xy_size": [
+      143,
+      159,
+      278
+    ],
+    "native_fps": 25,
+    "native_source_modified": false,
+    "native_video": {
+      "height": 1024,
+      "nb_read_frames": 65,
+      "width": 576
+    },
+    "negative_control": {
+      "confidence": 4.452847,
+      "deliberate_analysis_audio_delay_ms": 200,
+      "minimum_distance": 9.326462,
+      "offset_frames": -6,
+      "offset_milliseconds": -240
+    },
+    "negative_control_offset_change_frames": 5,
+    "negative_control_response_verified": true,
+    "original_measurement": {
+      "confidence": 4.809799,
+      "deliberate_analysis_audio_delay_ms": 0,
+      "minimum_distance": 8.806463,
+      "offset_frames": -1,
+      "offset_milliseconds": -40
+    },
+    "schema": 1,
+    "skeleton_metric_validated": false,
+    "source_original_mp4_sha256": "35687c418c7b8cf57067989b1bc0d1556e6d39e5da7572a89d0e083ca82ed210",
+    "status": "HUMAN_FACE_AUDIOVISUAL_OFFSET_MEASURED_REVIEW_REQUIRED",
+    "syncnet_upstream_sha": "907c0b579c2e2d83f0eae1b2ac9e720cde4e5623",
+    "syncnet_weights_sha256": "961e8696f888fce4f3f3a6c3d5b3267cf5b343100b238e79b2659bff2c605442",
+    "wall_seconds": 5.193,
+    "whole_movie_approved": false
+  },
+  "cropping_method": "Per-shot manual review of the actual native image; crop context follows the lower-centered crop in the pinned official SyncNet run_pipeline.py. Haar rectangles support review and are not an independent lip-sync model.",
+  "final_portable_review_S01": {
+    "analysis_speech_seconds": 2.16,
+    "cpu_only": true,
+    "human_artistic_approved": false,
+    "human_lipsync_approved": false,
+    "manual_face_crop_xy_size": [
+      143,
+      159,
+      278
+    ],
+    "native_fps": 25,
+    "native_source_modified": false,
+    "native_video": {
+      "height": 1024,
+      "nb_read_frames": 65,
+      "width": 576
+    },
+    "negative_control": {
+      "confidence": 4.50651,
+      "deliberate_analysis_audio_delay_ms": 200,
+      "minimum_distance": 9.28177,
+      "offset_frames": -6,
+      "offset_milliseconds": -240
+    },
+    "negative_control_offset_change_frames": 5,
+    "negative_control_response_verified": true,
+    "original_measurement": {
+      "confidence": 4.863437,
+      "deliberate_analysis_audio_delay_ms": 0,
+      "minimum_distance": 8.768041,
+      "offset_frames": -1,
+      "offset_milliseconds": -40
+    },
+    "schema": 1,
+    "skeleton_metric_validated": false,
+    "source_original_mp4_sha256": "56351d17e324861f70fc6031e705fc88ab6c16bda700461696918742c76f4097",
+    "status": "HUMAN_FACE_AUDIOVISUAL_OFFSET_MEASURED_REVIEW_REQUIRED",
+    "syncnet_upstream_sha": "907c0b579c2e2d83f0eae1b2ac9e720cde4e5623",
+    "syncnet_weights_sha256": "961e8696f888fce4f3f3a6c3d5b3267cf5b343100b238e79b2659bff2c605442",
+    "wall_seconds": 5.822,
+    "whole_movie_approved": false
+  },
+  "final_review_S01_lossless_assembly": {
+    "analysis_speech_seconds": 2.16,
+    "cpu_only": true,
+    "human_artistic_approved": false,
+    "human_lipsync_approved": false,
+    "manual_face_crop_xy_size": [
+      143,
+      159,
+      278
+    ],
+    "native_fps": 25,
+    "native_source_modified": false,
+    "native_video": {
+      "height": 1024,
+      "nb_read_frames": 65,
+      "width": 576
+    },
+    "negative_control": {
+      "confidence": 4.499923,
+      "deliberate_analysis_audio_delay_ms": 200,
+      "minimum_distance": 9.295491,
+      "offset_frames": -6,
+      "offset_milliseconds": -240
+    },
+    "negative_control_offset_change_frames": 5,
+    "negative_control_response_verified": true,
+    "original_measurement": {
+      "confidence": 4.820801,
+      "deliberate_analysis_audio_delay_ms": 0,
+      "minimum_distance": 8.772907,
+      "offset_frames": -1,
+      "offset_milliseconds": -40
+    },
+    "schema": 1,
+    "skeleton_metric_validated": false,
+    "source_original_mp4_sha256": "e1ad787308e0e8c9f4b1c691f122618ace2ee11cbe5551b9319438d3f177f3ac",
+    "status": "HUMAN_FACE_AUDIOVISUAL_OFFSET_MEASURED_REVIEW_REQUIRED",
+    "syncnet_upstream_sha": "907c0b579c2e2d83f0eae1b2ac9e720cde4e5623",
+    "syncnet_weights_sha256": "961e8696f888fce4f3f3a6c3d5b3267cf5b343100b238e79b2659bff2c605442",
+    "wall_seconds": 7.398,
+    "whole_movie_approved": false
+  },
+  "human_quality_approved": false,
+  "independent_S03": {
+    "analysis_speech_seconds": 1.44,
+    "cpu_only": true,
+    "human_artistic_approved": false,
+    "human_lipsync_approved": false,
+    "manual_face_crop_xy_size": [
+      64,
+      51,
+      332
+    ],
+    "native_fps": 25,
+    "native_source_modified": false,
+    "native_video": {
+      "height": 1024,
+      "nb_read_frames": 41,
+      "width": 576
+    },
+    "negative_control": {
+      "confidence": 3.642881,
+      "deliberate_analysis_audio_delay_ms": 200,
+      "minimum_distance": 9.989839,
+      "offset_frames": -6,
+      "offset_milliseconds": -240
+    },
+    "negative_control_offset_change_frames": 5,
+    "negative_control_response_verified": true,
+    "original_measurement": {
+      "confidence": 3.779264,
+      "deliberate_analysis_audio_delay_ms": 0,
+      "minimum_distance": 10.293414,
+      "offset_frames": -1,
+      "offset_milliseconds": -40
+    },
+    "schema": 1,
+    "skeleton_metric_validated": false,
+    "source_original_mp4_sha256": "1b3890535f0640c55a2207a0002d764242e21cba6cb24f06b6ed6fd466118113",
+    "status": "HUMAN_FACE_AUDIOVISUAL_OFFSET_MEASURED_REVIEW_REQUIRED",
+    "syncnet_upstream_sha": "907c0b579c2e2d83f0eae1b2ac9e720cde4e5623",
+    "syncnet_weights_sha256": "961e8696f888fce4f3f3a6c3d5b3267cf5b343100b238e79b2659bff2c605442",
+    "wall_seconds": 6.219,
+    "whole_movie_approved": false
+  },
+  "invalid_reused_S01_crop_on_S03": {
+    "excluded_from_lipsync_conclusion": true,
+    "reason": "The old crop center missed the left side of the larger close-up face. Confidence 1.12 was below the correctly reviewed face crop; the original incorrect result is preserved privately."
+  },
+  "no_source_videos_modified": true,
+  "preprocessing_notes": "Each shot requires its own reviewed native face box. Reusing the S01 crop on S03 misses the left side of its larger face and gives invalid low-confidence results.",
+  "skeleton_syncnet_validated": false
+}

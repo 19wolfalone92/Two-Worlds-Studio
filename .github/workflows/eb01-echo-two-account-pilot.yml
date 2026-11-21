@@ -1,0 +1,95 @@
+name: EB01 — genuine Russian audio-driven native two-account pilots
+on:
+  push:
+    branches: [feature/eb01-audio-driven-actors-20261120]
+    paths: [ops/eb01_echo_two_account_pilot.trigger]
+permissions:
+  contents: read
+jobs:
+  real_cpu_preflight_and_private_source_acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      model_lock_b64: ${{ steps.engine.outputs.model_lock_b64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install exact reviewed CPU dependencies and isolated Kaggle client
+        run: |
+          python -m pip -q install torch==2.6.0 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip -q install -r requirements-echo-runtime.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Test original audio clocks, immutable queues, and no resubmission after uncertain push
+        run: python -m unittest tests.test_eb01_echo_profile tests.test_eb01_echo_controller -v
+      - name: Gate GPU on actual CPU neural imports, attention math and every pinned checkpoint URL
+        id: engine
+        env:
+          HF_HUB_DISABLE_XET: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: python -m tools.eb01_echo_preflight
+      - name: Gate GPU on both independent accounts downloading all eight original source hashes
+        env:
+          EB01_OWNER_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+          EB01_SECOND_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+        run: python -m tools.eb01_dual_source_acceptance
+      - name: Preserve numerical acceptance and model manifest only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_ECHO_SOURCE_AND_ENGINE_ACCEPTANCE_NUMERIC
+          path: |
+            ${{ runner.temp }}/EB01_ECHO_CPU_PREFLIGHT_SAFE.json
+            ${{ runner.temp }}/EB01_DUAL_SOURCE_ACCEPTANCE_SAFE.json
+          retention-days: 14
+  native_audio_pilot:
+    needs: real_cpu_preflight_and_private_source_acceptance
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - account: owner
+            secret: KAGGLE_API_TOKEN
+            group: two-worlds-kaggle-account
+          - account: collaborator
+            secret: KAGGLE_API_TOKEN2
+            group: two-worlds-kaggle-second-account
+    concurrency:
+      group: ${{ matrix.group }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install independent native frame and full audio decoders
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: python -m pip -q install -r requirements.txt -r requirements-private-output.txt 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Run one original audio-driven private pilot per account or collect same job on retry
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets[matrix.secret] }}
+          EB01_MODEL_LOCK_B64: ${{ needs.real_cpu_preflight_and_private_source_acceptance.outputs.model_lock_b64 }}
+          PYTHONUNBUFFERED: '1'
+        run: python -m tools.eb01_echo_kaggle_pilot --account '${{ matrix.account }}'
+      - name: Preserve actual numerical result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_ECHO_${{ matrix.account }}_NUMERIC
+          path: ${{ runner.temp }}/EB01_ECHO_${{ matrix.account }}_SAFE.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Return authenticated encrypted private MP4, checkpoint and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_ECHO_${{ matrix.account }}_ENCRYPTED_RETURN
+          path: ${{ runner.temp }}/EB01_ECHO_${{ matrix.account }}.twenc
+          if-no-files-found: warn
+          compression-level: 0
+          retention-days: 7
+      - name: Destroy temporary raw private runner copies
+        if: always()
+        run: rm -rf "$RUNNER_TEMP"/eb01-echo-private-*

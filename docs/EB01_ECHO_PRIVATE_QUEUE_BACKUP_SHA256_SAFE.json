@@ -1,0 +1,30 @@
+{
+  "collaborator": {
+    "backup_sha256": "74a01b09fc9aa59e849d12d6fa2c0906f1e78304043d98825d706822d586eec3",
+    "backup_v2_sha256": "52ed963589af44a18a00735741a400ab7f0c7c0b92262cb16b42133d676eae4e",
+    "summary": {
+      "account_alias": "collaborator",
+      "automatic_dispatch": false,
+      "counts": {
+        "PENDING": 15
+      },
+      "manifest_sha256": "b13347312d9b850a7e13e0dac6a1c36377644c6391e90adfe7876b49a25e8956",
+      "quality_approved": false,
+      "whole_movie_ready": false
+    }
+  },
+  "owner": {
+    "backup_sha256": "7842e2fe39b1447375475398b894967fbcf10bf53cea0803097051d3e064129d",
+    "backup_v2_sha256": "c5f7128b29d46dcda327c0788d786fdb0002d770edf9b6d6094250e161496834",
+    "summary": {
+      "account_alias": "owner",
+      "automatic_dispatch": false,
+      "counts": {
+        "PENDING": 15
+      },
+      "manifest_sha256": "b13347312d9b850a7e13e0dac6a1c36377644c6391e90adfe7876b49a25e8956",
+      "quality_approved": false,
+      "whole_movie_ready": false
+    }
+  }
+}
