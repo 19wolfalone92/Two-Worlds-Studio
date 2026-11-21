@@ -1,0 +1,70 @@
+{
+  "collaborator": {
+    "archive_and_review_are_the_same_neural_take": true,
+    "checks": {
+      "all_native_frames_distinct": true,
+      "measured_psnr_at_least_45_db": true,
+      "ordinary_h264_high_profile": true,
+      "original_aac_packets_preserved": true,
+      "same_native_geometry_and_clock": true
+    },
+    "codec": {
+      "codec_name": "h264",
+      "pix_fmt": "yuv420p",
+      "profile": "High"
+    },
+    "crf": 5,
+    "human_quality_approved": false,
+    "master_mp4_sha256": "e1ad787308e0e8c9f4b1c691f122618ace2ee11cbe5551b9319438d3f177f3ac",
+    "mp4_sha256": "56351d17e324861f70fc6031e705fc88ab6c16bda700461696918742c76f4097",
+    "new_diffusion_steps": 0,
+    "probe": {
+      "fps": "25",
+      "frames": 65,
+      "height": 1024,
+      "seconds": 2.6,
+      "width": 576
+    },
+    "psnr_vs_archival_master_db": 55.1927,
+    "review_is_lossless": false,
+    "schema": 1,
+    "source_video_upscaled": false,
+    "status": "NATIVE_HIGH_PROFILE_REVIEW_COPY_PASS",
+    "synthetic_frames": 0,
+    "whole_movie_ready": false
+  },
+  "owner": {
+    "archive_and_review_are_the_same_neural_take": true,
+    "checks": {
+      "all_native_frames_distinct": true,
+      "measured_psnr_at_least_45_db": true,
+      "ordinary_h264_high_profile": true,
+      "original_aac_packets_preserved": true,
+      "same_native_geometry_and_clock": true
+    },
+    "codec": {
+      "codec_name": "h264",
+      "pix_fmt": "yuv420p",
+      "profile": "High"
+    },
+    "crf": 5,
+    "human_quality_approved": false,
+    "master_mp4_sha256": "a78bacb5dece98d5c7ae4d26156beacfceb80bc89db76375966beaaae2938fec",
+    "mp4_sha256": "f54c52f67084fbd67ec09b713574f17d08fcb74cb45cb6208e8340e81e27b372",
+    "new_diffusion_steps": 0,
+    "probe": {
+      "fps": "25",
+      "frames": 89,
+      "height": 1024,
+      "seconds": 3.56,
+      "width": 576
+    },
+    "psnr_vs_archival_master_db": 56.3007,
+    "review_is_lossless": false,
+    "schema": 1,
+    "source_video_upscaled": false,
+    "status": "NATIVE_HIGH_PROFILE_REVIEW_COPY_PASS",
+    "synthetic_frames": 0,
+    "whole_movie_ready": false
+  }
+}

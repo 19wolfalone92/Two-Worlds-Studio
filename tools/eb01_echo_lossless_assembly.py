@@ -90,7 +90,47 @@ def assemble(segments,audio_source,output):
     return proof
 
 
+def export_review(master,output):
+    """Portable High-profile viewing copy; preserve native geometry and AAC.
+
+    CRF0 is a lossless archival master, whose High 4:4:4 Predictive profile
+    is not the ordinary High-profile video used for viewing delivery.
+    This explicit viewing copy is measured against that master, never
+    described as lossless or counted as a new neural generation.
+    """
+    output=safe_private_path(Path(output))
+    if output.exists():raise FileExistsError('Do not overwrite an original native render')
+    meta=_probe(Path(master));output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    subprocess.run(['ffmpeg','-v','error','-i',str(master),'-map','0:v:0','-map','0:a:0',
+        '-c:v','libx264','-crf','5','-preset','slow','-profile:v','high','-level:v','4.1',
+        '-pix_fmt','yuv420p','-c:a','copy','-video_track_timescale','25','-movflags','+faststart',str(output)],
+        check=True,capture_output=True,timeout=240)
+    stream=json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','v:0',
+        '-show_entries','stream=codec_name,profile,pix_fmt','-of','json',str(output)],timeout=45))['streams'][0]
+    comparison=subprocess.run(['ffmpeg','-hide_banner','-i',str(output),'-i',str(master),
+        '-lavfi','[0:v][1:v]psnr','-f','null','-'],capture_output=True,text=True,check=True,timeout=120)
+    match=re.search(r'PSNR.*average:([0-9.]+|inf)',comparison.stderr)
+    if not match:raise ValueError('Actual review-copy quality comparison missing')
+    psnr=float(match[1]);hashes=rgb_frame_hashes(output)
+    checks={'same_native_geometry_and_clock':_probe(output)==meta,
+        'ordinary_h264_high_profile':stream=={'codec_name':'h264','profile':'High','pix_fmt':'yuv420p'},
+        'original_aac_packets_preserved':audio_packet_hashes(master)==audio_packet_hashes(output),
+        'all_native_frames_distinct':len(set(hashes))==meta['frames'],
+        'measured_psnr_at_least_45_db':psnr>=45}
+    receipt={'schema':1,'status':'NATIVE_HIGH_PROFILE_REVIEW_COPY_PASS' if all(checks.values()) else 'REVIEW_COPY_QA_BLOCKED',
+        'checks':checks,'master_mp4_sha256':sha(master),'mp4_sha256':sha(output),'probe':meta,
+        'codec':stream,'crf':5,'psnr_vs_archival_master_db':None if psnr==float('inf') else round(psnr,4),
+        'archive_and_review_are_the_same_neural_take':True,'review_is_lossless':False,
+        'source_video_upscaled':False,'synthetic_frames':0,'new_diffusion_steps':0,
+        'human_quality_approved':False,'whole_movie_ready':False}
+    output.with_suffix('.receipt.json').write_text(json.dumps(receipt,sort_keys=True,indent=2)+'\n')
+    if not all(checks.values()):raise ValueError('Native High-profile viewing export failed actual quality check')
+    return receipt
+
+
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('--segment',action='append',type=Path,required=True)
     p.add_argument('--audio-source',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--review-output',type=Path)
     a=p.parse_args();print(json.dumps(assemble(a.segment,a.audio_source,a.output),sort_keys=True))
+    if a.review_output:print(json.dumps(export_review(a.output,a.review_output),sort_keys=True))

@@ -1,7 +1,7 @@
 """Actual FFmpeg regression: native overlap join must preserve every pixel."""
 import json,shutil,subprocess,tempfile,unittest
 from pathlib import Path
-from tools.eb01_echo_lossless_assembly import assemble
+from tools.eb01_echo_lossless_assembly import assemble,export_review
 
 @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'FFmpeg required')
 class LosslessAssemblyTests(unittest.TestCase):
@@ -23,3 +23,7 @@ class LosslessAssemblyTests(unittest.TestCase):
    self.assertTrue(all(result['checks'].values()))
    self.assertFalse(result['second_lossy_compression'])
    self.assertEqual(result['new_original_takes'],0)
+   view=export_review(p/'assembled.mp4',p/'review.mp4')
+   self.assertTrue(all(view['checks'].values()))
+   self.assertFalse(view['review_is_lossless'])
+   self.assertEqual(view['codec']['profile'],'High')
