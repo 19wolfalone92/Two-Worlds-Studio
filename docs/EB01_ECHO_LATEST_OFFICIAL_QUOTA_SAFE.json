@@ -3,9 +3,9 @@
     "accelerator_quota": {
       "GPU": {
         "refresh_at": "2026-11-28T00:00:00+00:00",
-        "remaining_hours": 30,
+        "remaining_hours": 29.92,
         "total_hours": 30,
-        "used_hours": 0
+        "used_hours": 0.08
       },
       "TPU": {
         "refresh_at": "2026-11-28T00:00:00+00:00",
@@ -21,6 +21,7 @@
     "kaggle_state": "COMPLETE",
     "last_bounded_worker_seconds": 760,
     "last_native_stage": "BEGIN_DECODE",
+    "observed_at_utc": "2026-11-21T09:52:20.2826336Z",
     "private_failure_marker_seen": false,
     "quality_approved": false,
     "quota_status": "ACTUAL_OFFICIAL_API_QUOTA_READ",
@@ -55,6 +56,7 @@
     "kaggle_state": "COMPLETE",
     "last_bounded_worker_seconds": 1140,
     "last_native_stage": "BEGIN_DECODE",
+    "observed_at_utc": "2026-11-21T09:52:18.9402873Z",
     "private_failure_marker_seen": false,
     "quality_approved": false,
     "quota_status": "ACTUAL_OFFICIAL_API_QUOTA_READ",

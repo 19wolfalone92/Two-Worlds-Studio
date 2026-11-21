@@ -134,14 +134,11 @@ def run(config,slot):
                 'last_decoded_rgb_sha256':tail_rgb_sha,'next_conditioning_png_sha256':sha(tail)})
             reference=tail;offset+=frames-1
             del sample,pixels,embeddings,video,mask;gc.collect();torch.cuda.empty_cache()
-        joined=out/'EB01_ECHO_NATIVE_SILENT.mp4'
+        joined=out/'EB01_ECHO_NATIVE_SILENT.mp4';join_proof=None
         if len(segments)==1:shutil.copy2(out/'SEGMENT_0_NATIVE.mp4',joined)
         else:
-            subprocess.run(['ffmpeg','-v','error','-i',str(out/'SEGMENT_0_NATIVE.mp4'),
-                '-i',str(out/'SEGMENT_1_NATIVE.mp4'),'-filter_complex',
-                '[0:v]setpts=PTS-STARTPTS[v0];[1:v]trim=start_frame=1,setpts=PTS-STARTPTS[v1];[v0][v1]concat=n=2:v=1:a=0[v]',
-                '-map','[v]','-c:v','libx264','-crf','14','-pix_fmt','yuv420p','-video_track_timescale','25',str(joined)],
-                check=True,capture_output=True,timeout=120)
+            from tools.eb01_echo_lossless_assembly import join_video
+            join_proof=join_video([out/('SEGMENT_'+str(i)+'_NATIVE.mp4') for i in range(len(segments))],joined)
         final=out/'EB01_ECHO_RUSSIAN_NATIVE.mp4'
         subprocess.run(['ffmpeg','-v','error','-i',str(joined),'-i',str(voice),'-map','0:v:0','-map','1:a:0',
             '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-af','apad','-t',str(duration),
@@ -151,6 +148,7 @@ def run(config,slot):
             'source_patch_sha256':patch,'first_reference_sha256':first_reference_sha,'text_context_sha256':sha(text_path),
             'precomputed_text_encoder_released_before_inference':True,'model_weights_sha256':hashes,
             'original_voice_sha256':sha(voice),'original_voice_truncated':False,'segments':segments,
+            'lossless_native_join_verification':join_proof,
             'audio_conditioning_embeddings_shape':list(acoustic.shape),'mp4_sha256':sha(final),
             'native_inference_seconds':round(native_seconds,3),
             'generation_encoding_join_wall_seconds':round(time.monotonic()-generated_at,3),
