@@ -1,0 +1,142 @@
+{
+  "actual_benchmark_capacity": {
+    "collaborator": {
+      "actual_usable_per_card_budget": [
+        {
+          "measured_used_peak_gib": 13.6416,
+          "nvml_board_gib": 15,
+          "physical_gpu_index": 0,
+          "remaining_reserve_gib": 0.9206,
+          "usable_cuda_gib": 14.5622
+        },
+        {
+          "measured_used_peak_gib": 13.4072,
+          "nvml_board_gib": 15,
+          "physical_gpu_index": 1,
+          "remaining_reserve_gib": 1.155,
+          "usable_cuda_gib": 14.5622
+        }
+      ],
+      "human_quality_approved": false,
+      "measured_host_and_per_device": {
+        "both_gpus_compute_busy_samples": 43,
+        "host_available_min_gib": 9.3626,
+        "host_used_peak_gib": 21.5105,
+        "per_device": [
+          {
+            "gpu_utilization_percent_peak": 100,
+            "memory_used_peak_gib": 13.6416,
+            "name": "Tesla T4",
+            "physical_gib": 15,
+            "physical_gpu_index": 0
+          },
+          {
+            "gpu_utilization_percent_peak": 100,
+            "memory_used_peak_gib": 13.4072,
+            "name": "Tesla T4",
+            "physical_gib": 15,
+            "physical_gpu_index": 1
+          }
+        ],
+        "samples": 96,
+        "wall_seconds": 844.438,
+        "worker_rss_sum_peak_gib": 21.9389
+      },
+      "source_benchmark_run": "44826550221",
+      "source_report_sha256": "e26458831b54a3c226fbdc1d215e9cad7673c53cad3bbfcb5f9c7f32b6b81e43",
+      "verified_parallel_processes": 2,
+      "worst_measured_gpu_seconds_per_frame": 11.171523076923076
+    },
+    "owner": {
+      "actual_usable_per_card_budget": [
+        {
+          "measured_used_peak_gib": 13.585,
+          "nvml_board_gib": 15,
+          "physical_gpu_index": 0,
+          "remaining_reserve_gib": 0.9772,
+          "usable_cuda_gib": 14.5622
+        },
+        {
+          "measured_used_peak_gib": 13.4072,
+          "nvml_board_gib": 15,
+          "physical_gpu_index": 1,
+          "remaining_reserve_gib": 1.155,
+          "usable_cuda_gib": 14.5622
+        }
+      ],
+      "human_quality_approved": false,
+      "measured_host_and_per_device": {
+        "both_gpus_compute_busy_samples": 43,
+        "host_available_min_gib": 8.9764,
+        "host_used_peak_gib": 21.9174,
+        "per_device": [
+          {
+            "gpu_utilization_percent_peak": 100,
+            "memory_used_peak_gib": 13.585,
+            "name": "Tesla T4",
+            "physical_gib": 15,
+            "physical_gpu_index": 0
+          },
+          {
+            "gpu_utilization_percent_peak": 100,
+            "memory_used_peak_gib": 13.4072,
+            "name": "Tesla T4",
+            "physical_gib": 15,
+            "physical_gpu_index": 1
+          }
+        ],
+        "samples": 139,
+        "wall_seconds": 1271.604,
+        "worker_rss_sum_peak_gib": 22.5477
+      },
+      "source_benchmark_run": "44826550221",
+      "source_report_sha256": "f605ca8243b8bbc88a4a2bfd633b9ea48de15b4321af444c3f59b6e134d57884",
+      "verified_parallel_processes": 2,
+      "worst_measured_gpu_seconds_per_frame": 12.977202247191011
+    }
+  },
+  "fresh_quota_recheck_at_execution_required": true,
+  "full_original_voice_sha_recheck_at_execution_required": true,
+  "gpu_jobs_submitted": 0,
+  "main_merge_performed": false,
+  "movie_ready": false,
+  "production_execution_authorized": false,
+  "published": false,
+  "quality_confirmation_required": true,
+  "queues": {
+    "collaborator": {
+      "account_alias": "collaborator",
+      "automatic_dispatch": false,
+      "counts": {
+        "PENDING": 15
+      },
+      "manifest_sha256": "b13347312d9b850a7e13e0dac6a1c36377644c6391e90adfe7876b49a25e8956",
+      "quality_approved": false,
+      "whole_movie_ready": false
+    },
+    "owner": {
+      "account_alias": "owner",
+      "automatic_dispatch": false,
+      "counts": {
+        "PENDING": 15
+      },
+      "manifest_sha256": "b13347312d9b850a7e13e0dac6a1c36377644c6391e90adfe7876b49a25e8956",
+      "quality_approved": false,
+      "whole_movie_ready": false
+    }
+  },
+  "resource_projection": {
+    "collaborator": {
+      "estimate_is_not_a_full_movie_benchmark": true,
+      "estimated_session_seconds_with_50pct_reserve_and_10min_startup": 5015.5,
+      "native_frames_to_generate": 527
+    },
+    "owner": {
+      "estimate_is_not_a_full_movie_benchmark": true,
+      "estimated_session_seconds_with_50pct_reserve_and_10min_startup": 5690.3,
+      "native_frames_to_generate": 523
+    }
+  },
+  "schema": 1,
+  "status": "PREPARED_PRIVATE_QUEUES_QUALITY_RELEASE_STILL_BLOCKED"
+}

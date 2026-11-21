@@ -1,0 +1,163 @@
+{
+  "account_alias": "owner",
+  "encrypted_private_return_created": true,
+  "gpu_submission_attempts": 1,
+  "host_and_both_device_measurement": {
+    "both_gpus_compute_busy_samples": 43,
+    "host_available_min_gib": 8.9764,
+    "host_used_peak_gib": 21.9174,
+    "per_device": [
+      {
+        "gpu_utilization_percent_peak": 100,
+        "memory_used_peak_gib": 13.585,
+        "name": "Tesla T4",
+        "physical_gib": 15,
+        "physical_gpu_index": 0
+      },
+      {
+        "gpu_utilization_percent_peak": 100,
+        "memory_used_peak_gib": 13.4072,
+        "name": "Tesla T4",
+        "physical_gib": 15,
+        "physical_gpu_index": 1
+      }
+    ],
+    "samples": 139,
+    "wall_seconds": 1271.604,
+    "worker_rss_sum_peak_gib": 22.5477
+  },
+  "kaggle_state": "COMPLETE",
+  "official_quota_before": {
+    "refresh_at": "2026-11-21T00:00:00+00:00",
+    "remaining_hours": 25.35,
+    "total_hours": 30,
+    "used_hours": 4.65
+  },
+  "production_jobs_submitted": 0,
+  "profile": "echomimic-v3-flash-precomputed-text-single-t4-v2",
+  "quality_approved": false,
+  "run_id": "44826550221",
+  "schema": 1,
+  "status": "TWO_SINGLE_CARD_GENERATORS_AND_CONTINUATIONS_TECHNICAL_PASS",
+  "whole_movie_ready": false,
+  "workers": [
+    {
+      "actual_mp4_created": true,
+      "adjacent_exact_duplicate_pairs": 0,
+      "checks": {
+        "all_rgb_frames_distinct": true,
+        "canonical_actor": true,
+        "correct_physical_card": true,
+        "exact_overlap_count": true,
+        "exact_png_continuation_chain": true,
+        "full_audio_embeddings": true,
+        "native_clock": true,
+        "native_geometry": true,
+        "no_neon": true,
+        "no_upscale_or_fabricated_frames": true,
+        "pinned_revision": true,
+        "profile": true,
+        "real_full_audio_track": true,
+        "real_native_segment_tensors": true,
+        "receipt_sha": true,
+        "text_encoder_released": true,
+        "whole_voice": true
+      },
+      "decoded_frame_hash_chain_sha256": "2352033f345c0ea218aaaae1214607494125e56b3b0c1d5f41346fea1aa4f8e4",
+      "mp4_sha256": "e5e2beff92aa3a5542d7d752a53e0cdd36f839e5dfa23b2141748ac64a5b8991",
+      "native_inference_seconds": 1154.971,
+      "nonidentical_pixels_do_not_prove_natural_acting": true,
+      "physical_gpu_index": 0,
+      "probe": {
+        "fps": "25",
+        "frames": 89,
+        "height": 1024,
+        "seconds": 3.56,
+        "width": 576
+      },
+      "process_wall_seconds": 1263.264,
+      "quality_approved": false,
+      "resources": {
+        "cpu_percent_peak": 178.4,
+        "finished": true,
+        "host_ram_available_gib": 19.5887,
+        "host_ram_peak_gib": 22.6859,
+        "host_ram_total_gib": 31.3466,
+        "per_device": [
+          {
+            "device_memory_used_peak_gib": 13.5848,
+            "index": 0,
+            "name": "Tesla T4",
+            "physical_gib": 14.5622,
+            "torch_max_allocated_gib": 10.689,
+            "torch_max_reserved_gib": 13.4395
+          }
+        ],
+        "process_rss_peak_gib": 17.1741,
+        "wall_seconds": 1263.571
+      },
+      "shot": "S06",
+      "technical_pass": true,
+      "unique_decoded_rgb_frames": 89
+    },
+    {
+      "actual_mp4_created": true,
+      "adjacent_exact_duplicate_pairs": 0,
+      "checks": {
+        "all_rgb_frames_distinct": true,
+        "canonical_actor": true,
+        "correct_physical_card": true,
+        "exact_overlap_count": true,
+        "exact_png_continuation_chain": true,
+        "full_audio_embeddings": true,
+        "native_clock": true,
+        "native_geometry": true,
+        "no_neon": true,
+        "no_upscale_or_fabricated_frames": true,
+        "pinned_revision": true,
+        "profile": true,
+        "real_full_audio_track": true,
+        "real_native_segment_tensors": true,
+        "receipt_sha": true,
+        "text_encoder_released": true,
+        "whole_voice": true
+      },
+      "decoded_frame_hash_chain_sha256": "6b78f04176a75a6521c7471a482d21b8cbd033090a1cb53893ff74bbbf4eaa48",
+      "mp4_sha256": "1b3890535f0640c55a2207a0002d764242e21cba6cb24f06b6ed6fd466118113",
+      "native_inference_seconds": 441.396,
+      "nonidentical_pixels_do_not_prove_natural_acting": true,
+      "physical_gpu_index": 1,
+      "probe": {
+        "fps": "25",
+        "frames": 41,
+        "height": 1024,
+        "seconds": 1.64,
+        "width": 576
+      },
+      "process_wall_seconds": 524.368,
+      "quality_approved": false,
+      "resources": {
+        "cpu_percent_peak": 199.8,
+        "finished": true,
+        "host_ram_available_gib": 10.9132,
+        "host_ram_peak_gib": 22.4512,
+        "host_ram_total_gib": 31.3466,
+        "per_device": [
+          {
+            "device_memory_used_peak_gib": 13.4071,
+            "index": 0,
+            "name": "Tesla T4",
+            "physical_gib": 14.5622,
+            "torch_max_allocated_gib": 10.6573,
+            "torch_max_reserved_gib": 13.2617
+          }
+        ],
+        "process_rss_peak_gib": 13.6076,
+        "wall_seconds": 524.687
+      },
+      "shot": "S03",
+      "technical_pass": true,
+      "unique_decoded_rgb_frames": 41
+    }
+  ]
+}
