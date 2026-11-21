@@ -38,6 +38,10 @@ class EchoLedger:
         CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY,job_id TEXT NOT NULL,
             state TEXT NOT NULL,created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
         ''')
+        # Existing private checkpoints remain readable. Pending preparations
+        # from the first schema have no reservations or spent GPU time.
+        if 'estimated_gpu_seconds' not in {r[1] for r in self.db.execute('PRAGMA table_info(jobs)')}:
+            self.db.execute('ALTER TABLE jobs ADD COLUMN estimated_gpu_seconds REAL')
         try:
             with self.transaction():
                 for key,val in {'account':account,'manifest_sha256':self.manifest_sha,'profile':doc['engine_profile']}.items():
@@ -75,6 +79,11 @@ class EchoLedger:
             if active>=self.manifest['verified_parallel_processes_per_account']:raise QueueBlocked('Verified independent card capacity exhausted')
             if self.db.execute("SELECT 1 FROM jobs WHERE state IN ('RESERVED','SUBMITTED') AND physical_gpu_index=? LIMIT 1",(physical_gpu_index,)).fetchone():
                 raise QueueBlocked('This physical card already has an unresolved job')
+            active_estimates=self.db.execute("SELECT estimated_gpu_seconds FROM jobs WHERE state IN ('RESERVED','SUBMITTED')").fetchall()
+            if any(type(r[0]) not in (int,float) or not math.isfinite(r[0]) or r[0]<=0 for r in active_estimates):
+                raise QueueBlocked('Older active reservation requires actual quota reconciliation')
+            if (sum(r[0] for r in active_estimates)+estimated_gpu_seconds)*1.5>fresh_quota_seconds:
+                raise QueueBlocked('Combined independent-card quota reserve insufficient')
             j=self.jobs.get(job_id)
             row=self.db.execute('SELECT state FROM jobs WHERE job_id=?',(job_id,)).fetchone()
             if j is None or row!=('PENDING',):raise QueueBlocked('Unknown or previously reserved job')
@@ -82,8 +91,8 @@ class EchoLedger:
             if predecessor:
                 before=self.db.execute('SELECT state,tail_png_sha256 FROM jobs WHERE job_id=?',(predecessor,)).fetchone()
                 if before!=('VERIFIED',conditioning_png_sha256):raise QueueBlocked('Exact verified predecessor tail PNG required')
-            self.db.execute("UPDATE jobs SET state='RESERVED',nonce=?,conditioning_png_sha256=?,physical_gpu_index=? WHERE job_id=?",
-                (nonce,conditioning_png_sha256,physical_gpu_index,job_id))
+            self.db.execute("UPDATE jobs SET state='RESERVED',nonce=?,conditioning_png_sha256=?,physical_gpu_index=?,estimated_gpu_seconds=? WHERE job_id=?",
+                (nonce,conditioning_png_sha256,physical_gpu_index,estimated_gpu_seconds,job_id))
             self.db.execute("INSERT INTO events(job_id,state) VALUES (?,'RESERVED')",(job_id,))
 
     def mark_submission(self,job_id,nonce,execution_ref):

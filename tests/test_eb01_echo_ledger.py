@@ -29,3 +29,16 @@ class EchoLedgerTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as t:
    p=Path(t)/'owner.sqlite';EchoLedger(p,'owner').close()
    with self.assertRaises(QueueBlocked):EchoLedger(p,'collaborator')
+ def test_two_card_reservations_cannot_double_spend_the_same_remaining_quota(self):
+  from studio.eb01_echo_production_manifest import plan
+  from studio.eb01_echo_parallel_profile import PROFILE
+  with tempfile.TemporaryDirectory() as t:
+   doc=plan(profile=PROFILE,verified_parallel_processes=2)
+   q=EchoLedger(Path(t)/'owner.sqlite','owner',doc)
+   roots=[j['job_id'] for j in q.jobs.values() if j['predecessor_job_id'] is None]
+   kwargs=dict(quality_confirmed=True,source_reverified=True,fresh_quota_seconds=1000,
+       estimated_gpu_seconds=600,conditioning_png_sha256='a'*64)
+   q.reserve(roots[0],'example-nonce-0001',physical_gpu_index=0,**kwargs)
+   # Either job fits alone, but the two reservations cannot reuse one quota.
+   with self.assertRaises(QueueBlocked):q.reserve(roots[1],'example-nonce-0002',physical_gpu_index=1,**kwargs)
+   self.assertEqual(q.summary()['counts'],{'PENDING':14,'RESERVED':1});q.close()

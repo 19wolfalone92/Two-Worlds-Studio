@@ -2,7 +2,8 @@
 
 ## Current working contracts
 
-- [EB01: приёмка двух аккаунтов, реальные нативные MP4 и оставшиеся ограничения](EB01_DUAL_KAGGLE_ACCEPTANCE_20261120_RU.md).
+- [EB01: четыре T4, реальные аудиоуправляемые MP4, продолжения, восстановление и две очереди](EB01_TWO_ACCOUNT_REAL_ACCEPTANCE_20261121_RU.md).
+- [Предыдущая приёмка EB01 / LTX и исходников](EB01_DUAL_KAGGLE_ACCEPTANCE_20261120_RU.md).
 
 - \`DEVELOPMENT.md\`: local setup, canonical CLI, dependency extras, test matrix.
 - \`STUDIO_V2_STATUS.md\`: three-part assembly and production constraints.

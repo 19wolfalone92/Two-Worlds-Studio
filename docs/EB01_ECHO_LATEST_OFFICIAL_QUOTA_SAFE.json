@@ -1,0 +1,70 @@
+{
+  "collaborator": {
+    "accelerator_quota": {
+      "GPU": {
+        "refresh_at": "2026-11-28T00:00:00+00:00",
+        "remaining_hours": 30,
+        "total_hours": 30,
+        "used_hours": 0
+      },
+      "TPU": {
+        "refresh_at": "2026-11-28T00:00:00+00:00",
+        "remaining_hours": 20,
+        "total_hours": 20,
+        "used_hours": 0
+      }
+    },
+    "account_alias": "collaborator",
+    "authentication": "AUTHENTICATED_READ_ONLY",
+    "bootstrap_started": true,
+    "gpu_submissions": 0,
+    "kaggle_state": "COMPLETE",
+    "last_bounded_worker_seconds": 760,
+    "last_native_stage": "BEGIN_DECODE",
+    "private_failure_marker_seen": false,
+    "quality_approved": false,
+    "quota_status": "ACTUAL_OFFICIAL_API_QUOTA_READ",
+    "schema": 1,
+    "server_pinned_source_verified": true,
+    "server_private_kernel_verified": true,
+    "server_requested_t4_shape_verified": true,
+    "server_shared_dataset_attached": true,
+    "shared_text_encoder_released_before_workers": true,
+    "source_run": "44826550221",
+    "whole_movie_approved": false
+  },
+  "owner": {
+    "accelerator_quota": {
+      "GPU": {
+        "refresh_at": "2026-11-28T00:00:00+00:00",
+        "remaining_hours": 30,
+        "total_hours": 30,
+        "used_hours": 0
+      },
+      "TPU": {
+        "refresh_at": "2026-11-28T00:00:00+00:00",
+        "remaining_hours": 20,
+        "total_hours": 20,
+        "used_hours": 0
+      }
+    },
+    "account_alias": "owner",
+    "authentication": "AUTHENTICATED_READ_ONLY",
+    "bootstrap_started": true,
+    "gpu_submissions": 0,
+    "kaggle_state": "COMPLETE",
+    "last_bounded_worker_seconds": 1140,
+    "last_native_stage": "BEGIN_DECODE",
+    "private_failure_marker_seen": false,
+    "quality_approved": false,
+    "quota_status": "ACTUAL_OFFICIAL_API_QUOTA_READ",
+    "schema": 1,
+    "server_pinned_source_verified": true,
+    "server_private_kernel_verified": true,
+    "server_requested_t4_shape_verified": true,
+    "server_shared_dataset_attached": true,
+    "shared_text_encoder_released_before_workers": true,
+    "source_run": "44826550221",
+    "whole_movie_approved": false
+  }
+}
