@@ -231,11 +231,26 @@ class SecurityAndProvenanceTests(unittest.TestCase):
 
 class ExecutionAndTelemetryTests(unittest.TestCase):
     def _args(self, root: Path, reference: Path, *, stage="preview", prompt=None):
+        # Three MOCKED checkpoint-byte fixtures exercise the hash gate only.
+        # They do not emulate Wan model inference or verify true model origin.
+        from weights_preflight import REQUIRED
+        weights = {}
+        for filename in REQUIRED:
+            path = root / filename
+            path.write_bytes(("MOCKED WEIGHTS " + filename).encode())
+            weights[filename] = {"path": str(path), "sha256": digest(path)}
+        manifest = root / "mock_checkpoint_manifest.json"
+        manifest.write_text(json.dumps({
+            "schema": 1, "model": "wan22-5b",
+            "license_reviewed": True,
+            "source_repository": "https://huggingface.co/Comfy-Org/",
+            "files": weights}))
         return argparse.Namespace(command=stage, execute=True, accept_model_license=True,
             device=0, reference=str(reference), output=str(root / ("take_" + stage + ".mp4")),
             prompt=prompt or "A human character turns their shoulders naturally.",
             seed=42, timeout=3600, host="http://127.0.0.1:8188",
-            history=str(root / "timing.jsonl"), review=None, preview_video=None)
+            history=str(root / "timing.jsonl"), review=None, preview_video=None,
+            weights_manifest=str(manifest))
 
     def _bridge(self, command, **kwargs):
         self.assertEqual(command[0:3], [sys.executable, "-m", "studio.comfy_neural"])
@@ -457,6 +472,43 @@ class ExecutionAndTelemetryTests(unittest.TestCase):
                     module.subprocess, "run", side_effect=tamper_bridge):
                 with self.assertRaisesRegex(module.Blocked, "Studio receipt"):
                     module.run(args)
+
+
+    def test_wrong_weight_digest_blocks_submission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference = root / "ref.png"
+            reference.write_bytes(b"untouched reference")
+            args = self._args(root, reference)
+            manifest = Path(args.weights_manifest)
+            doc = json.loads(manifest.read_text())
+            component = next(iter(doc["files"].values()))
+            component["sha256"] = "0" * 64
+            manifest.write_text(json.dumps(doc))
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                    "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                    module, "attest_backend") as attestation, patch.object(
+                    module.subprocess, "run") as bridge:
+                with self.assertRaisesRegex(module.Blocked, "integrity preflight"):
+                    module.run(args)
+                bridge.assert_not_called()
+                attestation.assert_not_called()
+
+    def test_missing_private_weight_manifest_blocks_gpu_submission(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference = root / "ref.png"
+            reference.write_bytes(b"untouched reference")
+            args = self._args(root, reference)
+            args.weights_manifest = None
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                    "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                    module, "attest_backend") as attestation, patch.object(
+                    module.subprocess, "run") as bridge:
+                with self.assertRaisesRegex(module.Blocked, "--weights-manifest"):
+                    module.run(args)
+                bridge.assert_not_called()
+                attestation.assert_not_called()
 
 
 if __name__ == "__main__":
