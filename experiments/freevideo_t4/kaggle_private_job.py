@@ -51,15 +51,18 @@ def prepare_private_kernel(username: str, nonce: str, source: str | Path,
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise KaggleBlocked("Invalid model seed")
     image = private_path(source)
-    if image.suffix.lower() != ".png":
-        raise KaggleBlocked("Use an already decoded private PNG as Kaggle reference")
+    if image.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+        raise KaggleBlocked("Use an existing private PNG/JPEG photo as Kaggle reference")
     if image.stat().st_size > 8 * 1024 * 1024:
         raise KaggleBlocked("For the private kernel embed, source PNG must be <=8 MiB")
     try:
         with Image.open(image) as pic:
+            reference_format = pic.format
             pic.verify()
     except OSError as exc:
-        raise KaggleBlocked("Private PNG cannot be decoded") from exc
+        raise KaggleBlocked("Private photo cannot be decoded") from exc
+    if reference_format not in ("PNG", "JPEG"):
+        raise KaggleBlocked("Only genuinely decoded PNG/JPEG bytes are supported")
     target = Path(destination).expanduser().absolute()
     if (target.is_symlink() or target.exists() or target.resolve().is_relative_to(ROOT)
             or target.is_relative_to(ROOT)):
@@ -70,6 +73,7 @@ def prepare_private_kernel(username: str, nonce: str, source: str | Path,
     payload = {
         "schema": 1, "model": "wan22-5b", "nonce": nonce,
         "source_revision": revision, "reference_sha256": sha256(image),
+        "reference_format": reference_format.lower(),
         "license_reviewed": True, "prompt": prompt.strip(), "seed": seed,
         "publications_authorized": False}
     rendered = worker.replace(
