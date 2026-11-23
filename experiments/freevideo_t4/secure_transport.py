@@ -89,6 +89,44 @@ def decrypt(payload: dict, token: str) -> bytes:
         raise ValueError('Photo format mismatch')
     return raw
 
+RESULT_MAGIC='FREEVIDEO_ENCRYPTED_RESULT_V1'
+
+def seal_result_zip(raw: bytes, recipient_public: str) -> dict:
+    """Encrypt output bytes to an operator-owned one-time X25519 public key."""
+    if not 1024 <= len(raw) <= 300 * 1024 * 1024:
+        raise ValueError('Output archive outside approved size')
+    public=X25519PublicKey.from_public_bytes(_unb64(recipient_public,32))
+    ephemeral=X25519PrivateKey.generate()
+    shared=ephemeral.exchange(public)
+    salt,nonce=os.urandom(16),os.urandom(12)
+    key=HKDF(algorithm=hashes.SHA256(),length=32,salt=salt,
+             info=CONTEXT+b'/result').derive(shared)
+    digest=hashlib.sha256(raw).hexdigest()
+    ciphertext=AESGCM(key).encrypt(nonce,raw,RESULT_MAGIC.encode()+b'|'+digest.encode())
+    return {
+        'format': RESULT_MAGIC, 'output_sha256': digest,
+        'ephemeral_public_key': _b64(ephemeral.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,format=serialization.PublicFormat.Raw)),
+        'salt':_b64(salt), 'nonce':_b64(nonce), 'ciphertext':_b64(ciphertext),
+    }
+
+def unseal_result_zip(payload: dict, private_key_bytes: bytes) -> bytes:
+    if not isinstance(payload,dict) or set(payload)!={'format','output_sha256','ephemeral_public_key','salt','nonce','ciphertext'} or payload['format']!=RESULT_MAGIC:
+        raise ValueError('Unexpected result envelope')
+    digest=payload['output_sha256']
+    if not isinstance(digest,str) or not re.fullmatch(r'[0-9a-f]{64}',digest):
+        raise ValueError('Bad output hash')
+    private=X25519PrivateKey.from_private_bytes(private_key_bytes)
+    remote=X25519PublicKey.from_public_bytes(_unb64(payload['ephemeral_public_key'],32))
+    shared=private.exchange(remote)
+    key=HKDF(algorithm=hashes.SHA256(),length=32,salt=_unb64(payload['salt'],16),
+             info=CONTEXT+b'/result').derive(shared)
+    raw=AESGCM(key).decrypt(_unb64(payload['nonce'],12),_unb64(payload['ciphertext']),
+                            RESULT_MAGIC.encode()+b'|'+digest.encode())
+    if hashlib.sha256(raw).hexdigest()!=digest:
+        raise ValueError('Output integrity error')
+    return raw
+
 def main() -> None:
     action=sys.argv[1] if len(sys.argv)>1 else None
     if action=='public-key' and len(sys.argv)==2:
@@ -102,7 +140,14 @@ def main() -> None:
         with dest.open('xb') as f: f.write(raw)
         os.chmod(dest,0o600)
         print('FREEVIDEO_PRIVATE_REFERENCE_DECRYPTED_SHA256_VERIFIED')
+    elif action=='seal-result' and len(sys.argv)==5:
+        input_path=Path(sys.argv[2]); job_json=Path(sys.argv[3]); dest=Path(sys.argv[4])
+        config=json.loads(job_json.read_text('utf-8'))
+        result=seal_result_zip(input_path.read_bytes(),config['output_public_key'])
+        with dest.open('x', encoding='utf-8') as stream:
+            json.dump(result,stream,separators=(',',':'))
+        print('FREEVIDEO_RESULT_ENCRYPTED_FOR_OPERATOR')
     else:
-        raise SystemExit('Usage: public-key OR decrypt ENCRYPTED_JSON PRIVATE_OUTPUT')
+        raise SystemExit('Usage: public-key | decrypt IN OUT | seal-result ZIP INPUT_JSON OUTPUT_JSON')
 if __name__=='__main__':
     main()
