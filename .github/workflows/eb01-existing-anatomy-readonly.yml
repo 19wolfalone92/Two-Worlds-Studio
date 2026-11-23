@@ -8,8 +8,10 @@ permissions:
   contents: read
 jobs:
   only_existing_native_kaggle_output:
-    # Never run against a public fork or send original portraits/voices into public artifacts.
-    if: github.event.repository.private
+    # The Studio repository itself is public, but this job is pinned to
+    # the owner's own PUSH event; it never runs from pull requests or forks.
+    # Raw media stay on a temporary runner, only numeric evidence is uploaded.
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
