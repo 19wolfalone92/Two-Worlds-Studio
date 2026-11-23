@@ -6,6 +6,7 @@ Nothing is imported into the production Studio. GPU inference is explicit only.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from fractions import Fraction
 import hashlib
@@ -20,6 +21,7 @@ import statistics
 import subprocess
 import sys
 import time
+import tempfile
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -106,6 +108,41 @@ def choose_plan(hardware: Hardware) -> dict:
                      "Preview is a separately generated 1-second take, not an upscaled final.",
                      "Final is a separate 2-second take and requires its own visual review.",
                      "Execution only allows T4 and a matching, local ComfyUI device."]}
+
+
+@contextmanager
+def device_lease(index: int):
+    """Reject simultaneous Freevideo jobs on one T4 in the *same* Kaggle worker.
+
+    Not distributed across independent Kaggle sessions; no GPU work is done here.
+    """
+    if type(index) is not int or not 0 <= index <= 31:
+        raise Blocked("Invalid CUDA device index for per-worker lock")
+    try:
+        import fcntl
+    except ImportError as exc:
+        raise Blocked("GPU locking requires Linux fcntl (Kaggle worker)") from exc
+    folder = Path(tempfile.gettempdir()) / f"freevideo-t4-lock-{os.getuid()}"
+    try:
+        folder.mkdir(mode=0o700, exist_ok=True)
+        st = folder.lstat()
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+            raise Blocked("GPU lock directory has unsafe ownership or permissions")
+        handle = os.open(folder / f"gpu-{index}.lock",
+                         os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    except (OSError, PermissionError) as exc:
+        raise Blocked(f"Could not create private GPU lock: {type(exc).__name__}") from exc
+    try:
+        info = os.fstat(handle)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+            raise Blocked("GPU lock file ownership/permissions are unsafe")
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise Blocked("This GPU is busy with another Freevideo job; no concurrent render") from exc
+        yield
+    finally:
+        os.close(handle)
 
 
 def _hash_file(path: Path) -> str:
@@ -349,7 +386,7 @@ def summary(history: Path) -> dict:
             "warning": "Times are observed, not an apples-to-apples speed comparison."}
 
 
-def run(args: argparse.Namespace) -> dict:
+def _run_unlocked(args: argparse.Namespace) -> dict:
     if args.command == "stats":
         return summary(Path(args.history))
     if args.command == "plan":
@@ -449,6 +486,16 @@ def run(args: argparse.Namespace) -> dict:
             "stage_receipt": str(output.with_suffix(".freevideo.json")),
             "elapsed_s": elapsed, "clip_sha256": result["clip_sha256"],
             "history_warning": history_warning, "human_approved": False, "published": False}
+
+
+def run(args: argparse.Namespace) -> dict:
+    """Permit only one explicitly authorized GPU job per device and worker."""
+    if args.command in ("preview", "final"):
+        if not args.execute or not args.accept_model_license:
+            raise Blocked("Generation requires BOTH --execute and --accept-model-license")
+        with device_lease(args.device):
+            return _run_unlocked(args)
+    return _run_unlocked(args)
 
 
 def main(argv=None) -> int:
