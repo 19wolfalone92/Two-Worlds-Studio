@@ -1,0 +1,6 @@
+2026-11-23
+kernel=wolf19loner92/studio-native-man-wave-81a7215251acc6b
+reuse_original_private_reference=true
+root_cause=ModuleNotFoundError-studio_wave_native_t4_profile
+fix=restore-studio.eb01_native_t4_profile
+strict_no_gpu_fake=true
