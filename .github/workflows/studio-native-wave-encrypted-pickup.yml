@@ -1,0 +1,39 @@
+name: STUDIO Private Native Wave — encrypted result pickup only
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths:
+      - "ops/studio_wave_native_result_*.twenc"
+permissions:
+  contents: read
+jobs:
+  sealed_video_pickup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify envelope is encrypted and bound to immutable user reference
+        run: |
+          python - <<'PY'
+          import glob,json,hashlib
+          from pathlib import Path
+          names=glob.glob('ops/studio_wave_native_result_*.twenc')
+          assert len(names)==1, 'Ambiguous encrypted GPU result, fail closed'
+          path=Path(names[0]);blob=path.read_bytes()
+          assert 10000 < len(blob) <= 150_020_000 and blob.startswith(b'TWSEALED1\n')
+          n=int.from_bytes(blob[10:14],'big')
+          assert 30<n<16000
+          header=json.loads(blob[14:14+n])
+          assert header['context']=={'purpose':'studio-native-wave-output','schema':1,
+            'source_sha256':'379d772afa4b7f1448b0881d84631776329ecf1d670ac8da9b5701f2ea5edc72'}
+          assert header['schema']==1
+          print('STUDIO_NATIVE_OUTPUT_AUTHENTICATED_ENCRYPTED_BUNDLE_PRESENT',
+                'sealed_bytes',len(blob),'encrypted_sha256',hashlib.sha256(blob).hexdigest())
+          PY
+      - name: Carry ciphertext ONLY, no video is published or unencrypted
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-wave-native-user-sealed-result
+          path: ops/studio_wave_native_result_*.twenc
+          compression-level: 0
+          retention-days: 2
