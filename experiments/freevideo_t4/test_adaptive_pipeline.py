@@ -301,7 +301,12 @@ class ExecutionAndTelemetryTests(unittest.TestCase):
             self.assertFalse(result["human_approved"])
             self.assertTrue(Path(result["stage_receipt"]).exists())
             self.assertEqual(module.summary(Path(args.history))["successful_runs"], 1)
-            self.assertEqual(json.loads(Path(result["stage_receipt"]).read_text())["stage"], "preview")
+            receipt = json.loads(Path(result["stage_receipt"]).read_text())
+            self.assertEqual(receipt["stage"], "preview")
+            self.assertEqual(len(receipt["operator_weights_components"]), 3)
+            self.assertTrue(all(len(item["sha256"]) == 64 for item in receipt["operator_weights_components"]))
+            self.assertFalse(receipt["publisher_signature_verified"])
+            self.assertEqual(receipt["cpu_temporal_qc"]["artistic_quality"], "NOT_VERIFIED")
 
     def test_failed_history_append_does_not_erase_confirmed_generated_video(self):
         with tempfile.TemporaryDirectory() as temp:
