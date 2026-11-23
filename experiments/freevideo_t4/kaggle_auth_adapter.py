@@ -91,9 +91,32 @@ def check_quota(env=None, runner=subprocess.run) -> dict:
             "gpu_launched": False, "published": False}
 
 
+def check_kernels_list(env=None, runner=subprocess.run) -> dict:
+    """Single read-only authenticated Kaggle kernels-list query, no item names."""
+    mode, safe_env = token_environment(dict(os.environ if env is None else env))
+    cmd = ["kaggle", "kernels", "list", "--mine", "--page-size", "1", "--format", "json"]
+    try:
+        result = runner(cmd, env=safe_env, text=True, capture_output=True,
+                        timeout=65, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise KaggleAuthBlocked("KAGGLE_CLI_UNAVAILABLE_OR_TIMED_OUT") from exc
+    if result.returncode:
+        raise KaggleAuthBlocked(
+            "KAGGLE_" + diagnose_error((result.stderr or "") + "\n" + (result.stdout or "")))
+    try:
+        data = json.loads(result.stdout)
+    except (ValueError, UnicodeError) as exc:
+        raise KaggleAuthBlocked("KAGGLE_KERNELS_RESPONSE_INVALID_JSON") from exc
+    if not isinstance(data, (list, dict)):
+        raise KaggleAuthBlocked("KAGGLE_KERNELS_RESPONSE_INVALID_SHAPE")
+    return {"status": "API_AUTHENTICATED_PRIVATE_KERNELS_READ_ONLY",
+            "credential_format": mode, "gpu_launched": False,
+            "private_kernel_details": "NOT_LOGGED", "published": False}
+
+
 def main() -> int:
     try:
-        status = check_quota()
+        status = check_kernels_list()
         code = 0
     except KaggleAuthBlocked as exc:
         status, code = {"status": "BLOCKED", "category": str(exc),
