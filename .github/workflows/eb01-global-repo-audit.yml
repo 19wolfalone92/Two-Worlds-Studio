@@ -1,5 +1,8 @@
 name: EB01 — global studio audit and full repository regression, zero GPU
 on:
+  pull_request:
+    branches: [feature/eb01-audio-driven-actors-20261120]
+    paths: ['studio/**', 'tools/**', 'tests/**', 'pyproject.toml', '.github/workflows/eb01-global-repo-audit.yml']
   push:
     branches: ["fix/eb01-s02-private-raw-preservation-20261113"]
     paths: [ops/eb01_global_deep_audit.trigger]
@@ -27,6 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m compileall -q studio tools tests
+          ruff check --select E9,F63,F7,F82 studio tools tests
           echo EB01_AUDIT_FULL_SOURCE_SYNTAX_PASS
       - name: Run entire existing test suite, preserve actual failures
         shell: bash

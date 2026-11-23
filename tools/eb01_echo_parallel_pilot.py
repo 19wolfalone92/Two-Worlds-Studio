@@ -37,6 +37,7 @@ def verify_slot(folder,spec,revision):
     from studio.comfy_neural import _probe
     from studio.eb01_motion_artifact_gate import inspect_clip
     from tools.eb01_native_pixel_evidence import decoded_pixel_evidence
+    from tools.eb01_echo_lossless_assembly import rgb_frame_hashes
     video=folder/'EB01_ECHO_RUSSIAN_NATIVE.mp4';result={'technical_pass':False,'actual_mp4_created':video.is_file(),
         'shot':spec['shot'],'physical_gpu_index':spec['physical_gpu_index'],'quality_approved':False}
     if not video.is_file():return result
@@ -45,22 +46,34 @@ def verify_slot(folder,spec,revision):
     qc=inspect_clip(video,expected_fps=25)
     segs=proof.get('segments',[])
     clock_ok=len(segs)==len(spec['segment_frames']);chain_ok=clock_ok
+    expected_pixels = []
+    offset = 0
     for i,(seg,frames) in enumerate(zip(segs,spec['segment_frames'])):
         source=folder/('SEGMENT_'+str(i)+'_NATIVE.mp4')
         tail=folder/('SEGMENT_'+str(i)+'_DECODED_TAIL.png')
-        if (seg.get('actual_native_tensor_shape')!=[1,3,frames,1024,576] or
+        if (seg.get('index') != i or seg.get('start_scene_frame') != offset or
+            seg.get('audio_conditioning_embeddings_shape') != [1, frames, 5, 12, 768] or
+            seg.get('actual_native_tensor_shape')!=[1,3,frames,1024,576] or
             seg.get('native_frames')!=frames or seg.get('mp4_sha256')!=hashlib.sha256(source.read_bytes()).hexdigest() or
             seg.get('next_conditioning_png_sha256')!=hashlib.sha256(tail.read_bytes()).hexdigest()):clock_ok=False
         segment_meta=_probe(source)
         if (segment_meta['frames']!=frames or segment_meta['fps']!='25' or
             segment_meta['width']!=576 or segment_meta['height']!=1024):clock_ok=False
-        raw=subprocess.check_output(['ffmpeg','-v','error','-i',str(source),'-vf',
-            f'select=eq(n\\,{frames-1})','-vsync','0','-pix_fmt','rgb24','-f','rawvideo','-'],timeout=60)
+        source_pixels = rgb_frame_hashes(source)
+        if len(source_pixels) != frames:
+            clock_ok = False
+        expected_pixels.extend(source_pixels[1:] if i else source_pixels)
         from PIL import Image
         with Image.open(tail) as im:
-            if im.size!=(576,1024) or im.convert('RGB').tobytes()!=raw:chain_ok=False
-        if hashlib.sha256(raw).hexdigest()!=seg.get('last_decoded_rgb_sha256'):chain_ok=False
-        if i and seg.get('conditioning_png_sha256')!=segs[i-1].get('next_conditioning_png_sha256'):chain_ok=False
+            tail_rgb = hashlib.sha256(im.convert('RGB').tobytes()).hexdigest()
+            if im.size != (576, 1024) or im.format != 'PNG':
+                chain_ok = False
+        if not source_pixels or tail_rgb != source_pixels[-1] or tail_rgb != seg.get('last_decoded_rgb_sha256'):
+            chain_ok = False
+        previous = segs[i - 1].get('next_conditioning_png_sha256') if i else proof.get('first_reference_sha256')
+        if not previous or seg.get('conditioning_png_sha256') != previous:
+            chain_ok = False
+        offset += frames - 1
     audio=json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','a:0','-show_entries',
         'stream=duration,sample_rate','-of','json',str(video)],timeout=45))['streams']
     checks={'native_geometry':meta['width']==576 and meta['height']==1024,
@@ -70,6 +83,9 @@ def verify_slot(folder,spec,revision):
         'pinned_upstream':proof.get('upstream_revision')==UPSTREAM_SHA,
         'profile':proof.get('profile')==spec['profile'],
         'canonical_prompt':proof.get('prompt_sha256')==spec['prompt_sha256'],
+        'requested_take':all(proof.get(k) == spec[k] for k in ('shot','account_alias','seed','segment_frames')),
+        'final_matches_ordered_segment_pixels': (len(expected_pixels) == spec['frames'] and
+            hashlib.sha256(''.join(expected_pixels).encode()).hexdigest() == pixels['decoded_frame_hash_chain_sha256']),
         'native_steps':proof.get('steps')==spec['steps'],
         'audio_is_actual_model_input':proof.get('audio_is_model_input') is True,
         'canonical_actor':proof.get('actor')==spec['actor'] and proof.get('portrait_sha256')==spec['portrait_sha256'],
@@ -81,8 +97,16 @@ def verify_slot(folder,spec,revision):
         'exact_overlap_count':proof.get('overlap_frames_discarded')==len(segs)-1,
         'text_encoder_released':proof.get('precomputed_text_encoder_released_before_inference') is True,
         'no_upscale_or_fabricated_frames':proof.get('source_video_upscaled') is False and proof.get('synthetic_frames')==0}
+    if 'encoded_dialogue_clock' in proof:
+        from math import isfinite
+        clock = proof['encoded_dialogue_clock']
+        offset_ms = clock.get('offset_ms') if isinstance(clock, dict) else None
+        checks['source_waveform_within_one_frame'] = (type(offset_ms) in (float, int) and
+            isfinite(offset_ms) and abs(offset_ms) <= 1000 / spec['fps'] and clock.get('status') == 'PASS')
     if 'anatomy_controls' in spec:
         from studio.eb01_anatomy_profile import native_audio_mask_numpy
+        from studio.eb01_regional_motion import inspect_regions
+        result['regional_motion'] = inspect_regions(video, spec['shot'])
         checks['native_anatomy_controls_applied']=proof.get('anatomy_controls')==spec['anatomy_controls']
         checks['independent_spatial_mask_bytes']=all(seg.get('spatial_audio_mask_shape')==list(native_audio_mask_numpy(spec,n).shape) and
             seg.get('spatial_audio_mask_sha256')==hashlib.sha256(native_audio_mask_numpy(spec,n).tobytes()).hexdigest()

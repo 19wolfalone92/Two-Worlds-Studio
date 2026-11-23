@@ -76,6 +76,9 @@ def run_engine(engine: str, arguments: list[str], *,
 def make_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="two-worlds", description=__doc__)
     sub = p.add_subparsers(dest="command", required=True)
+    motion = sub.add_parser("shot-motion", help="Measure hands, skull and camera in the reviewed EB01 crops")
+    motion.add_argument("--shot", choices=("S01", "S06"), required=True)
+    motion.add_argument("--video", type=Path, required=True)
     sub.add_parser("doctor", help="Offline dependency and configuration inventory")
     con = sub.add_parser("validate", help="Pydantic structural preflight (no generation)")
     con.add_argument("--kind", choices=("episode", "visual_bible", "identities"), required=True)
@@ -145,6 +148,12 @@ def main(argv: list[str] | None = None) -> int:
                              cache=args.cache, quality_check=True)
         except (ValueError, OSError, RuntimeError, subprocess.SubprocessError) as exc:
             result = {"status": "BLOCKED", "reason": str(exc), "published": False}
+    elif args.command == "shot-motion":
+        from studio.eb01_regional_motion import inspect_regions
+        try:
+            result = inspect_regions(args.video, args.shot)
+        except (ValueError, RuntimeError, OSError, ImportError, subprocess.SubprocessError) as exc:
+            result = {"status": "BLOCKED", "reason": str(exc)}
     elif args.command == "voice-plan":
         from studio.voice_engine import VoiceRequest, route, execute
         text = args.text if args.text is not None else args.text_file.read_text(encoding="utf-8")

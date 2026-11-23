@@ -27,3 +27,27 @@ class LosslessAssemblyTests(unittest.TestCase):
    self.assertTrue(all(view['checks'].values()))
    self.assertFalse(view['review_is_lossless'])
    self.assertEqual(view['codec']['profile'],'High')
+
+ def test_failed_verification_leaves_destination_available_for_retry(self):
+  from unittest.mock import patch
+  from tools.eb01_echo_lossless_assembly import join_video
+  with tempfile.TemporaryDirectory() as temp:
+   root=Path(temp)
+   segments=[]
+   for i in range(2):
+    video=root/f'segment{i}.mp4'
+    subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i',
+      'testsrc2=size=288x512:rate=25:duration=0.52','-vf','hue=h='+str(i*45),
+      '-c:v','libx264','-pix_fmt','yuv420p',str(video)],check=True,timeout=30)
+    segments.append(video)
+   out=root/'joined.mp4'
+   from tools import eb01_echo_lossless_assembly as assembly
+   real_hashes=assembly.rgb_frame_hashes
+   def changed_after_encoding(path):
+    return ['a'*64] if path.name=='joined.mp4' else real_hashes(path)
+   with patch.object(assembly,'rgb_frame_hashes',side_effect=changed_after_encoding):
+    with self.assertRaisesRegex(ValueError,'changed decoded'):
+     join_video(segments,out)
+   self.assertFalse(out.exists())
+   self.assertFalse(out.with_suffix('.receipt.json').exists())
+   self.assertTrue(join_video(segments,out)['checks']['every_native_rgb_frame_identical'])

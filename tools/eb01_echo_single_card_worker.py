@@ -158,11 +158,15 @@ def run(config,slot):
         subprocess.run(['ffmpeg','-v','error','-i',str(joined),'-i',str(voice),'-map','0:v:0','-map','1:a:0',
             '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-af','apad','-t',str(duration),
             '-video_track_timescale','25','-movflags','+faststart',str(final)],check=True,capture_output=True,timeout=90)
+        from studio.delivery_qc import dialogue_clock
+        clock = dialogue_clock(final, [{'dialogue_text': True, 'voice': voice, 'start': 0., 'voice_offset': 0.}], 25)[0]
+        if clock['status'] != 'PASS':
+            raise ValueError('Muxed AAC does not match the canonical Russian speech clock')
         resources=finish();finish=lambda:None
         receipt={**spec,'schema':1,'studio_revision':cfg['studio_revision'],'upstream_revision':cfg['upstream_revision'],
             'source_patch_sha256':patch,'first_reference_sha256':first_reference_sha,'text_context_sha256':sha(text_path),
             'precomputed_text_encoder_released_before_inference':True,'model_weights_sha256':hashes,
-            'original_voice_sha256':sha(voice),'original_voice_truncated':False,'segments':segments,
+            'original_voice_sha256':sha(voice),'original_voice_truncated':False,'encoded_dialogue_clock':clock,'segments':segments,
             'lossless_native_join_verification':join_proof,
             'audio_conditioning_embeddings_shape':list(acoustic.shape),'mp4_sha256':sha(final),
             'native_inference_seconds':round(native_seconds,3),

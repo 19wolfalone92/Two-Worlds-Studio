@@ -8,6 +8,7 @@ import argparse,hashlib,json,re,subprocess,tempfile
 from pathlib import Path
 from studio.comfy_neural import _probe
 from studio.eb01_v8_private_mux import safe_private_path
+from studio.media_output import staged_media
 
 
 def sha(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -32,8 +33,11 @@ def audio_packet_hashes(video):
 
 
 def join_video(segments,output):
-    output=safe_private_path(Path(output))
-    if output.exists():raise FileExistsError('Never overwrite original native video')
+    with staged_media(safe_private_path(Path(output)), receipt=False) as staged:
+        return _join_video(segments, staged)
+
+
+def _join_video(segments, output):
     if len(segments)<2:raise ValueError('At least two authentic native segments required')
     metas=[_probe(Path(p)) for p in segments];first=metas[0]
     if any(m['fps']!='25' or m['width']!=first['width'] or m['height']!=first['height'] for m in metas):
@@ -63,9 +67,11 @@ def join_video(segments,output):
 
 
 def assemble(segments,audio_source,output):
-    output=safe_private_path(Path(output))
-    if output.exists():raise FileExistsError('Never overwrite original native video')
-    output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with staged_media(safe_private_path(Path(output)), receipt=True) as staged:
+        return _assemble(segments, audio_source, staged)
+
+
+def _assemble(segments, audio_source, output):
     with tempfile.TemporaryDirectory(dir=output.parent,prefix='lossless-native-join-') as temp:
         silent=Path(temp)/'silent.mp4';joined=join_video(segments,silent)
         n=joined['probe']['frames']
@@ -98,9 +104,12 @@ def export_review(master,output):
     This explicit viewing copy is measured against that master, never
     described as lossless or counted as a new neural generation.
     """
-    output=safe_private_path(Path(output))
-    if output.exists():raise FileExistsError('Do not overwrite an original native render')
-    meta=_probe(Path(master));output.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    with staged_media(safe_private_path(Path(output)), receipt=True) as staged:
+        return _export_review(master, staged)
+
+
+def _export_review(master, output):
+    meta=_probe(Path(master))
     subprocess.run(['ffmpeg','-v','error','-i',str(master),'-map','0:v:0','-map','0:a:0',
         '-c:v','libx264','-crf','5','-preset','slow','-profile:v','high','-level:v','4.1',
         '-pix_fmt','yuv420p','-c:a','copy','-video_track_timescale','25','-movflags','+faststart',str(output)],

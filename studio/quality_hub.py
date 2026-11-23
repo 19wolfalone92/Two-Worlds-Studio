@@ -6,6 +6,7 @@ source episodes or publish; optional ASR input requires a real transcript.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -76,7 +77,7 @@ def assess(video: Path, srt: Path, cover: Path, *,
         nonlocal blocked
         try:
             checks[name] = {"status": status, "details": fn()}
-        except (ValueError, FileNotFoundError, RuntimeError, OSError) as exc:
+        except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
             blocked = True
             # Never publish untrusted private file paths, content or remote errors.
             checks[name] = {"status": "blocked", "error_type": type(exc).__name__}

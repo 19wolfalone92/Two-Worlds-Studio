@@ -347,11 +347,13 @@ def check_manifest(data: dict, base: Path, *, master: bool = False) -> dict:
         if backend != "rig" and i2v is not None and not regions and not preserve_portrait:
             from studio.neural_motion import import_take
             try:
-                if not isinstance(i2v, dict) or set(i2v) != {"clip", "receipt"}:
+                if not isinstance(i2v, dict) or set(i2v) not in ({"clip", "receipt"}, {"clip", "receipt", "end_reference"}):
                     raise ValueError("I2V requires a clip and its worker receipt")
                 candidate = source(base, i2v["clip"], CLIPS)
                 proof = source(base, i2v["receipt"], {".json"})
-                motion_receipt = import_take(candidate, proof, reference, frames / fps)
+                end = source(base, i2v["end_reference"], IMAGES) if "end_reference" in i2v else None
+                motion_receipt = import_take(candidate, proof, reference, frames / fps, end_reference=end)
+                motion_inputs = [proof, end] if end else [proof]
                 media = candidate
                 kind = "i2v"
             except (ValueError, OSError, subprocess.SubprocessError):

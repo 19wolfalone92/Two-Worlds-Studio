@@ -5,7 +5,8 @@ must be rechecked by the authorized private execution process at reservation.
 Uncertain execution never expires into a new generation by itself.
 """
 from __future__ import annotations
-import hashlib,json,math,re,sqlite3
+import hashlib,json,math,os,re,sqlite3,tempfile
+from contextlib import closing
 from pathlib import Path
 from studio.eb01_echo_production_manifest import plan
 from studio.eb01_v8_private_mux import safe_private_path
@@ -40,10 +41,10 @@ class EchoLedger:
         ''')
         # Existing private checkpoints remain readable. Pending preparations
         # from the first schema have no reservations or spent GPU time.
-        if 'estimated_gpu_seconds' not in {r[1] for r in self.db.execute('PRAGMA table_info(jobs)')}:
-            self.db.execute('ALTER TABLE jobs ADD COLUMN estimated_gpu_seconds REAL')
         try:
             with self.transaction():
+                if 'estimated_gpu_seconds' not in {r[1] for r in self.db.execute('PRAGMA table_info(jobs)')}:
+                    self.db.execute('ALTER TABLE jobs ADD COLUMN estimated_gpu_seconds REAL')
                 for key,val in {'account':account,'manifest_sha256':self.manifest_sha,'profile':doc['engine_profile']}.items():
                     old=self.db.execute('SELECT value FROM metadata WHERE key=?',(key,)).fetchone()
                     if old and old[0]!=val:raise QueueBlocked('Immutable queue account or manifest changed')
@@ -147,9 +148,14 @@ class EchoLedger:
         destination=safe_private_path(destination)
         if destination.exists():raise FileExistsError('Never overwrite a durable queue checkpoint')
         destination.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
-        with sqlite3.connect(destination) as target:self.db.backup(target)
-        destination.chmod(0o600)
-        return hashlib.sha256(destination.read_bytes()).hexdigest()
+        with tempfile.TemporaryDirectory(dir=destination.parent) as temp:
+            staged = Path(temp)/'snapshot.sqlite'
+            with closing(sqlite3.connect(staged)) as target:
+                self.db.backup(target)
+            staged.chmod(0o600)
+            digest = hashlib.sha256(staged.read_bytes()).hexdigest()
+            os.link(staged, destination)
+        return digest
 
     def summary(self):
         return {'account_alias':self.account,'manifest_sha256':self.manifest_sha,
