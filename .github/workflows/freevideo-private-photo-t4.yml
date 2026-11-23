@@ -1,0 +1,124 @@
+name: FREEVIDEO — encrypted private photo to Kaggle T4 I2V (NO external AI)
+on:
+  push:
+    branches:
+      - research/freevideo-t4-adaptive-20261123
+    paths:
+      - 'experiments/freevideo_t4/private_transport/night-awakens.encrypted.json'
+permissions:
+  contents: read
+concurrency:
+  group: freevideo-single-private-t4-photo-job
+  cancel-in-progress: false
+
+jobs:
+  one-private-wan22-video:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      PYTHONUNBUFFERED: '1'
+      ENCRYPTED_PHOTO: experiments/freevideo_t4/private_transport/night-awakens.encrypted.json
+      JOB_NONCE: night-awakens-20261124-01
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install official Kaggle API client and local encryption dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}" || { echo 'KAGGLE_API_TOKEN_MISSING'; exit 2; }
+          python -m pip install -q 'kaggle==2.2.4' 'six>=1.16,<2' 'cryptography>=43,<48' 'Pillow>=10,<12'
+          kaggle kernels push --help > "$RUNNER_TEMP/freevideo_push_help.txt"
+          grep -q -- '--accelerator' "$RUNNER_TEMP/freevideo_push_help.txt"
+          echo 'FREEVIDEO_OFFICIAL_KAGGLE_CLI_GPU_SUBMISSION_AVAILABLE'
+      - name: Decrypt exact original photo only inside ephemeral GitHub runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m experiments.freevideo_t4.secure_transport decrypt \
+            "$ENCRYPTED_PHOTO" "$RUNNER_TEMP/freevideo_original.jpg"
+          test -s "$RUNNER_TEMP/freevideo_original.jpg"
+      - name: Resolve actual Kaggle username without printing account or secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+          echo 'FREEVIDEO_PRIVATE_UPLOAD_OWNER_RESOLVED'
+      - name: Construct one private T4-only Freevideo kernel (no public media)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiments/freevideo_t4/kaggle_private_job.py prepare \
+            --username "$KAGGLE_USERNAME" \
+            --nonce "$JOB_NONCE" \
+            --source "$RUNNER_TEMP/freevideo_original.jpg" \
+            --prompt 'Original man reclined in a wooden chair in teal blue and amber night lighting. Keep same face, plaid clothes, shoes and proportions. He slowly opens his eyes, breathes gently, moves fingers slightly and turns his head just a few degrees. Entire camera, chair, wall and surroundings remain completely stationary. Smooth lifelike motion and stable identity; no morphing, no cuts, no extra people.' \
+            --destination "$RUNNER_TEMP/freevideo_kaggle_input" \
+            --revision "$GITHUB_SHA" \
+            --seed 42 \
+            --accept-model-license
+          echo 'FREEVIDEO_PRIVATE_SOURCE_NOT_COMMITTED_TO_GITHUB'
+      - name: Submit exactly one neural preview to user's private Kaggle T4
+        id: submit
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/freevideo_kaggle_input" --accelerator NvidiaTeslaT4
+          echo 'FREEVIDEO_KAGGLE_PRIVATE_GPU_SUBMISSION_REQUESTED'
+      - name: Monitor private GPU inference; never mistake queue for finished video
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.kaggle_api poll \
+            --kernel "$KAGGLE_USERNAME/freevideo-hybrid-$(printf %s "$JOB_NONCE" | sha256sum | cut -c1-12)" \
+            --timeout 3300
+      - name: Download generated video privately; do not upload plaintext artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/freevideo_kaggle_result"
+          kaggle kernels output \
+            "$KAGGLE_USERNAME/freevideo-hybrid-$(printf %s "$JOB_NONCE" | sha256sum | cut -c1-12)" \
+            -p "$RUNNER_TEMP/freevideo_kaggle_result"
+          test -s "$RUNNER_TEMP/freevideo_kaggle_result/FREEVIDEO_PRIVATE_PREVIEW.zip"
+          test -s "$RUNNER_TEMP/freevideo_kaggle_result/freevideo_result.json"
+      - name: Encrypt returned media to user-controlled one-time public key
+        if: ${{ success() || failure() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="$RUNNER_TEMP/freevideo_kaggle_result/FREEVIDEO_PRIVATE_PREVIEW.zip"
+          if [[ ! -s "$ARCHIVE" ]]; then
+            echo 'NO_RESULT_ARCHIVE_TO_ENCRYPT'
+            exit 0
+          fi
+          python -m experiments.freevideo_t4.secure_transport seal-result \
+            "$ARCHIVE" "$ENCRYPTED_PHOTO" \
+            "$RUNNER_TEMP/freevideo_preview_result.encrypted.json"
+          echo 'ENCRYPTED_RESULT_READY_PLAINTEXT_NOT_EXPORTED'
+      - name: Upload ONLY encrypted neural output (safe even for public GitHub)
+        if: ${{ success() || failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: freevideo-night-awakens-encrypted-only
+          path: ${{ runner.temp }}/freevideo_preview_result.encrypted.json
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Verify real Freevideo/Wan2.2 GPU receipt and full decoded MP4
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffprobe > /dev/null || ! command -v ffmpeg > /dev/null; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg
+          fi
+          python experiments/freevideo_t4/kaggle_private_job.py verify \
+            --path "$RUNNER_TEMP/freevideo_kaggle_result" --nonce "$JOB_NONCE"
+          echo 'FREEVIDEO_REVIEW_REQUIRED_NOT_ARTISTICALLY_APPROVED'
