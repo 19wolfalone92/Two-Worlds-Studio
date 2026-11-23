@@ -16,6 +16,7 @@ import math
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import statistics
 import subprocess
@@ -305,6 +306,20 @@ def _video_probe(path: Path) -> dict:
     return result
 
 
+def _audit_decoded_video(path: Path, *, expected_sha256: str) -> dict:
+    """Independent full-frame CPU decode, not model/character/artistic proof."""
+    from quality_metrics import VideoRejected, audit_video
+    try:
+        report = audit_video(path)
+    except VideoRejected as exc:
+        raise Blocked(f"Full video decode/temporal QC failed: {exc}") from exc
+    if report.get("video_sha256") != expected_sha256:
+        raise Blocked("Video bytes changed between verified bridge receipt and CPU full decode")
+    if report.get("status") != "CPU_PIXEL_METRICS_ONLY" or report.get("artistic_quality") != "NOT_VERIFIED":
+        raise Blocked("Unexpected CPU pixel audit evidence classification")
+    return report
+
+
 def validate_review(review_path: Path, preview_video: Path, reference: Path,
                     *, prompt: str | None = None, seed: int | None = None) -> dict:
     """Bind human review to source, real clip, bridge receipt and our stage receipt.
@@ -459,6 +474,8 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
         weight_check = verify_weights_manifest(args.weights_manifest)
     except IntegrityBlocked as exc:
         raise Blocked(f"Private Wan weight integrity preflight failed: {exc}") from exc
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise Blocked("Full-frame video validation requires ffmpeg and ffprobe before GPU execution")
     stage = plan[args.command]
     # The local PyTorch probe does NOT prove ComfyUI is using the same device.
     # Deny when backend cannot corroborate GPU identity/index and total VRAM.
@@ -509,6 +526,7 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
             or not isinstance(from_bridge, dict)
             or any(from_bridge.get(k) != measured[k] for k in ("frames", "width", "height", "fps"))):
         raise Blocked(f"Generated video differs from planned geometry or Studio receipt: {output}")
+    pixel_quality = _audit_decoded_video(output, expected_sha256=result["clip_sha256"])
     elapsed = round(max(time.monotonic() - start, .001), 3)
     stage_proof = {
         "schema": 2, "stage": args.command, "backend": MODEL, "human_approved": False,
@@ -521,6 +539,13 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
         "prompt_sha256": hashlib.sha256(args.prompt.encode()).hexdigest(),
         "seed": args.seed, "geometry": dict(stage), "fps": 24,
         "hardware": asdict(hardware), "attestation": attestation,
+        "cpu_temporal_qc": {
+            "status": pixel_quality["status"],
+            "near_duplicate_pairs": pixel_quality["near_duplicate_pairs"],
+            "abrupt_pixel_change_pairs": pixel_quality["abrupt_pixel_change_pairs"],
+            "flags": pixel_quality["flags"],
+            "artistic_quality": pixel_quality["artistic_quality"],
+        },
         "elapsed_s": elapsed, "evidence": "REAL_BRIDGE_RECEIPT_NO_QUALITY_CLAIM"}
     # Do not re-render if a secondary proof write fails: MP4 already exists.
     _write_proof(output.with_suffix(".freevideo.json"), stage_proof)
