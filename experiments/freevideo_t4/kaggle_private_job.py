@@ -35,7 +35,10 @@ class KaggleBlocked(ValueError):
 
 def prepare_private_kernel(username: str, nonce: str, source: str | Path,
                            prompt: str, destination: str | Path, *,
-                           revision: str, seed: int = 42) -> dict:
+                           revision: str, seed: int = 42,
+                           accept_model_license: bool = False) -> dict:
+    if accept_model_license is not True:
+        raise KaggleBlocked("Explicit official model licence review is required")
     if not isinstance(username, str) or not ACCOUNT.fullmatch(username):
         raise KaggleBlocked("Invalid Kaggle username")
     if not isinstance(nonce, str) or not NONCE.fullmatch(nonce):
@@ -160,6 +163,7 @@ def main(argv=None) -> int:
     for key in ("username", "nonce", "source", "prompt", "destination", "revision"):
         a.add_argument("--" + key.replace("_", "-"), required=True)
     a.add_argument("--seed", type=int, default=42)
+    a.add_argument("--accept-model-license", action="store_true")
     b = cmd.add_parser("verify")
     b.add_argument("--path", required=True)
     b.add_argument("--nonce", required=True)
@@ -168,7 +172,8 @@ def main(argv=None) -> int:
         if v.cmd == "prepare":
             result = prepare_private_kernel(v.username, v.nonce, v.source,
                                             v.prompt, v.destination,
-                                            revision=v.revision, seed=v.seed)
+                                            revision=v.revision, seed=v.seed,
+                                            accept_model_license=v.accept_model_license)
         else:
             result = verify_private_result(v.path, v.nonce)
         code = 0
