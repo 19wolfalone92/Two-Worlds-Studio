@@ -112,10 +112,10 @@ class KagglePrivateJobTests(unittest.TestCase):
                 "visual_quality": "NOT_VERIFIED", "clip_sha256": digest,
                 "archive_sha256": module.sha256(arc)}
             (root / "freevideo_result.json").write_text(json.dumps(proof))
-            # A matching hash must not be reported as actual full-frame validation.
-            result = module.verify_private_result(root, nonce)
-            self.assertEqual(result["status"], "HASHES_MATCH_GPU_RECEIPTS_DECODE_NOT_VERIFIED")
-            self.assertEqual(result["actual_decoding"], "NOT_TESTED")
+            # Even matching fake bytes/hashes cannot be accepted as real
+            # ComfyUI provenance or full-frame decoded AI video.
+            with self.assertRaisesRegex(module.KaggleBlocked, "provenance mismatch"):
+                module.verify_private_result(root, nonce)
 
     def test_modified_kaggle_zip_bytes_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
