@@ -121,3 +121,18 @@ class RegionalMotionTests(unittest.TestCase):
             compare_paired_motion(specimen(3.18), {'shot': 'S06', 'decoded_frames': 88})
         self.assertEqual(compare_paired_motion(specimen(3.18), specimen(float('nan')))
                          ['conclusion'], 'INSUFFICIENT_EVIDENCE')
+
+    def test_apparent_skull_improvement_cannot_hide_a_floating_background(self):
+        def specimen(skull, camera, coverage=88):
+            return {'shot': 'S06', 'decoded_frames': 89, 'regions': {
+                'upper_skull': {'expected_comparisons': 88, 'measured_frames': 88,
+                                'initial_tracks': 24, 'p95_shape_residual_px': skull},
+                'background': {'expected_comparisons': 88, 'measured_frames': coverage,
+                               'initial_tracks': 24, 'p95_displacement_px': camera}}}
+        baseline = specimen(3.18, .23)
+        drift = compare_paired_motion(baseline, specimen(1.20, 4.50))
+        self.assertFalse(drift['numerically_improved'])
+        self.assertEqual(drift['camera_stability']['comparison'], 'CAMERA_DRIFT_OR_REGRESSION')
+        unknown = compare_paired_motion(baseline, specimen(1.20, .15, coverage=12))
+        self.assertEqual(unknown['conclusion'], 'INSUFFICIENT_EVIDENCE')
+        self.assertFalse(unknown['numerically_improved'])
