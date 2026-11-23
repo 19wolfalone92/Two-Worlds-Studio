@@ -1,0 +1,38 @@
+name: STUDIO Native Man Wave — no GPU preflight
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths:
+      - "tools/kaggle_studio_man_wave_native.py"
+      - ".github/workflows/studio-native-man-wave-cpu.yml"
+  pull_request:
+    paths:
+      - "tools/kaggle_studio_man_wave_native.py"
+      - ".github/workflows/studio-native-man-wave-cpu.yml"
+permissions:
+  contents: read
+jobs:
+  immutable_source_contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m py_compile tools/kaggle_studio_man_wave_native.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          s=Path('tools/kaggle_studio_man_wave_native.py').read_text()
+          ast.parse(s)
+          assert s.count('__STUDIO_WAVE_CONFIG_B64__')==1
+          assert s.count('__STUDIO_WAVE_IMAGE_B64__')==1
+          assert s.count('conditioning_media_paths=')==1
+          assert 'n=2:v=1:a=0' in s
+          assert 'real neural' not in s.lower() or 'gpu' in s.lower()
+          assert 'source_sha256' in s
+          assert 'torch.cuda.is_available()' in s
+          assert 'human_artistic_approved' in s
+          print('STUDIO_NATIVE_MAN_WAVE_ONLY_TRUE_GPU_ENGINE_PREFLIGHT_PASS')
+          PY
