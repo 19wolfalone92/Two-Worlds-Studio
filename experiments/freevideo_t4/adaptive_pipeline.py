@@ -532,6 +532,7 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
         "schema": 2, "stage": args.command, "backend": MODEL, "human_approved": False,
         "published": False, "weights_verified": bridge.get("weights_verified") is True,
         "operator_manifest_status": weight_check["status"],
+        "operator_weights_components": weight_check["components"],
         "publisher_signature_verified": False,
         "reference_sha256": reference_hash_before_gpu,
         "clip_sha256": result["clip_sha256"],
