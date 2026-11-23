@@ -95,5 +95,52 @@ class PolicyTests(unittest.TestCase):
             module._private_path(module.REPO_ROOT / "experiments" / "bad.mp4", must_exist=False)
 
 
+
+    def test_preview_exec_path_uses_existing_bridge_and_writes_real_metrics(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref, out, history = root / "reference.png", root / "take.mp4", root / "timing.jsonl"
+            ref.write_bytes(b"tiny fake reference for path testing")
+            hardware = module.Hardware("Tesla T4", "7.5", 16, 14, "detected_cuda")
+            args = module.argparse.Namespace(command="preview", execute=True,
+                accept_model_license=True, device=0, reference=str(ref), output=str(out),
+                prompt="A human character turns the shoulders naturally.",
+                seed=42, timeout=3600, host="http://127.0.0.1:8188",
+                history=str(history), review=None, preview_video=None)
+            def stand_in_bridge(cmd, **kwargs):
+                self.assertEqual(cmd[0:3], [sys.executable, "-m", "studio.comfy_neural"])
+                self.assertIn("--execute-local-gpu", cmd)
+                self.assertIn("--accept-model-license", cmd)
+                self.assertEqual(cmd[cmd.index("--width") + 1], "432")
+                out.write_bytes(b"stand-in mp4 bytes")
+                digest = hashlib.sha256(out.read_bytes()).hexdigest()
+                out.with_suffix(".receipt.json").write_text(json.dumps({"clip_sha256": digest}))
+                return module.subprocess.CompletedProcess(cmd, 0, json.dumps({
+                    "status": "GENERATED_REVIEW_REQUIRED", "human_approved": False,
+                    "clip_sha256": digest}), "")
+            with patch.object(module, "detect_hardware", return_value=hardware), patch.object(
+                    module.subprocess, "run", side_effect=stand_in_bridge):
+                result = module.run(args)
+            self.assertEqual(result["status"], "GENERATED_REVIEW_REQUIRED")
+            self.assertFalse(result["published"])
+            self.assertEqual(module.summary(history)["groups"][0]["count"], 1)
+
+    def test_final_prevents_gpu_without_private_human_review(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref = root / "source.png"
+            ref.write_bytes(b"fake reference")
+            args = module.argparse.Namespace(command="final", execute=True,
+                accept_model_license=True, device=0, reference=str(ref),
+                output=str(root / "final.mp4"), prompt="A careful character animation test.",
+                seed=0, timeout=3600, host="http://127.0.0.1:8188",
+                history=None, review=None, preview_video=None)
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                    "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                    module.subprocess, "run") as executable:
+                with self.assertRaisesRegex(module.Blocked, "Final requires"):
+                    module.run(args)
+                executable.assert_not_called()
+
 if __name__ == "__main__":
     unittest.main()
