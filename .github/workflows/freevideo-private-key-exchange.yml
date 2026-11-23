@@ -1,0 +1,31 @@
+name: FREEVIDEO — temporary encrypted private-photo transport key (NO GPU)
+on:
+  push:
+    branches:
+      - research/freevideo-t4-adaptive-20261123
+    paths:
+      - '.github/workflows/freevideo-private-key-exchange.yml'
+permissions:
+  contents: read
+jobs:
+  public-key-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Confirm existing token is configured, never reveal it
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}" || exit 2
+      - name: Install local crypto library only
+        run: python -m pip install -q 'cryptography>=43,<48'
+      - name: Export recipient PUBLIC key for encrypted photo transport
+        run: |
+          python -m experiments.freevideo_t4.secure_transport public-key
+          echo 'FREEVIDEO_PUBLIC_KEY_READY_NO_PHOTO_NO_GPU'
