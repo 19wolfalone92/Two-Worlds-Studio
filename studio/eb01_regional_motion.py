@@ -121,3 +121,57 @@ def inspect_regions(path: Path, shot: str) -> dict:
     return {'shot': shot, 'decoded_frames': count, 'regions': summary, 'review_flags': flags,
             'motion_screen_status': 'REVIEW_REQUIRED' if flags else 'METRIC_SCREEN_PASS_ONLY',
             'human_artistic_approved': False}
+
+
+def compare_paired_motion(control: dict, anchored: dict) -> dict:
+    """Compare matched A/B native pilots without mistaking tracking for anatomy proof.
+
+    Only comparable region measurements (>=90% measured frames in BOTH takes)
+    can establish numerical improvement. Missing tracks are not zero movement.
+    """
+    import math
+
+    if (not isinstance(control, dict) or not isinstance(anchored, dict)
+            or control.get('shot') != anchored.get('shot')
+            or control.get('shot') not in SHOTS
+            or control.get('decoded_frames') != anchored.get('decoded_frames')):
+        raise ValueError('A/B must use the same verified shot and native frame clock')
+    shot = control['shot']
+    metrics = {}
+    enough = True
+    improved = True
+    for region in SHOTS[shot]['anchors']:
+        a = control.get('regions', {}).get(region, {})
+        b = anchored.get('regions', {}).get(region, {})
+        values = []
+        for item in (a, b):
+            if not isinstance(item, dict):
+                values.append(None)
+                continue
+            frames = item.get('expected_comparisons')
+            measured = item.get('measured_frames')
+            p95 = item.get('p95_shape_residual_px')
+            tracks = item.get('initial_tracks')
+            if (type(frames) is not int or frames < 1 or
+                    type(measured) is not int or measured < .9 * frames or measured > frames or
+                    type(tracks) is not int or tracks < MIN_TRACKS or
+                    type(p95) not in (int, float) or not math.isfinite(p95) or p95 < 0):
+                values.append(None)
+                continue
+            values.append(float(p95))
+        if None in values:
+            enough = False
+            improved = False
+            metrics[region] = {'comparison': 'INSUFFICIENT_RELIABLE_TRACKING'}
+            continue
+        before, after = values
+        gain = round(before - after, 3)
+        meaningful = gain >= max(.25, .10 * before)
+        improved &= meaningful
+        metrics[region] = {'before_px': before, 'after_px': after, 'delta_px': gain,
+                           'comparison': 'NUMERICAL_GAIN' if meaningful else 'NO_MEASURABLE_GAIN'}
+    conclusion = ('INSUFFICIENT_EVIDENCE' if not enough else
+                  'NUMERICAL_GAIN_NOT_ANATOMY_APPROVAL' if improved else 'NO_RELIABLE_IMPROVEMENT')
+    return {'shot': shot, 'measured_regions': metrics, 'conclusion': conclusion,
+            'complete_tracking': enough, 'numerically_improved': enough and improved,
+            'human_artistic_approved': False, 'full_production_authorized': False}
