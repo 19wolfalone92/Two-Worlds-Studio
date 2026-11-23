@@ -147,6 +147,18 @@ def run(alias,token,root,run_id,revision,attempt,lock,poll_seconds=5100,*,anatom
                     try:results.append(verify_slot(output/('slot'+str(slot)),spec,revision))
                     except Exception as exc:results.append({'technical_pass':False,'error_type':type(exc).__name__,'slot':slot})
                 report['workers']=results
+                if anatomy:
+                    from studio.eb01_regional_motion import compare_paired_motion
+                    if len(results)==2 and all(isinstance(w.get('regional_motion'), dict) for w in results):
+                        report['paired_anatomy_metric'] = compare_paired_motion(
+                            results[0]['regional_motion'], results[1]['regional_motion']
+                        )
+                    else:
+                        report['paired_anatomy_metric'] = {
+                            'conclusion': 'INSUFFICIENT_EVIDENCE',
+                            'human_artistic_approved': False,
+                            'full_production_authorized': False,
+                        }
                 host=output/'EB01_ECHO_PARALLEL_HOST_SAFE.json'
                 telemetry=json.loads(host.read_text()) if host.is_file() else {}
                 report['host_and_both_device_measurement']={k:telemetry.get(k) for k in ('samples','host_used_peak_gib',
