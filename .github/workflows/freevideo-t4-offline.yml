@@ -4,11 +4,11 @@ on:
     branches:
       - research/freevideo-t4-adaptive-20261123
     paths:
-      - 'experiments/freevideo_t4/**'
+      - 'experiments/freevideo_t4/**/*.py'
       - '.github/workflows/freevideo-t4-offline.yml'
   pull_request:
     paths:
-      - 'experiments/freevideo_t4/**'
+      - 'experiments/freevideo_t4/**/*.py'
       - '.github/workflows/freevideo-t4-offline.yml'
 permissions:
   contents: read
