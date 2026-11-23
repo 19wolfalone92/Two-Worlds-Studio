@@ -4,3 +4,5 @@ source_only_encrypted=true
 fresh_neural_inference_required=true
 no_remaster_fallback=true
 no_public_reference=true
+
+retry_v2=fix_kaggle_six_and_fresh_ephemeral_transport
