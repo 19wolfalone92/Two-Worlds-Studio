@@ -1,0 +1,46 @@
+name: STUDIO LTX 2B — true pinned upstream source patch offline audit
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths:
+      - "tools/studio_wave_ltx_offline_audit.py"
+      - "tools/kaggle_studio_man_wave_native.py"
+      - ".github/workflows/studio-native-wave-ltx-source-audit.yml"
+  pull_request:
+    paths:
+      - "tools/studio_wave_ltx_offline_audit.py"
+      - "tools/kaggle_studio_man_wave_native.py"
+      - ".github/workflows/studio-native-wave-ltx-source-audit.yml"
+permissions:
+  contents: read
+jobs:
+  actual_original_ltx_source_compatibility_no_gpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      STUDIO_LTX_UPSTREAM_DIR: /tmp/studio-wave-ltx-official
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Mandatory CPU source imports, not syntax-only
+        run: |
+          set -euo pipefail
+          python -m pip -q install 'Pillow>=10,<12' 'numpy>=1.26,<3'
+          python -m py_compile tools/kaggle_studio_man_wave_native.py tools/studio_wave_ltx_offline_audit.py
+          python -m unittest tests.test_studio_wave_status_gate tests.test_studio_wave_collect_once -v
+      - name: Fetch exact official LTX Video upstream pinned source SHA WITHOUT model files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/Lightricks/LTX-Video.git "$STUDIO_LTX_UPSTREAM_DIR"
+          git -C "$STUDIO_LTX_UPSTREAM_DIR" fetch --depth=1 origin 50f0aef1297574a4b29acbdb874e3a363a6d5f2e
+          git -C "$STUDIO_LTX_UPSTREAM_DIR" checkout --detach 50f0aef1297574a4b29acbdb874e3a363a6d5f2e
+          test "$(git -C "$STUDIO_LTX_UPSTREAM_DIR" rev-parse HEAD)" = "50f0aef1297574a4b29acbdb874e3a363a6d5f2e"
+      - name: Apply EXACT production T4 CUDA-VAE source patch to official code offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.studio_wave_ltx_offline_audit
+          echo "STUDIO_UPSTREAM_PATCH_STATIC_AUDIT_NOT_ACTUAL_GPU_VIDEO"
