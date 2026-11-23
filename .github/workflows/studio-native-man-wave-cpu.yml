@@ -6,6 +6,8 @@ on:
       - "tools/kaggle_studio_man_wave_native.py"
       - "tools/studio_wave_status_gate.py"
       - "tests/test_studio_wave_status_gate.py"
+      - "tools/studio_wave_patch_queued_private.py"
+      - "tests/test_studio_wave_patch_queued_private.py"
       - ".github/workflows/studio-native-man-wave-cpu.yml"
   pull_request:
     paths:
@@ -23,7 +25,7 @@ jobs:
           python-version: "3.11"
       - run: |
           python -m py_compile tools/kaggle_studio_man_wave_native.py tools/studio_wave_status_gate.py tests/test_studio_wave_status_gate.py
-          python -m unittest tests.test_studio_wave_status_gate -v
+          python -m unittest tests.test_studio_wave_status_gate tests.test_studio_wave_collect_once tests.test_studio_wave_patch_queued_private -v
           python - <<'PY'
           from tools.studio_wave_status_gate import parse_state,classify
           assert classify(parse_state('KernelWorkerStatus.QUEUED'))['requires_later_readback']
