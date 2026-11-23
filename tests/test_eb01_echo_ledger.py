@@ -42,3 +42,28 @@ class EchoLedgerTests(unittest.TestCase):
    # Either job fits alone, but the two reservations cannot reuse one quota.
    with self.assertRaises(QueueBlocked):q.reserve(roots[1],'example-nonce-0002',physical_gpu_index=1,**kwargs)
    self.assertEqual(q.summary()['counts'],{'PENDING':14,'RESERVED':1});q.close()
+
+ def test_parallel_open_of_legacy_schema_and_snapshot_no_overwrite(self):
+  from concurrent.futures import ThreadPoolExecutor
+  from sqlite3 import connect
+  from threading import Barrier
+  with tempfile.TemporaryDirectory() as t:
+   root=Path(t); db=root/'ledger.sqlite'
+   EchoLedger(db,'owner').close()
+   with connect(db) as connection:
+    connection.execute('ALTER TABLE jobs DROP COLUMN estimated_gpu_seconds')
+   barrier=Barrier(2)
+   def compete():
+    barrier.wait()
+    q=EchoLedger(db,'owner')
+    try:
+     return q.snapshot(root/'snapshot.sqlite')
+    except FileExistsError:
+     return None
+    finally:
+     q.close()
+   with ThreadPoolExecutor(2) as pool:
+    results=list(pool.map(lambda _:compete(), range(2)))
+   self.assertEqual(sum(x is not None for x in results),1)
+   q=EchoLedger(root/'snapshot.sqlite','owner')
+   self.assertEqual(q.summary()['counts'],{'PENDING':15});q.close()

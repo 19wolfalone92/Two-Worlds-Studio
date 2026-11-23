@@ -31,23 +31,37 @@ def worker(config):
     import torch
     torch.set_num_threads(2)
     from studio.neural_motion import load_pipeline,render_clip,_json
+    def references(story, scene):
+        frames = Path(config['images'][story]) / 'images'
+        first = frames / f'scene_{scene:02d}.png'
+        end = frames / f'scene_{scene:02d}_end.png'
+        return first, end if end.is_file() else None
+    paired = any(references(story, scene)[1] for story, scene, _ in config['tasks'])
     pipe=load_pipeline(Path(config['model']),memory_mode=config.get('memory_mode','cpu_offload'),
-                       vae_tile=config.get('vae_tile',512))
+                       vae_tile=config.get('vae_tile',512), multi_keyframe=paired)
     _json(Path(config['ready']),{'model_loaded':True,'gpu_memory_pooled':False})
     state={'made':[],'errors':[],'gpu_memory_pooled':False,'reviewed':False}
     status=Path(config['status'])
     for story,scene,variant in config['tasks']:
         dest=OUT/f'motion_outputs/{story}/motion/scene_{scene:02d}_{variant:02d}.mp4'
         try:
+            first, end = references(story, scene)
+            embeddings = Path(config['embeddings']) / f'{story}_{scene:02d}.safetensors'
+            seed = int(story)*100000 + scene*100 + variant
             if dest.exists() and dest.with_suffix('.receipt.json').exists():
                 info=json.loads(dest.with_suffix('.receipt.json').read_text())
                 from studio.neural_motion import _digest
-                if info['sha256']!=_digest(dest):raise ValueError('Recovered motion checksum mismatch')
+                expected = {'sha256': _digest(dest), 'source_image_sha256': _digest(first),
+                            'end_image_sha256': _digest(end) if end else None,
+                            'embeddings_sha256': _digest(embeddings), 'seed': seed,
+                            'actual_neural_frames': config['frames'], 'width': config['width'],
+                            'height': config['height'], 'fps': 24}
+                if any(info.get(k) != v for k, v in expected.items()):
+                    raise ValueError('Cached take differs from requested inputs or lacks provenance')
                 info['reused']=True
             else:
-                info=render_clip(pipe,Path(config['embeddings'])/f'{story}_{scene:02d}.safetensors',
-                    Path(config['images'][story])/f'images/scene_{scene:02d}.png',dest,
-                    seed=int(story)*100000+scene*100+variant,width=config['width'],
+                info=render_clip(pipe,embeddings,first,dest,end_image=end,
+                    seed=seed,width=config['width'],
                     height=config['height'],frames=config['frames'])
             state['made'].append({'story':story,'scene':scene,'variant':variant,
                                  'independent_physical_card':config['physical_card'],**info})
@@ -62,7 +76,7 @@ def worker(config):
         gc.collect()
         try:ctypes.CDLL(None).malloc_trim(0)
         except AttributeError:pass
-    return 0
+    return 1 if state['errors'] else 0
 
 
 def save_motion_archives(stories):
@@ -91,8 +105,8 @@ def main():
         z.extractall(BASE)
     sys.path.insert(0,str(BASE))
     os.environ['HF_HUB_DISABLE_XET']='1'
-    subprocess.run([sys.executable,'-m','pip','install','-q','diffusers','transformers',
-                    'accelerate','safetensors','sentencepiece','imageio-ffmpeg'],check=True,timeout=1200)
+    subprocess.run([sys.executable,'-m','pip','install','-q','diffusers==0.35.2','transformers==4.49.0',
+                    'huggingface-hub==0.34.4','accelerate','safetensors','sentencepiece','imageio-ffmpeg'],check=True,timeout=1200)
     from studio.neural_motion import stage_weights,encode_directions,load_pipeline,render_clip,_json
     projects=[p for p in INPUT.rglob('project.json') if p.parent.name=='13'
               and p.parent.parent.name=='production_queue' and conf['dataset_slug'] in p.parts]
@@ -183,11 +197,13 @@ def main():
     save_motion_archives(conf['stories'])
     state['success']=len(state['errors'])==0 and len(state['made'])==len(conf['stories'])*conf['count']*conf.get('variants',1)
     _json(OUT/'batch_motion_status.json',state)
+    if not state['success']:
+        raise RuntimeError('One or more requested motion takes are missing or failed')
 
 
 if __name__=='__main__':
     try:
-        if len(sys.argv)==3 and sys.argv[1]=='--worker':worker(json.loads(Path(sys.argv[2]).read_text()))
+        if len(sys.argv)==3 and sys.argv[1]=='--worker':raise SystemExit(worker(json.loads(Path(sys.argv[2]).read_text())))
         else:main()
     except Exception as exc:
         (OUT/'batch_motion_failure.json').write_text(json.dumps({'success':False,'type':type(exc).__name__,

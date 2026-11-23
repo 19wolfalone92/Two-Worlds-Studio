@@ -15,10 +15,11 @@ class ParallelControllerTests(unittest.TestCase):
    self.assertNotEqual(*ids)
  def test_retry_only_collects_the_same_notebook_and_never_resubmits(self):
   with tempfile.TemporaryDirectory() as t,patch('tools.eb01_echo_parallel_pilot.query',return_value=('AUTHENTICATED_READ_ONLY','exampleuser')):
-   with patch('tools.eb01_echo_parallel_pilot.call',side_effect=[QUOTA,PilotBlocked('STOP_TEST')]) as api:
+   with patch('tools.eb01_echo_parallel_pilot.call',side_effect=[PilotBlocked('STOP_TEST')]) as api:
     result=run('owner','private',Path(t),'1234567','a'*40,2,{})
    self.assertEqual(result['gpu_submission_attempts'],0)
-   self.assertTrue(all('push' not in call.args[1] for call in api.call_args_list))
+   self.assertEqual(api.call_args.args[1][1:3], ['kernels','status'])
+   self.assertEqual(api.call_count,1)
  def test_uncertain_push_is_not_automatically_attempted_twice(self):
   with tempfile.TemporaryDirectory() as t,patch('tools.eb01_echo_parallel_pilot.query',return_value=('AUTHENTICATED_READ_ONLY','exampleuser')):
    with patch('tools.eb01_echo_parallel_pilot.call',side_effect=[QUOTA,PilotBlocked('CLI_UNAVAILABLE_OR_TIMEOUT')]) as api:

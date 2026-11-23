@@ -44,12 +44,13 @@ def run(config,slot):
     from PIL import Image
     from safetensors.torch import load_file
     import imageio.v2 as imageio
-    from studio.eb01_echo_parallel_profile import specs,upgrade_precomputed
+    from studio.eb01_echo_parallel_profile import upgrade_precomputed
+    from studio.eb01_anatomy_profile import select_specs,patch_anatomy,native_audio_mask_numpy,constrain_reference
     from studio.eb01_echo_profile import patch_upstream
     from studio.eb01_v7_storyboard import gather_private
     from tools.eb01_echo_native_infer import sha,make_native_reference
     from tools.eb01_resource_sampler import start
-    cfg=json.loads(Path(config).read_text());spec=specs(cfg['account_alias'])[slot]
+    cfg=json.loads(Path(config).read_text());spec=select_specs(cfg)[slot]
     if torch.cuda.device_count()!=1 or os.environ.get('CUDA_VISIBLE_DEVICES')!=str(slot):
         raise RuntimeError('Worker must see exactly its one assigned physical GPU')
     root=Path(cfg['work']);work=root/('worker'+str(slot));work.mkdir(exist_ok=True)
@@ -57,7 +58,9 @@ def run(config,slot):
     runtime=work/'runtime'
     import shutil
     shutil.copytree(cfg['runtime'],runtime)
-    patch_upstream(runtime);patch=upgrade_precomputed(runtime);sys.path.insert(0,str(runtime))
+    patch_upstream(runtime);patch=upgrade_precomputed(runtime)
+    if 'anatomy_controls' in spec:patch=patch_anatomy(runtime)
+    sys.path.insert(0,str(runtime))
     finish=start(str(out/'EB01_ECHO_RESOURCES_SAFE.json'));started=time.monotonic()
     try:
         print('EB01_STAGE_BEGIN_MODEL_LOAD',flush=True)
@@ -86,14 +89,19 @@ def run(config,slot):
         indices=(torch.arange(spec['frames'])[:,None]+(torch.arange(5)-2)[None,:]).clamp(0,spec['frames']-1)
         acoustic=acoustic[indices][None].half().contiguous()
         del enc,ext,features,encoded;gc.collect()
-        text_path=root/'text-contexts'/(spec['shot']+'.safetensors')
-        context=json.loads((root/'text-contexts'/(spec['shot']+'.json')).read_text())
+        key=spec.get('context_key',spec['shot']);text_path=root/'text-contexts'/(key+'.safetensors')
+        context=json.loads((root/'text-contexts'/(key+'.json')).read_text())
         if (sha(text_path)!=context['embeddings_sha256'] or context['prompt_sha256']!=spec['prompt_sha256'] or
             context['source_revision']!=cfg['studio_revision']):raise ValueError('Precomputed text context mismatch')
         prompt=load_file(str(text_path))['prompt_embeds'].to('cuda:0')
         if not torch.isfinite(prompt).all():raise ValueError('Invalid precomputed text embeddings')
         reference=work/'native-reference.png';make_native_reference(Path('/kaggle/input'),reference,spec)
         first_reference_sha=sha(reference)
+        canonical_frame = None
+        if spec.get('anatomy_controls', {}).get('static_reference_boxes_xyxy'):
+            with Image.open(reference) as original:
+                array = np.array(original.convert('RGB'))
+            canonical_frame = torch.from_numpy(array).permute(2, 0, 1)[None, :, None].float() / 255
         pipeline=load_vision(root/'models/base',root/'models/flash/echomimicv3-flash-pro',runtime)
         from src.utils import get_image_to_video_latent2
         (out/'WORKER_MODEL_READY_SAFE.json').write_text(json.dumps({'slot':slot,'model_ready':True}))
@@ -103,6 +111,11 @@ def run(config,slot):
             input_sha=sha(reference)
             image=Image.open(reference).convert('RGB')
             video,mask,clip_image=get_image_to_video_latent2(image,None,frames,[1024,576])
+            spatial_audio=None
+            if 'anatomy_controls' in spec:
+                if canonical_frame is not None:
+                    constrain_reference(video, mask, canonical_frame, spec)
+                spatial_audio = torch.from_numpy(native_audio_mask_numpy(spec, frames)).to('cuda:0')
             checkpoint=out/('SEGMENT_'+str(index)+'_LATENTS.safetensors')
             os.environ['EB01_ECHO_LATENT_CHECKPOINT']=str(checkpoint)
             embeddings=acoustic[:,offset:offset+frames].to('cuda:0')
@@ -111,10 +124,10 @@ def run(config,slot):
             with torch.inference_mode():
                 sample=pipeline(prompt=None,prompt_embeds=prompt,negative_prompt_embeds=prompt,
                     negative_prompt=None,num_frames=frames,audio_embeds=embeddings,audio_scale=1.,
-                    ip_mask=None,use_un_ip_mask=False,height=1024,width=576,
+                    ip_mask=spatial_audio,use_un_ip_mask=False,height=1024,width=576,
                     generator=torch.Generator(device='cuda:0').manual_seed(spec['seed']+index),
                     neg_scale=1.,neg_steps=0,use_dynamic_cfg=False,use_dynamic_acfg=False,
-                    guidance_scale=6.,audio_guidance_scale=3.,num_inference_steps=8,
+                    guidance_scale=6.,audio_guidance_scale=spec.get('anatomy_controls',{}).get('audio_guidance_scale',3.),num_inference_steps=8,
                     video=video,mask_video=mask,clip_image=clip_image,cfg_skip_ratio=0.,shift=5.).videos
             segment_seconds=time.monotonic()-segment_started;native_seconds+=segment_seconds
             shape=list(sample.shape)
@@ -131,9 +144,11 @@ def run(config,slot):
                 'native_inference_seconds':round(segment_seconds,3),
                 'start_scene_frame':offset,'audio_conditioning_embeddings_shape':list(embeddings.shape),
                 'conditioning_png_sha256':input_sha,'mp4_sha256':sha(target),
-                'last_decoded_rgb_sha256':tail_rgb_sha,'next_conditioning_png_sha256':sha(tail)})
+                'last_decoded_rgb_sha256':tail_rgb_sha,'next_conditioning_png_sha256':sha(tail),
+                'spatial_audio_mask_sha256':hashlib.sha256(spatial_audio.detach().cpu().numpy().tobytes()).hexdigest() if spatial_audio is not None else None,
+                'spatial_audio_mask_shape':list(spatial_audio.shape) if spatial_audio is not None else None})
             reference=tail;offset+=frames-1
-            del sample,pixels,embeddings,video,mask;gc.collect();torch.cuda.empty_cache()
+            del sample,pixels,embeddings,video,mask,spatial_audio;gc.collect();torch.cuda.empty_cache()
         joined=out/'EB01_ECHO_NATIVE_SILENT.mp4';join_proof=None
         if len(segments)==1:shutil.copy2(out/'SEGMENT_0_NATIVE.mp4',joined)
         else:
@@ -143,11 +158,15 @@ def run(config,slot):
         subprocess.run(['ffmpeg','-v','error','-i',str(joined),'-i',str(voice),'-map','0:v:0','-map','1:a:0',
             '-c:v','copy','-c:a','aac','-b:a','192k','-ar','48000','-af','apad','-t',str(duration),
             '-video_track_timescale','25','-movflags','+faststart',str(final)],check=True,capture_output=True,timeout=90)
+        from studio.delivery_qc import dialogue_clock
+        clock = dialogue_clock(final, [{'dialogue_text': True, 'voice': voice, 'start': 0., 'voice_offset': 0.}], 25)[0]
+        if clock['status'] != 'PASS':
+            raise ValueError('Muxed AAC does not match the canonical Russian speech clock')
         resources=finish();finish=lambda:None
         receipt={**spec,'schema':1,'studio_revision':cfg['studio_revision'],'upstream_revision':cfg['upstream_revision'],
             'source_patch_sha256':patch,'first_reference_sha256':first_reference_sha,'text_context_sha256':sha(text_path),
             'precomputed_text_encoder_released_before_inference':True,'model_weights_sha256':hashes,
-            'original_voice_sha256':sha(voice),'original_voice_truncated':False,'segments':segments,
+            'original_voice_sha256':sha(voice),'original_voice_truncated':False,'encoded_dialogue_clock':clock,'segments':segments,
             'lossless_native_join_verification':join_proof,
             'audio_conditioning_embeddings_shape':list(acoustic.shape),'mp4_sha256':sha(final),
             'native_inference_seconds':round(native_seconds,3),

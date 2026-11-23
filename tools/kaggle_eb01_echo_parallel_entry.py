@@ -26,8 +26,9 @@ def main():
         command(['git','-C',str(studio),'checkout','--detach',cfg['revision']],40)
         sys.path.insert(0,str(studio))
         from studio.eb01_echo_profile import UPSTREAM,UPSTREAM_SHA
-        from studio.eb01_echo_parallel_profile import PROFILE
-        if cfg['profile']!=PROFILE or cfg['upstream_revision']!=UPSTREAM_SHA:raise ValueError('Wrong pinned model profile')
+        from studio.eb01_anatomy_profile import select_specs
+        select_specs(cfg)
+        if cfg['upstream_revision']!=UPSTREAM_SHA:raise ValueError('Wrong pinned model profile')
         command(['git','clone','--depth','1',UPSTREAM,str(runtime)],180)
         command(['git','-C',str(runtime),'fetch','--depth','1','origin',UPSTREAM_SHA],120)
         command(['git','-C',str(runtime),'checkout','--detach',UPSTREAM_SHA],40)
@@ -53,5 +54,6 @@ def main():
             'status':'PRIVATE_PARALLEL_BENCHMARK_FAILED','error_type':type(exc).__name__,
             'whole_movie_approved':False,'success':False}))
         print('EB01_PARALLEL_PRIVATE_FAILURE',type(exc).__name__,flush=True)
+        raise SystemExit(1) from None
 
 if __name__=='__main__':main()

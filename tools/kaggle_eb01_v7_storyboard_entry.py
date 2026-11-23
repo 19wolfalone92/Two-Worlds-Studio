@@ -3,6 +3,12 @@ import json
 import traceback
 from pathlib import Path
 
+# Kaggle assembles this file after the standalone storyboard implementation.
+# The module entry point can use the installed implementation directly.
+if "gather_private" not in globals():
+    from studio.eb01_v7_storyboard import gather_private, contact_sheet
+
+
 def main():
     receipt = Path("/kaggle/working/EB01_V7_FRAMES_RECEIPT.json")
     try:

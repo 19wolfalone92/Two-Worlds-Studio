@@ -10,4 +10,7 @@ class OriginalScheduleTests(unittest.TestCase):
         scheduler.set_timesteps(sigmas=[1,.875,.75,.625,.5,.375,.25,.125],device='cuda:0',mu=1.1)
         self.assertEqual(scheduler.used_sigmas,SIGMAS)
         self.assertEqual(scheduler.device,'cuda:0')
+        scheduler.set_timesteps(timesteps=list(range(8)),device='cpu')
+        self.assertEqual(scheduler.used_sigmas,SIGMAS)
+        with self.assertRaises(ValueError):scheduler.set_timesteps(timesteps=[0,1])
         with self.assertRaises(ValueError):scheduler.set_timesteps(num_inference_steps=1)

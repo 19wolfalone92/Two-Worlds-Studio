@@ -34,15 +34,18 @@ def full_voice_frames(duration,fps=25,tail_seconds=.20):
     return 4*math.ceil((required-1)/4)+1
 
 
+def replace_pinned(text, old, new):
+    if text.count(old) != 1:
+        raise ValueError('Pinned Echo source boundary changed')
+    return text.replace(old, new)
+
+
 def patch_upstream(runtime:Path):
     """Use two separate devices: T5 on GPU 1, staged video modules on GPU 0.
 
     Keep upstream neural forward/model weights. Correct T4 SDPA padding,
     honor q/softmax scaling, and avoid advertising FlashAttention on SM75.
     """
-    def once(text,old,new):
-        if text.count(old)!=1:raise ValueError('Pinned Echo source boundary changed')
-        return text.replace(old,new)
     # Both the Flash transformer and the CLIP dependency import this attention.
     for filename in ('wan_transformer3d_audio.py','wan_transformer3d_audio_2512.py'):
         path=runtime/'src'/filename;text=path.read_text()
@@ -78,19 +81,19 @@ def patch_upstream(runtime:Path):
         for start,end,new in sorted(replacements,reverse=True):text=text[:start]+new+text[end:]
         ast.parse(text);path.write_text(text)
     path=runtime/'src/pipeline_wan_fun_inpaint_audio_2512.py';text=path.read_text()
-    text=once(text,'        device = self._execution_device\n        weight_dtype = self.text_encoder.dtype',
+    text=replace_pinned(text,'        device = self._execution_device\n        weight_dtype = self.text_encoder.dtype',
                    '        device = torch.device("cuda:0")\n        weight_dtype = self.text_encoder.dtype')
-    text=once(text,'prompt_embeds = self.text_encoder(text_input_ids.to(device), attention_mask=prompt_attention_mask.to(device))[0]',
+    text=replace_pinned(text,'prompt_embeds = self.text_encoder(text_input_ids.to(device), attention_mask=prompt_attention_mask.to(device))[0]',
                    'prompt_embeds = self.text_encoder(text_input_ids.to(self.text_encoder.device), attention_mask=prompt_attention_mask.to(self.text_encoder.device))[0]')
-    text=once(text,'        # Prepare mask latent variables',
+    text=replace_pinned(text,'        # Prepare mask latent variables',
                    '        self.vae.to(device)\n        print("EB01_STAGE_BEGIN_CONDITIONING_VAE",flush=True)\n        # Prepare mask latent variables')
-    text=once(text,'        # Prepare clip latent variables',
+    text=replace_pinned(text,'        # Prepare clip latent variables',
                    '        self.vae.cpu()\n        torch.cuda.empty_cache()\n        self.clip_image_encoder.to(device)\n        # Prepare clip latent variables')
     marker='        # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline'
-    text=once(text,marker,'        self.clip_image_encoder.cpu()\n        torch.cuda.empty_cache()\n        self.transformer.to(device)\n        print("EB01_STAGE_BEGIN_TRANSFORMER",flush=True)\n'+marker)
-    text=once(text,'            for i, t in enumerate(timesteps):','            for i, t in enumerate(timesteps):\n                print("EB01_STAGE_DENOISE_STEP_START",i+1,flush=True)')
+    text=replace_pinned(text,marker,'        self.clip_image_encoder.cpu()\n        torch.cuda.empty_cache()\n        self.transformer.to(device)\n        print("EB01_STAGE_BEGIN_TRANSFORMER",flush=True)\n'+marker)
+    text=replace_pinned(text,'            for i, t in enumerate(timesteps):','            for i, t in enumerate(timesteps):\n                print("EB01_STAGE_DENOISE_STEP_START",i+1,flush=True)')
     marker='        if output_type == "numpy":\n'
-    text=once(text,marker,'''        self.transformer.cpu()
+    text=replace_pinned(text,marker,'''        self.transformer.cpu()
         torch.cuda.empty_cache()
         from safetensors.torch import save_file
         import os

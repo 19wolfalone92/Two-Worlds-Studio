@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "reviewed_stage": "native_576x1024_25fps_review_v3",
+  "elizabeth_defect": "HAND_AND_FINGER_SHAPE_UNSTABLE",
+  "kostya_defect": "RIGID_SKULL_BONES_DEFORM_LIKE_HUMAN_FACIAL_SOFT_TISSUE",
+  "user_quality_approval": false,
+  "production_execution_authorized": false,
+  "previous_technical_checks_are_not_anatomy_approval": true,
+  "fix_experiment": "PAIRED_NATIVE_SPATIAL_AUDIO_WITH_AND_WITHOUT_CANONICAL_REGIONAL_REFERENCES",
+  "fixed_output_anatomy_verified": false,
+  "new_gpu_pilots_maximum": 4,
+  "full_production_jobs_submitted": 0
+}

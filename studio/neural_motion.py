@@ -21,7 +21,7 @@ VAE_REPO = 'Lightricks/LTX-Video-0.9.5'
 SIGMAS = [1.0,.99375,.9875,.98125,.975,.909375,.725,.421875]
 
 
-def import_take(clip: Path, record: Path, reference: Path, length: float) -> dict:
+def import_take(clip: Path, record: Path, reference: Path, length: float, *, end_reference: Path | None = None) -> dict:
     """Consume an existing local take with the LTX worker's artifact receipt."""
     if record.stat().st_size > 64 * 1024:
         raise ValueError("I2V receipt is too large")
@@ -29,6 +29,7 @@ def import_take(clip: Path, record: Path, reference: Path, length: float) -> dic
     if (not isinstance(data, dict) or data.get("model") != REPO
             or data.get("checkpoint") != CHECKPOINT
             or data.get("source_image_sha256") != _digest(reference)
+            or data.get("end_image_sha256") != (_digest(end_reference) if end_reference else None)
             or data.get("sha256") != _digest(clip)
             or type(data.get("actual_neural_frames")) is not int):
         raise ValueError("I2V take is not bound to the selected reference and LTX worker")
@@ -63,8 +64,9 @@ def distilled_scheduler(base):
     A scheduler specialization preserves the original distilled 8-step method.
     """
     class OriginalDistilledScheduler(base):
-        def set_timesteps(self,num_inference_steps=None,device=None,sigmas=None,mu=None,**kwargs):
-            if num_inference_steps not in (None,len(SIGMAS)):
+        def set_timesteps(self,num_inference_steps=None,device=None,sigmas=None,mu=None,timesteps=None,**kwargs):
+            if (num_inference_steps not in (None,len(SIGMAS)) or
+                    any(values is not None and len(values) != len(SIGMAS) for values in (timesteps, sigmas))):
                 raise ValueError('This original distilled checkpoint requires eight steps')
             return super().set_timesteps(sigmas=SIGMAS,device=device)
     return OriginalDistilledScheduler
@@ -170,28 +172,47 @@ def encode_directions(source: Path, model_dir: Path, output: Path) -> dict:
     """One CPU T5 load, all private scene directions, no GPU time consumed."""
     import torch
     from transformers import T5EncoderModel,T5Tokenizer
+    from safetensors import safe_open, SafetensorError
     from safetensors.torch import save_file
     torch.set_num_threads(min(8,torch.get_num_threads()))
     tokenizer=T5Tokenizer.from_pretrained(model_dir/'tokenizer',local_files_only=True)
     encoder=T5EncoderModel.from_pretrained(model_dir/'text_encoder',torch_dtype=torch.float32,
                                          low_cpu_mem_usage=True,local_files_only=True).eval()
     output.mkdir(parents=True,exist_ok=True)
+    model_proof = model_dir / 'stage_receipt.json'
+    stage_hash = _digest(model_proof) if model_proof.is_file() else None
     count=0
     for story in range(13,19):
         path=source/'production_queue'/str(story)/'motion_direction.json'
         directions=json.loads(path.read_text())
         for scene,item in directions['scenes'].items():
             target=output/f'{story}_{int(scene):02d}.safetensors'
-            if target.exists():
-                count+=1;continue
+            prompt_hash = hashlib.sha256(item['prompt'].encode()).hexdigest()
+            if target.is_file():
+                try:
+                    with safe_open(str(target), framework='pt', device='cpu') as cached:
+                        valid = (stage_hash is not None and (cached.metadata() or {}).get('stage_sha256') == stage_hash
+                                 and (cached.metadata() or {}).get('source_sha256') == prompt_hash
+                                 and set(cached.keys()) == {'prompt_embeds', 'prompt_attention_mask'}
+                                 and cached.get_slice('prompt_embeds').get_shape() == [1, 256, encoder.config.d_model]
+                                 and cached.get_slice('prompt_attention_mask').get_shape() == [1, 256]
+                                 and torch.isfinite(cached.get_tensor('prompt_embeds')).all())
+                    if valid:
+                        count += 1
+                        continue
+                except (SafetensorError, OSError):
+                    pass  # Rebuild this derived cache from the original direction.
             values=tokenizer(item['prompt'],padding='max_length',max_length=256,truncation=True,return_tensors='pt')
             with torch.inference_mode():
                 embeddings=encoder(input_ids=values.input_ids,attention_mask=values.attention_mask).last_hidden_state
             if not torch.isfinite(embeddings).all():
                 raise RuntimeError('Non-finite CPU text embeddings')
-            save_file({'prompt_embeds':embeddings.contiguous(),
-                       'prompt_attention_mask':values.attention_mask.contiguous()},str(target),
-                      metadata={'source_sha256':hashlib.sha256(item['prompt'].encode()).hexdigest()})
+            with tempfile.TemporaryDirectory(dir=output) as staging:
+                staged = Path(staging) / target.name
+                save_file({'prompt_embeds':embeddings.contiguous(),
+                           'prompt_attention_mask':values.attention_mask.contiguous()},str(staged),
+                          metadata={'source_sha256':prompt_hash, 'stage_sha256':stage_hash or 'unverified'})
+                staged.replace(target)
             count+=1
             _json(output/'embedding_status.json',{'scenes':count,'gpu_used':False})
     del encoder
@@ -199,7 +220,7 @@ def encode_directions(source: Path, model_dir: Path, output: Path) -> dict:
     return {'scenes':count,'gpu_used':False}
 
 
-def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload',vae_tile=512):
+def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload',vae_tile=512, multi_keyframe=False):
     import torch
     from diffusers import LTXImageToVideoPipeline,LTXVideoTransformer3DModel,AutoencoderKLLTXVideo,FlowMatchEulerDiscreteScheduler
     if not torch.cuda.is_available():
@@ -210,7 +231,11 @@ def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload',vae_tile=512):
     vae=AutoencoderKLLTXVideo.from_pretrained(model_dir/'vae',torch_dtype=torch.float32,local_files_only=True)
     scheduler=distilled_scheduler(FlowMatchEulerDiscreteScheduler)(num_train_timesteps=1000,shift=1.0,
                     use_dynamic_shifting=False,stochastic_sampling=True)
-    pipe=LTXImageToVideoPipeline(transformer=transformer,vae=vae,scheduler=scheduler,
+    pipeline_class = LTXImageToVideoPipeline
+    if multi_keyframe:
+        from diffusers import LTXConditionPipeline
+        pipeline_class = LTXConditionPipeline
+    pipe=pipeline_class(transformer=transformer,vae=vae,scheduler=scheduler,
                                 text_encoder=None,tokenizer=None)
     if vae_tile not in {256,512}:raise ValueError('Unreviewed VAE tile geometry')
     pipe.vae.enable_tiling(tile_sample_min_height=vae_tile,tile_sample_min_width=vae_tile,
@@ -233,11 +258,23 @@ def load_pipeline(model_dir: Path,*,memory_mode='cpu_offload',vae_tile=512):
     return pipe
 
 
+def keyframe_inputs(image, end_image, width, height, frames):
+    from PIL import Image, ImageOps
+    def native(path):
+        with Image.open(path) as source:
+            return ImageOps.fit(source.convert('RGB'), (width, height), method=Image.Resampling.LANCZOS)
+    first = native(image)
+    if end_image is None:
+        return {'image': first}
+    from diffusers.pipelines.ltx.pipeline_ltx_condition import LTXVideoCondition
+    return {'conditions': [LTXVideoCondition(image=first, frame_index=0),
+                           LTXVideoCondition(image=native(end_image), frame_index=frames - 1)]}
+
+
 def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
-                width=512,height=896,frames=121,fps=24) -> dict:
+                width=512,height=896,frames=121,fps=24,end_image: Path | None = None) -> dict:
     import torch
     import numpy as np
-    from PIL import Image,ImageOps
     from safetensors.torch import load_file
     from diffusers.utils import export_to_video
     if dest.exists() or width%32 or height%32 or (frames-1)%8 or not 49<=frames<=257:
@@ -246,10 +283,8 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
     # The precomputed CPU embeddings bypass the text encoder. Diffusers keeps
     # their original device, while model offload moves the transformer to T4.
     values={name:tensor.to('cuda:0') for name,tensor in values.items()}
-    with Image.open(image) as im:
-        reference=ImageOps.fit(im.convert('RGB'),(width,height),method=Image.Resampling.LANCZOS)
     start=time.monotonic()
-    call_args=dict(image=reference,prompt_embeds=values['prompt_embeds'],
+    call_args=dict(**keyframe_inputs(image, end_image, width, height, frames), prompt_embeds=values['prompt_embeds'],
                 prompt_attention_mask=values['prompt_attention_mask'],width=width,height=height,
                 num_frames=frames,frame_rate=fps,guidance_scale=1.0,
                 num_inference_steps=len(SIGMAS),
@@ -272,18 +307,21 @@ def render_clip(pipe, embeddings: Path, image: Path, dest: Path, *, seed: int,
     samples=[np.asarray(result[i],dtype=np.float32)/255 for i in [0,len(result)//2,len(result)-1]]
     if any(not np.isfinite(a).all() or a.std()<.01 for a in samples):
         raise RuntimeError('Neural model returned blank or non-finite video')
-    dest.parent.mkdir(parents=True,exist_ok=True)
-    export_to_video(result,str(dest),fps=fps,macro_block_size=1,quality=8)
-    receipt={'model':REPO,'checkpoint':CHECKPOINT,'actual_neural_frames':frames,
-             'source_image_sha256':_digest(image),
-             'seconds':frames/fps,'width':width,'height':height,'seed':seed,
-             'gpu':torch.cuda.get_device_name(0),'gpu_memory_pooled':False,
-             'compute_dtype':'float32','elapsed_s':round(time.monotonic()-start,2),
-             'memory_mode':getattr(pipe,'_tw_memory_mode','cpu_offload'),'resident_trial_fell_back':fallback,
-             'vae_tile_pixels':getattr(pipe,'_tw_vae_tile',512),'host_ram_gib':getattr(pipe,'_tw_host_ram_gib',None),
-             'inference_sigmas':SIGMAS,
-             'gpu_peak_allocated_gib':round(torch.cuda.max_memory_allocated()/1024**3,3),
-             'sha256':_digest(dest),
-             'character_motion_review':'pending','artistic_review':'pending','published':False}
-    _json(dest.with_suffix('.receipt.json'),receipt)
+    from studio.media_output import staged_media
+    with staged_media(dest, receipt=True) as staged:
+        export_to_video(result,str(staged),fps=fps,macro_block_size=1,quality=8)
+        receipt={'model':REPO,'checkpoint':CHECKPOINT,'actual_neural_frames':frames,
+                 'source_image_sha256':_digest(image), 'end_image_sha256':_digest(end_image) if end_image else None,
+                 'embeddings_sha256':_digest(embeddings), 'fps':fps,
+                 'seconds':frames/fps,'width':width,'height':height,'seed':seed,
+                 'gpu':torch.cuda.get_device_name(0),'gpu_memory_pooled':False,
+                 'compute_dtype':'float32','elapsed_s':round(time.monotonic()-start,2),
+                 'memory_mode':getattr(pipe,'_tw_memory_mode','cpu_offload'),'resident_trial_fell_back':fallback,
+                 'vae_tile_pixels':getattr(pipe,'_tw_vae_tile',512),'host_ram_gib':getattr(pipe,'_tw_host_ram_gib',None),
+                 'inference_sigmas':SIGMAS,
+                 'gpu_peak_allocated_gib':round(torch.cuda.max_memory_allocated()/1024**3,3),
+                 'sha256':_digest(staged),
+                 'character_motion_review':'pending','artistic_review':'pending','published':False}
+        _json(staged.with_suffix('.receipt.json'),receipt)
+        import_take(staged, staged.with_suffix('.receipt.json'), image, frames / fps - 1e-5, end_reference=end_image)
     return receipt

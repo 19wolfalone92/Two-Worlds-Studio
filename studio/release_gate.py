@@ -182,7 +182,7 @@ def check_video(video: Path, srt: Path, cover: Path,
     opening = opening_three_seconds(video)
     if full_decode:
         subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-v", "error",
-                        "-xerror", "-i", str(video), "-map", "0:v:0",
+                        "-xerror", "-i", str(video), "-map", "0:v:0", "-map", "0:a:0",
                         "-f", "null", "-"],
                        check=True, stdout=subprocess.DEVNULL,
                        stderr=subprocess.PIPE, timeout=420)

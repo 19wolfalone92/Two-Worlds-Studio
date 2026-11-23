@@ -44,7 +44,9 @@ def observe(alias,token,source_run):
     except (PilotBlocked,ValueError,KeyError,TypeError):report['quota_status']='OFFICIAL_QUOTA_COMMAND_OR_ACCESS_UNAVAILABLE'
     source_file=Path('ops/eb01_echo_observation_source.json')
     source=json.loads(source_file.read_text()) if source_file.is_file() else json.loads(Path('ops/eb01_echo_collect.json').read_text())
-    if source.get('kind')=='parallel':
+    if source.get('kind')=='anatomy':
+        slug='eb01-anatomy-'+hashlib.sha256(('eb01-anatomy-v1-'+source_run+'-'+alias).encode()).hexdigest()[:14]
+    elif source.get('kind')=='parallel':
         slug='eb01-echo-2gpu-'+hashlib.sha256(('eb01-echo-parallel-v1-'+source_run+'-'+alias).encode()).hexdigest()[:14]
     else:slug='eb01-echo-'+hashlib.sha256(('eb01-echo-v1-'+source_run+'-'+alias).encode()).hexdigest()[:16]
     kernel=handle+'/'+slug

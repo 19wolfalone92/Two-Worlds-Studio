@@ -5,11 +5,11 @@ from pathlib import Path
 from studio.eb01_echo_profile import UPSTREAM,UPSTREAM_SHA,REPOSITORIES,patch_upstream
 
 
-def model_lock():
+def model_lock(revisions=None):
     from huggingface_hub import HfApi,get_hf_file_metadata,hf_hub_url,hf_hub_download
     api=HfApi(token=False);lock={}
     for alias,repo in REPOSITORIES.items():
-        info=api.model_info(repo,files_metadata=True)
+        info=api.model_info(repo,revision=revisions[alias] if revisions else None,files_metadata=True)
         if not info.sha or len(info.sha)!=40:raise ValueError('Model commit unresolved')
         files=[]
         for item in info.siblings:
@@ -60,7 +60,8 @@ def real_acoustic_encoder_check(lock, root):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--runtime',type=Path);parser.add_argument('--precomputed-contract',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--runtime',type=Path);parser.add_argument('--precomputed-contract',action='store_true')
+    parser.add_argument('--anatomy-contract',action='store_true');args=parser.parse_args()
     os.environ['USE_TF']='0';os.environ['USE_FLAX']='0'
     root=args.runtime or Path(os.environ['RUNNER_TEMP'])/'eb01-echo-cpu-source'
     if not root.exists():subprocess.run(['git','clone','--depth','1',UPSTREAM,str(root)],check=True,capture_output=True,timeout=180)
@@ -72,6 +73,10 @@ def main():
     if args.precomputed_contract:
         from studio.eb01_echo_parallel_profile import upgrade_precomputed
         patch['src/pipeline_wan_fun_inpaint_audio_2512.py']=upgrade_precomputed(root)
+    if args.anatomy_contract:
+        if not args.precomputed_contract:raise ValueError('Anatomy check requires actual precomputed-context contract')
+        from studio.eb01_anatomy_profile import patch_anatomy
+        patch.update(patch_anatomy(root))
     sys.path.insert(0,str(root))
     for name in ('src.wav2vec2','src.wan_vae','src.wan_image_encoder','src.wan_text_encoder',
                  'src.wan_transformer3d_audio_2512','src.pipeline_wan_fun_inpaint_audio_2512'):
@@ -83,6 +88,18 @@ def main():
     got=attention(q,k,v,k_lens=torch.tensor([3]))
     wanted=torch.nn.functional.scaled_dot_product_attention(q.transpose(1,2),k[:,:3].transpose(1,2),v[:,:3].transpose(1,2)).transpose(1,2)
     if not torch.allclose(got,wanted,atol=1e-5,rtol=1e-5):raise ValueError('SDPA padding changes model semantics')
+    if args.anatomy_contract:
+        from src.wan_transformer3d_audio_2512 import WanI2VCrossAttentionAudio
+        layer=WanI2VCrossAttentionAudio(16,2).float().eval()
+        x=torch.randn(1,12,16);context=torch.randn(1,260,16);audio=torch.randn(1,2,4,16)
+        zero=torch.zeros(1,12,1,1);mask=zero.clone();mask[:,4:8]=1
+        with torch.inference_mode():
+            no_audio=layer(x,(context,audio,2,zero,None),None,torch.float32)
+            full=layer(x,(context,audio,2,None,None),None,torch.float32)
+            part=layer(x,(context,audio,2,mask,None),None,torch.float32)
+        expected=no_audio+(full-no_audio)*mask.view(1,12,1)
+        if not torch.allclose(part,expected,atol=1e-5,rtol=1e-5) or torch.allclose(full,no_audio):
+            raise ValueError('Actual upstream forward ignores or misapplies anatomical audio mask')
     if args.precomputed_contract:
         from accelerate import init_empty_weights
         from src.wan_vae import AutoencoderKLWan
@@ -97,11 +114,15 @@ def main():
             do_classifier_free_guidance=True,device=torch.device('cpu'))
         if actual is not context or negative is not context:raise ValueError('Precomputed pipeline changes supplied context')
         del pipe,vae
-    lock=model_lock()
+    from studio.eb01_echo_production_manifest import MODEL_REVISIONS
+    lock=model_lock(MODEL_REVISIONS if args.anatomy_contract else None)
+    if args.anatomy_contract:
+        if {k:v['revision'] for k,v in lock.items()}!=MODEL_REVISIONS:raise ValueError('Anatomy comparison must retain all previously verified model revisions')
     acoustic=real_acoustic_encoder_check(lock,root.parent)
     result={'schema':1,'upstream_sha':UPSTREAM_SHA,'cpu_imports_verified':True,
             'sdpa_padding_math_verified':True,'real_acoustic_encoder':acoustic,'models':lock,'source_patch_sha256':patch,
             'precomputed_context_without_live_text_encoder_verified':args.precomputed_contract,
+            'real_upstream_anatomical_audio_mask_forward_verified':args.anatomy_contract,
             'gpu_jobs_submitted':0,'movie_approved':False}
     path=Path(os.environ['RUNNER_TEMP'])/'EB01_ECHO_CPU_PREFLIGHT_SAFE.json'
     path.write_text(json.dumps(result,sort_keys=True,indent=2)+'\n')
