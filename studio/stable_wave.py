@@ -117,11 +117,12 @@ def render_wave(source:Path,output:Path,report:Path,*,height=1920,quality=17):
             ok,frame=cap.read()
         proc.stdin.close()
         err=proc.stderr.read()
+        proc.stderr.close()
         if proc.wait(timeout=180)!=0:raise RuntimeError('FFmpeg failed: '+err[-700:].decode(errors='replace'))
     except BaseException:
         try:proc.stdin.close()
         except (BrokenPipeError,ValueError):pass
-        proc.kill();proc.wait();temp.unlink(missing_ok=True)
+        proc.kill();proc.wait();proc.stderr.close();temp.unlink(missing_ok=True)
         raise
     finally:
         cap.release()
