@@ -4,6 +4,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import shutil
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -116,6 +118,53 @@ class KagglePrivateJobTests(unittest.TestCase):
             # ComfyUI provenance or full-frame decoded AI video.
             with self.assertRaisesRegex(module.KaggleBlocked, "provenance mismatch"):
                 module.verify_private_result(root, nonce)
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "Full frame decode test needs actual FFmpeg")
+    def test_synthetic_fully_decodable_mp4_is_still_not_neural_proof(self):
+        """CPU fixture: makes genuine MP4 bytes, but NOT an AI-generated video."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            nonce = "freevideo-test-20261123"
+            clip = root / "MOCKED_preview.mp4"
+            subprocess.run([
+                "ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                "testsrc=s=432x768:r=24", "-frames:v", "25",
+                "-c:v", "mpeg4", "-q:v", "10", str(clip)
+            ], check=True, capture_output=True, timeout=50)
+            raw = clip.read_bytes()
+            sha = hashlib.sha256(raw).hexdigest()
+            studio = {"schema": 1, "engine": "neural_comfy",
+                      "model": "wan22-5b", "inference_performed": True,
+                      "human_approved": False, "published": False,
+                      "clip_sha256": sha,
+                      "video": {"frames": 25, "width": 432, "height": 768, "fps": "24"}}
+            studio_bytes = json.dumps(studio).encode()
+            stage = {"schema": 2, "stage": "preview", "clip_sha256": sha,
+                     "bridge_receipt_sha256": hashlib.sha256(studio_bytes).hexdigest()}
+            stage_bytes = json.dumps(stage).encode()
+            hybrid = {"stage": "preview", "clip_sha256": sha,
+                      "source_sha256": "a" * 64, "reference_sha256": "b" * 64,
+                      "studio_receipt_sha256": hashlib.sha256(studio_bytes).hexdigest(),
+                      "freevideo_receipt_sha256": hashlib.sha256(stage_bytes).hexdigest()}
+            archive = root / "FREEVIDEO_PRIVATE_PREVIEW.zip"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+                z.writestr("preview.mp4", raw)
+                z.writestr("preview.receipt.json", studio_bytes)
+                z.writestr("preview.freevideo.json", stage_bytes)
+                z.writestr("preview.hybrid.json", json.dumps(hybrid))
+                z.writestr("job.json", json.dumps({
+                    "source_sha256": "a" * 64, "reference_sha256": "b" * 64}))
+            (root / "freevideo_result.json").write_text(json.dumps({
+                "nonce": nonce, "status": "REAL_GPU_PREVIEW_REVIEW_REQUIRED",
+                "human_approved": False, "published": False,
+                "visual_quality": "NOT_VERIFIED", "clip_sha256": sha,
+                "archive_sha256": module.sha256(archive), "source_sha256": "a" * 64}))
+            report = module.verify_private_result(root, nonce)
+            self.assertEqual(report["actual_decoding"], "CPU_VERIFIED")
+            self.assertEqual(report["neural_provenance"], "REMOTE_KAGGLE_STUDIO_RECEIPT")
+            self.assertEqual(report["visual_quality"], "NOT_VERIFIED")
+            self.assertFalse(report["human_approved"])
 
     def test_modified_kaggle_zip_bytes_are_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
