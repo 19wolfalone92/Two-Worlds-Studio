@@ -87,7 +87,7 @@ def main() -> int:
     try:
         report = compare_existing(args.account, os.environ.get("EB01_ACCOUNT_TOKEN", ""))
         code = 0
-    except (PilotBlocked, RuntimeError, ValueError, OSError, KeyError) as exc:
+    except Exception as exc:  # No private subprocess/path/credential traceback in public Actions.
         # No raw CLI error text, file paths, usernames, tokens, or confidential data.
         report = {
             "schema": 1, "account_alias": args.account,
