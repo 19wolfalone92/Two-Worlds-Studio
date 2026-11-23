@@ -35,7 +35,9 @@ jobs:
           python-version: '3.11'
       - name: Install reviewed official Kaggle CLI without neural models
         run: |
-          python -m pip install -q 'kaggle==2.2.4'
+          # Kaggle CLI 2.2.4 imports 'six' without declaring it reliably.
+          # Proven by GitHub Actions ModuleNotFoundError: No module named 'six'.
+          python -m pip install -q 'kaggle==2.2.4' 'six>=1.16,<2'
           kaggle --version
           # Check command help, not any private account metadata.
           kaggle kernels list --help > "$RUNNER_TEMP/freevideo_kernels_help.txt"
