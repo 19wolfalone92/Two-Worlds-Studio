@@ -39,21 +39,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Kaggle's modern token-only authentication can omit a legacy
-          # username in 'config view'. Test an authenticated API call FIRST.
-          python -m studio.kaggle_api_limits quota > "$RUNNER_TEMP/freevideo-kaggle-quota.json"
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          p=Path(os.environ["RUNNER_TEMP"])/"freevideo-kaggle-quota.json"
-          d=json.loads(p.read_text())
-          assert d["status"] == "quota_reported"
-          rows=d["compute_quota_rows"]
-          print("FREEVIDEO_KAGGLE_API_AUTHENTICATED")
-          print("FREEVIDEO_GPU_QUOTA_REPORT_OBTAINED")
-          print("FREEVIDEO_GPU_ROWS", sum(r["resource"]=="GPU" for r in rows))
-          print("FREEVIDEO_USERNAME_NOT_REQUIRED_FOR_QUOTA_PREFLIGHT")
-          print("FREEVIDEO_GPU_INFERENCE_NOT_STARTED")
-          print("FREEVIDEO_PRIVATE_REFERENCE_NOT_UPLOADED")
-          PY
+          # Accept either the modern token format or a legacy Kaggle
+          # kaggle.json object in the existing secret. No credentials logged.
+          # A single authenticated quota query is attempted.
+          python -m experiments.freevideo_t4.kaggle_auth_adapter
+          echo 'FREEVIDEO_PRIVATE_REFERENCE_NOT_UPLOADED'
