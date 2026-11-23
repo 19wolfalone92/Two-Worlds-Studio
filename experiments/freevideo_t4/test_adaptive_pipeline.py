@@ -1,22 +1,57 @@
-"""Offline regression tests. NO Kaggle, no ComfyUI, no model downloads."""
+"""Freevideo regression tests. No network, Kaggle, GPU or model downloads."""
+from __future__ import annotations
+
+import argparse
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("tw_t4_experiment", HERE / "adaptive_pipeline.py")
-import sys
 module = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = module
 spec.loader.exec_module(module)
 
 
-class PolicyTests(unittest.TestCase):
-    def test_t4_plan_excludes_unsupported_models_and_bf16(self):
+def digest(file: Path) -> str:
+    return hashlib.sha256(file.read_bytes()).hexdigest()
+
+
+def fake_preview(root: Path, *, prompt: str, seed: int = 42):
+    ref, clip, review = root / "ref.png", root / "preview.mp4", root / "review.json"
+    ref.write_bytes(b"real project reference placeholder")
+    clip.write_bytes(b"synthetic movie bytes; _video_probe is mocked in policy tests")
+    clip_hash = digest(clip)
+    source_hash = digest(ref)
+    bridge_path = clip.with_suffix(".receipt.json")
+    bridge_path.write_text(json.dumps({
+        "schema": 1, "engine": "neural_comfy", "model": "wan22-5b",
+        "clip_sha256": clip_hash, "reference_sha256": source_hash,
+        "inference_performed": True, "human_approved": False, "published": False,
+        "workflow_sha256": "a" * 64,
+        "video": {"frames": 25, "width": 432, "height": 768, "fps": "24"}}))
+    clip.with_suffix(".freevideo.json").write_text(json.dumps({
+        "schema": 2, "stage": "preview", "backend": "wan22-5b",
+        "clip_sha256": clip_hash, "reference_sha256": source_hash,
+        "bridge_receipt_sha256": digest(bridge_path),
+        "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+        "human_approved": False, "seed": seed,
+        "geometry": {"width": 432, "height": 768, "frames": 25, "steps": 20},
+    }))
+    review.write_text(json.dumps({"schema": 1, "approved": True, "reviewer": "Owner",
+                                  "preview_sha256": clip_hash, "reference_sha256": source_hash,
+                                  "checks": dict.fromkeys(module.CHECKS, True)}))
+    return ref, clip, review
+
+
+class PlanningTests(unittest.TestCase):
+    def test_t4_plan_incompatible_h3_bf16_and_frame_geometry(self):
         p = module.choose_plan(module.simulate_t4())
         self.assertEqual(p["status"], "HEURISTIC_PLAN_NOT_BENCHMARKED")
         self.assertEqual(p["backend"], "wan22-5b")
@@ -24,123 +59,265 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("freevideo_h3_not_t4_compatible", p["excluded"])
         self.assertEqual(p["final"], {"width": 576, "height": 1024, "frames": 49, "steps": 36})
         for stage in ("preview", "final"):
-            v = p[stage]
-            self.assertEqual(v["width"] * 16, v["height"] * 9)
-            self.assertEqual((v["frames"] - 1) % 4, 0)
+            dims = p[stage]
+            self.assertEqual(dims["width"] * 16, dims["height"] * 9)
+            self.assertEqual((dims["frames"] - 1) % 4, 0)
+            self.assertTrue(12 <= dims["steps"] <= 50)
 
-    def test_lower_free_vram_and_insufficient_hardware(self):
-        lower = module.Hardware("T4 busy", "7.5", 16, 8, "detected_cuda")
-        p = module.choose_plan(lower)
-        self.assertEqual(p["profile"], "low_vram_cautious")
-        self.assertEqual(p["final"]["width"], 432)
-        with self.assertRaises(module.Blocked):
-            module.choose_plan(module.Hardware("Old", "6.1", 8, 8, "detected_cuda"))
-        with self.assertRaises(module.Blocked):
-            module.choose_plan(module.Hardware("T4 overbooked", "7.5", 16, 4, "detected_cuda"))
+    def test_low_memory_fails_closed(self):
+        lower = module.Hardware("Tesla T4", "7.5", 16, 8, "detected_cuda")
+        self.assertEqual(module.choose_plan(lower)["profile"], "low_vram_cautious")
+        self.assertEqual(module.choose_plan(lower)["final"]["width"], 432)
+        for h in [module.Hardware("Old", "6.1", 8, 8, "detected_cuda"),
+                  module.Hardware("T4", "7.5", 16, 4, "detected_cuda"),
+                  module.Hardware("T4", "7.5", 16, float("nan"), "detected_cuda"),
+                  module.Hardware("T4", "7.5", 16, 18, "detected_cuda")]:
+            with self.subTest(h=h), self.assertRaises(module.Blocked):
+                module.choose_plan(h)
 
-    def test_hardware_simulation_can_only_plan(self):
-        with patch.object(module, "detect_hardware", side_effect=AssertionError("unwanted GPU probe")):
+    def test_simulation_cannot_trigger_generation_or_gpu_probe(self):
+        with patch.object(module, "detect_hardware", side_effect=AssertionError("GPU probe")):
             self.assertEqual(module.main(["plan", "--simulate-t4"]), 0)
-        self.assertEqual(module.main(["preview", "--simulate-t4"]), 2)
+            self.assertEqual(module.main(["preview", "--simulate-t4"]), 2)
 
-    def test_no_execute_no_licence_must_fail_before_hardware(self):
-        args = module.argparse.Namespace(command="preview", execute=False, accept_model_license=False)
-        with patch.object(module, "detect_hardware", side_effect=AssertionError("unwanted GPU probe")):
+    def test_authorization_gate_precedes_gpu_probe(self):
+        args = argparse.Namespace(command="preview", execute=False, accept_model_license=False)
+        with patch.object(module, "detect_hardware", side_effect=AssertionError("GPU probe")):
             with self.assertRaises(module.Blocked):
                 module.run(args)
 
-    def test_loopback_security(self):
+    def test_t4_only_for_real_execution(self):
+        args = argparse.Namespace(command="preview", execute=True, accept_model_license=True, device=0)
+        with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                "RTX 4090", "8.9", 24, 20, "detected_cuda")):
+            with self.assertRaisesRegex(module.Blocked, "only a real NVIDIA Tesla T4"):
+                module.run(args)
+
+
+class SecurityAndProvenanceTests(unittest.TestCase):
+    def test_loopback_only_host(self):
         module._check_host("http://127.0.0.1:8188")
-        for uri in ("https://127.0.0.1:8188", "http://192.168.1.10:8188",
-                    "http://localhost", "http://a:b@127.0.0.1:8188",
-                    "http://127.0.0.1:8188/other"):
-            with self.subTest(uri=uri), self.assertRaises(module.Blocked):
-                module._check_host(uri)
+        for invalid in ("https://127.0.0.1:8188", "http://192.168.1.10:8188",
+                        "http://localhost", "http://a:b@127.0.0.1:8188",
+                        "http://127.0.0.1:8188/other", "http://127.0.0.1:8188/?x=1"):
+            with self.subTest(invalid=invalid), self.assertRaises(module.Blocked):
+                module._check_host(invalid)
 
-    def test_explicit_review_bound_to_preview_and_reference_hash(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            ref, clip, rev = root / "ref.png", root / "clip.mp4", root / "review.json"
-            ref.write_bytes(b"reference bytes")
-            clip.write_bytes(b"video bytes")
-            good = {"schema": 1, "approved": True, "reviewer": "Owner",
-                    "reference_sha256": hashlib.sha256(ref.read_bytes()).hexdigest(),
-                    "preview_sha256": hashlib.sha256(clip.read_bytes()).hexdigest(),
-                    "checks": dict.fromkeys(module.CHECKS, True)}
-            rev.write_text(json.dumps(good))
-            self.assertTrue(module.validate_review(rev, clip, ref)["approved"])
-            clip.write_bytes(b"different video bytes")
-            with self.assertRaisesRegex(module.Blocked, "SHA-256"):
-                module.validate_review(rev, clip, ref)
-            clip.write_bytes(b"video bytes")
-            good["checks"]["anatomy"] = False
-            rev.write_text(json.dumps(good))
-            with self.assertRaisesRegex(module.Blocked, "checks"):
-                module.validate_review(rev, clip, ref)
+    def test_comfy_device_consistency(self):
+        h = module.Hardware("Tesla T4", "7.5", 16, 14, "detected_cuda", 0)
+        class Response:
+            def __init__(self, payload):
+                self.headers = {"Content-Length": str(len(payload))}
+                self.payload = payload
+            def __enter__(self): return self
+            def __exit__(self, *exc): return False
+            def read(self, *_): return self.payload
+        class Opener:
+            def __init__(self, doc): self.doc = doc
+            def open(self, *_args, **_kwargs): return Response(json.dumps(self.doc).encode())
+        with patch.object(module, "build_opener", return_value=Opener({
+            "devices": [{"type": "cuda", "index": 0, "name": "cuda:0 Tesla T4", "vram_total": 16 * 2**30}]})):
+            self.assertIn("CONSISTENT", module.attest_backend("http://127.0.0.1:8188", h)["status"])
+        for bad in [{"devices": []},
+                    {"devices": [{"type": "cuda", "index": 1, "name": "Tesla T4", "vram_total": 16 * 2**30}]},
+                    {"devices": [{"type": "cuda", "index": 0, "name": "RTX 4090", "vram_total": 24 * 2**30}]},
+                    {"devices": [{"type": "cuda", "index": 0, "name": "Tesla T4", "vram_total": 8 * 2**30}]}]:
+            with self.subTest(bad=bad), patch.object(module, "build_opener", return_value=Opener(bad)):
+                with self.assertRaises(module.Blocked):
+                    module.attest_backend("http://127.0.0.1:8188", h)
 
-    def test_statistics_observed_only_not_invented_speedups(self):
-        with tempfile.TemporaryDirectory() as temp:
-            path = Path(temp) / "history.jsonl"
-            for elapsed in (10.0, 12.0, 20.0):
-                module._history_append(path, {"result": "GENERATED_REVIEW_REQUIRED",
-                    "hardware": "Tesla T4", "stage": "preview",
-                    "resolution": "432x768", "frames": 25, "elapsed_s": elapsed})
-            output = module.summary(path)
-            self.assertEqual(output["status"], "OBSERVED_BENCHMARKS_ONLY")
-            self.assertEqual(output["groups"][0]["median_elapsed_s"], 12)
-            self.assertEqual(output["groups"][0]["count"], 3)
-
-    def test_private_output_guard(self):
-        with self.assertRaisesRegex(module.Blocked, "OUTSIDE"):
+    def test_private_no_public_path_symlink_or_alias(self):
+        with self.assertRaises(module.Blocked):
             module._private_path(module.REPO_ROOT / "experiments" / "bad.mp4", must_exist=False)
-
-
-
-    def test_preview_exec_path_uses_existing_bridge_and_writes_real_metrics(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            ref, out, history = root / "reference.png", root / "take.mp4", root / "timing.jsonl"
-            ref.write_bytes(b"tiny fake reference for path testing")
-            hardware = module.Hardware("Tesla T4", "7.5", 16, 14, "detected_cuda")
-            args = module.argparse.Namespace(command="preview", execute=True,
-                accept_model_license=True, device=0, reference=str(ref), output=str(out),
-                prompt="A human character turns the shoulders naturally.",
-                seed=42, timeout=3600, host="http://127.0.0.1:8188",
-                history=str(history), review=None, preview_video=None)
-            def stand_in_bridge(cmd, **kwargs):
-                self.assertEqual(cmd[0:3], [sys.executable, "-m", "studio.comfy_neural"])
-                self.assertIn("--execute-local-gpu", cmd)
-                self.assertIn("--accept-model-license", cmd)
-                self.assertEqual(cmd[cmd.index("--width") + 1], "432")
-                out.write_bytes(b"stand-in mp4 bytes")
-                digest = hashlib.sha256(out.read_bytes()).hexdigest()
-                out.with_suffix(".receipt.json").write_text(json.dumps({"clip_sha256": digest}))
-                return module.subprocess.CompletedProcess(cmd, 0, json.dumps({
-                    "status": "GENERATED_REVIEW_REQUIRED", "human_approved": False,
-                    "clip_sha256": digest}), "")
-            with patch.object(module, "detect_hardware", return_value=hardware), patch.object(
-                    module.subprocess, "run", side_effect=stand_in_bridge):
-                result = module.run(args)
-            self.assertEqual(result["status"], "GENERATED_REVIEW_REQUIRED")
-            self.assertFalse(result["published"])
-            self.assertEqual(module.summary(history)["groups"][0]["count"], 1)
+            real = root / "actual.json"
+            real.write_text("{}")
+            link = root / "alias.json"
+            link.symlink_to(real)
+            with self.assertRaises(module.Blocked):
+                module._private_path(link)
+            with self.assertRaises(module.Blocked):
+                module._history_append(link, {"stage": "preview"})
 
-    def test_final_prevents_gpu_without_private_human_review(self):
+    def test_human_gate_with_both_receipts_and_video_clock(self):
+        prompt = "A skeletal character turns slowly without bone deformation."
+        with tempfile.TemporaryDirectory() as temp:
+            ref, clip, review = fake_preview(Path(temp), prompt=prompt)
+            verified_video = {"width": 432, "height": 768, "frames": 25, "fps": "24"}
+            with patch.object(module, "_video_probe", return_value=verified_video):
+                self.assertTrue(module.validate_review(review, clip, ref, prompt=prompt, seed=42)["approved"])
+                with self.assertRaisesRegex(module.Blocked, "prompt differs"):
+                    module.validate_review(review, clip, ref, prompt=prompt + " new", seed=42)
+                with self.assertRaisesRegex(module.Blocked, "seed differs"):
+                    module.validate_review(review, clip, ref, prompt=prompt, seed=101)
+                content = json.loads(review.read_text())
+                content["checks"]["anatomy"] = False
+                review.write_text(json.dumps(content))
+                with self.assertRaisesRegex(module.Blocked, "manually approved"):
+                    module.validate_review(review, clip, ref, prompt=prompt, seed=42)
+
+    def test_missing_or_inconsistent_receipts_fail_closed(self):
+        prompt = "A figure moves through a slow natural head turn."
+        with tempfile.TemporaryDirectory() as temp:
+            ref, clip, review = fake_preview(Path(temp), prompt=prompt)
+            bridge = clip.with_suffix(".receipt.json")
+            stage = clip.with_suffix(".freevideo.json")
+            with patch.object(module, "_video_probe", return_value={
+                    "width": 432, "height": 768, "frames": 25, "fps": "24"}):
+                bridge.unlink()
+                with self.assertRaises(module.Blocked):
+                    module.validate_review(review, clip, ref, prompt=prompt, seed=42)
+                bridge.write_text(json.dumps({"clip_sha256": digest(clip), "inference_performed": False}))
+                with self.assertRaises(module.Blocked):
+                    module.validate_review(review, clip, ref, prompt=prompt, seed=42)
+                bridge.unlink()
+                stage.unlink()
+                with self.assertRaises(module.Blocked):
+                    module.validate_review(review, clip, ref, prompt=prompt, seed=42)
+
+    def test_corrupt_or_malformed_review_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "r.json"
+            path.write_text("[]")
+            with self.assertRaises(module.Blocked):
+                module._json_file(path)
+            path.write_text("{" + "x" * 10)
+            with self.assertRaises(module.Blocked):
+                module._json_file(path)
+            path.write_text("x" * 32769)
+            with self.assertRaises(module.Blocked):
+                module._json_file(path)
+
+    def test_ffprobe_real_video_and_invalid_bytes(self):
+        if not module.subprocess.run(["sh", "-c", "command -v ffmpeg && command -v ffprobe"],
+                                      capture_output=True).returncode == 0:
+            self.skipTest("ffmpeg/ffprobe not installed")
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "good.mp4"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi",
+                            "-i", "color=c=black:s=432x768:r=24", "-frames:v", "25",
+                            "-c:v", "mpeg4", "-qscale:v", "20", str(path)],
+                           stdout=subprocess.DEVNULL, check=True)
+            self.assertEqual(module._video_probe(path), {
+                "width": 432, "height": 768, "fps": "24", "frames": 25})
+            path.write_bytes(b"a photo, not a movie")
+            with self.assertRaises(module.Blocked):
+                module._video_probe(path)
+
+
+class ExecutionAndTelemetryTests(unittest.TestCase):
+    def _args(self, root: Path, reference: Path, *, stage="preview", prompt=None):
+        return argparse.Namespace(command=stage, execute=True, accept_model_license=True,
+            device=0, reference=str(reference), output=str(root / ("take_" + stage + ".mp4")),
+            prompt=prompt or "A human character turns their shoulders naturally.",
+            seed=42, timeout=3600, host="http://127.0.0.1:8188",
+            history=str(root / "timing.jsonl"), review=None, preview_video=None)
+
+    def _bridge(self, command, **kwargs):
+        self.assertEqual(command[0:3], [sys.executable, "-m", "studio.comfy_neural"])
+        self.assertIn("--execute-local-gpu", command)
+        self.assertIn("--accept-model-license", command)
+        output = Path(command[command.index("--output") + 1])
+        ref = Path(command[command.index("--reference") + 1])
+        output.write_bytes(b"fake output from mocked subprocess (not real GPU)")
+        d = digest(output)
+        output.with_suffix(".receipt.json").write_text(json.dumps({
+            "schema": 1, "engine": "neural_comfy", "clip_sha256": d,
+            "reference_sha256": digest(ref), "model": "wan22-5b",
+            "inference_performed": True, "human_approved": False, "published": False,
+            "video": {"width": 432, "height": 768, "frames": 25, "fps": "24"}}))
+        return subprocess.CompletedProcess(command, 0, json.dumps({
+            "status": "GENERATED_REVIEW_REQUIRED", "human_approved": False,
+            "clip_sha256": d}), "")
+
+    def test_mocked_bridge_provenance_stats_and_no_publishing(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             ref = root / "source.png"
-            ref.write_bytes(b"fake reference")
-            args = module.argparse.Namespace(command="final", execute=True,
-                accept_model_license=True, device=0, reference=str(ref),
-                output=str(root / "final.mp4"), prompt="A careful character animation test.",
-                seed=0, timeout=3600, host="http://127.0.0.1:8188",
-                history=None, review=None, preview_video=None)
+            ref.write_bytes(b"reference")
+            args = self._args(root, ref)
+            hardware = module.Hardware("Tesla T4", "7.5", 16, 14, "detected_cuda")
+            with patch.object(module, "detect_hardware", return_value=hardware), patch.object(
+                 module, "attest_backend", return_value={"status": "mock"}), patch.object(
+                 module, "_video_probe", return_value={"width": 432, "height": 768,
+                                                       "fps": "24", "frames": 25}), patch.object(
+                 module.subprocess, "run", side_effect=self._bridge):
+                result = module.run(args)
+            self.assertEqual(result["status"], "GENERATED_REVIEW_REQUIRED")
+            self.assertFalse(result["published"])
+            self.assertFalse(result["human_approved"])
+            self.assertTrue(Path(result["stage_receipt"]).exists())
+            self.assertEqual(module.summary(Path(args.history))["successful_runs"], 1)
+            self.assertEqual(json.loads(Path(result["stage_receipt"]).read_text())["stage"], "preview")
+
+    def test_failed_history_append_does_not_erase_confirmed_generated_video(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref = root / "ref.png"; ref.write_bytes(b"reference")
+            args = self._args(root, ref)
             with patch.object(module, "detect_hardware", return_value=module.Hardware(
-                    "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
-                    module.subprocess, "run") as executable:
+                  "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                  module, "attest_backend", return_value={"status": "mock"}), patch.object(
+                  module, "_video_probe", return_value={"width": 432, "height": 768,
+                                                         "fps": "24", "frames": 25}), patch.object(
+                  module.subprocess, "run", side_effect=self._bridge), patch.object(
+                  module, "_history_append", side_effect=OSError("Disk full")):
+                result = module.run(args)
+            self.assertEqual(result["status"], "GENERATED_REVIEW_REQUIRED")
+            self.assertIn("telemetry could not be saved", result["history_warning"])
+            self.assertTrue(Path(args.output).exists())
+
+    def test_final_review_check_blocks_subprocess_even_with_real_t4(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref = root / "ref.png"; ref.write_bytes(b"reference")
+            args = self._args(root, ref, stage="final")
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                  "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                  module, "attest_backend") as attestation, patch.object(
+                  module.subprocess, "run") as actual:
                 with self.assertRaisesRegex(module.Blocked, "Final requires"):
                     module.run(args)
-                executable.assert_not_called()
+                actual.assert_not_called()
+                attestation.assert_not_called()
+
+    def test_invalid_subprocess_json_blocks_without_claiming_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref = root / "ref.png"; ref.write_bytes(b"reference")
+            args = self._args(root, ref)
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                  "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                  module, "attest_backend", return_value={"status": "mock"}), patch.object(
+                  module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "[]", "")):
+                with self.assertRaisesRegex(module.Blocked, "verified, unapproved"):
+                    module.run(args)
+
+    def test_successful_measurements_only_and_no_nan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            file = Path(temp) / "runs.jsonl"
+            for elapsed in (10.0, 12.0, 20.0):
+                module._history_append(file, {"result": "GENERATED_REVIEW_REQUIRED", "backend": "wan22-5b",
+                         "hardware": "Tesla T4", "stage": "preview", "resolution": "432x768",
+                         "frames": 25, "elapsed_s": elapsed})
+            self.assertEqual(module.summary(file)["groups"][0]["median_elapsed_s"], 12)
+            for value in (float("nan"), -1, "oops"):
+                with self.subTest(value=value):
+                    file.write_text(json.dumps({"result": "GENERATED_REVIEW_REQUIRED", "backend": "wan22-5b",
+                          "hardware": "Tesla T4", "stage": "preview", "resolution": "432x768",
+                          "frames": 25, "elapsed_s": value}))
+                    with self.assertRaises(module.Blocked):
+                        module.summary(file)
+
+    def test_unknown_metrics_lines_fail_closed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            p = Path(temp) / "m.jsonl"
+            for bad in ("[]\n", "{not json}", '{"result":"FAILED"}\n', "x" * 5000):
+                p.write_text(bad)
+                with self.subTest(bad=bad[:20]), self.assertRaises(module.Blocked):
+                    module.summary(p)
+
 
 if __name__ == "__main__":
     unittest.main()
