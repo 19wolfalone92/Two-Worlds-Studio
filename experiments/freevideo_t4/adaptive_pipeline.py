@@ -124,7 +124,7 @@ def quarantine_unknown_job(index: int, reason: str) -> Path:
     if os.path.lexists(marker):
         return marker
     data = json.dumps({"schema": 1, "status": "GPU_QUARANTINED",
-                       "reason": reason, "epoch_s": int(time.time())}) + "\\n"
+                       "reason": reason, "epoch_s": int(time.time())}) + chr(10)
     try:
         fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL
                      | getattr(os, "O_NOFOLLOW", 0), 0o600)
