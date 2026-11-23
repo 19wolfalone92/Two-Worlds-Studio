@@ -176,6 +176,26 @@ character articulation. Nor does it verify neural provenance or the likeness
 of Elizabeth, the rigid skull of Kostya, or artistic suitability. These are
 strictly `NOT_VERIFIED` until examined on authentic generated footage.
 
+## Unknown-running GPU job quarantine
+
+If the Studio ComfyUI subprocess times out, returns an error, or produces
+malformed JSON, Freevideo leaves a persistent private `gpu-INDEX.quarantine.json`
+marker under its per-worker lock folder. Subsequent Freevideo launches on that
+device fail with `GPU_QUARANTINED`, **even after the original subprocess exits**.
+This deliberately prevents a second expensive GPU submission while ComfyUI
+might still be working on the first prompt.
+
+**Manual recovery procedure**: investigate `/queue` and `/history` on the
+same trusted local ComfyUI instance, inspect generated MP4/receipt paths and
+any incomplete jobs, ensure the GPU is fully idle, then have the responsible
+operator explicitly remove the quarantine marker before any new render. Do not
+remove it automatically or as a reaction to a transient API error. This marker
+is **per Kaggle worker** and does not coordinate separate Kaggle sessions.
+
+The CPU regression explicitly simulates the timeout condition. It does not
+prove handling of a real remote ComfyUI process crash, GPU reset, or Kaggle
+worker restart (worker-local state may be lost on restart).
+
 ## Gates before considering selective integration into main
 
 1. Verified *real T4* on the actual Kaggle worker. No simulation may count.
