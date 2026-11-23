@@ -2,7 +2,7 @@ import importlib.util
 import unittest
 
 import numpy as np
-from studio.eb01_regional_motion import _track_regions, rigid_residual
+from studio.eb01_regional_motion import _track_regions, rigid_residual, compare_paired_motion
 
 
 class RegionalMotionTests(unittest.TestCase):
@@ -86,3 +86,34 @@ class RegionalMotionTests(unittest.TestCase):
         self.assertEqual(frames, 2)
         self.assertEqual(report['hand']['measured_frames'], 0)
         self.assertIn('hand:insufficient_tracking', flags)
+
+    def test_paired_motion_requires_ninety_percent_coverage_in_both_variants(self):
+        def specimen(frames, p95):
+            return {'shot': 'S06', 'decoded_frames': 89, 'regions': {
+                'upper_skull': {'expected_comparisons': 88, 'measured_frames': frames,
+                                'initial_tracks': 24, 'p95_shape_residual_px': p95}}}
+        strong = compare_paired_motion(specimen(88, 3.18), specimen(88, 1.90))
+        self.assertTrue(strong['numerically_improved'])
+        self.assertFalse(strong['human_artistic_approved'])
+        self.assertFalse(strong['full_production_authorized'])
+        self.assertEqual(strong['conclusion'], 'NUMERICAL_GAIN_NOT_ANATOMY_APPROVAL')
+        incomplete = compare_paired_motion(specimen(18, 3.18), specimen(88, .50))
+        self.assertFalse(incomplete['numerically_improved'])
+        self.assertEqual(incomplete['conclusion'], 'INSUFFICIENT_EVIDENCE')
+        self.assertEqual(incomplete['measured_regions']['upper_skull']['comparison'],
+                         'INSUFFICIENT_RELIABLE_TRACKING')
+
+    def test_paired_motion_rejects_small_gain_wrong_scene_or_clock(self):
+        def specimen(p95):
+            return {'shot': 'S06', 'decoded_frames': 89, 'regions': {
+                'upper_skull': {'expected_comparisons': 88, 'measured_frames': 88,
+                                'initial_tracks': 24, 'p95_shape_residual_px': p95}}}
+        measured = compare_paired_motion(specimen(3.18), specimen(3.12))
+        self.assertEqual(measured['conclusion'], 'NO_RELIABLE_IMPROVEMENT')
+        self.assertFalse(measured['numerically_improved'])
+        with self.assertRaises(ValueError):
+            compare_paired_motion(specimen(3.18), {'shot': 'S01', 'decoded_frames': 89})
+        with self.assertRaises(ValueError):
+            compare_paired_motion(specimen(3.18), {'shot': 'S06', 'decoded_frames': 88})
+        self.assertEqual(compare_paired_motion(specimen(3.18), specimen(float('nan')))
+                         ['conclusion'], 'INSUFFICIENT_EVIDENCE')
