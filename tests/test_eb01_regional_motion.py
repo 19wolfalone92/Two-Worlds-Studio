@@ -91,7 +91,9 @@ class RegionalMotionTests(unittest.TestCase):
         def specimen(frames, p95):
             return {'shot': 'S06', 'decoded_frames': 89, 'regions': {
                 'upper_skull': {'expected_comparisons': 88, 'measured_frames': frames,
-                                'initial_tracks': 24, 'p95_shape_residual_px': p95}}}
+                                'initial_tracks': 24, 'p95_shape_residual_px': p95},
+                'background': {'expected_comparisons': 88, 'measured_frames': 88,
+                               'initial_tracks': 24, 'p95_displacement_px': 0.25}}}
         strong = compare_paired_motion(specimen(88, 3.18), specimen(88, 1.90))
         self.assertTrue(strong['numerically_improved'])
         self.assertFalse(strong['human_artistic_approved'])
@@ -107,7 +109,9 @@ class RegionalMotionTests(unittest.TestCase):
         def specimen(p95):
             return {'shot': 'S06', 'decoded_frames': 89, 'regions': {
                 'upper_skull': {'expected_comparisons': 88, 'measured_frames': 88,
-                                'initial_tracks': 24, 'p95_shape_residual_px': p95}}}
+                                'initial_tracks': 24, 'p95_shape_residual_px': p95},
+                'background': {'expected_comparisons': 88, 'measured_frames': 88,
+                               'initial_tracks': 24, 'p95_displacement_px': 0.25}}}
         measured = compare_paired_motion(specimen(3.18), specimen(3.12))
         self.assertEqual(measured['conclusion'], 'NO_RELIABLE_IMPROVEMENT')
         self.assertFalse(measured['numerically_improved'])
