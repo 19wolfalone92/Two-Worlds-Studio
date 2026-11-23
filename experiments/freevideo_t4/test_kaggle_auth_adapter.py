@@ -55,14 +55,35 @@ class KaggleAuthAdapterTests(unittest.TestCase):
         self.assertEqual(result["gpu_quota_rows"], 1)
         self.assertFalse(result["gpu_launched"])
 
+    def test_cli_error_classification_is_redacted(self):
+        cases = [
+            ("usage: kaggle k list: error: unrecognized arguments: --format json",
+             "cli_incompatible"),
+            ("Traceback (most recent call last):\\nRuntimeError: secret_message",
+             "python_exception_redacted"),
+            ("SSLERROR certificate verify failed", "ssl_failure"),
+        ]
+        for raw, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(adapter.diagnose_error(raw), expected)
+
+    def test_kernel_list_auth_error_does_not_leak_cli_output(self):
+        secret = "PRIVATE_KEY_DO_NOT_LEAK"
+        def fake_runner(cmd, *, env, text, capture_output, timeout, check):
+            self.assertEqual(cmd, ["kaggle", "kernels", "list", "--mine", "--page-size", "1"])
+            return SimpleNamespace(returncode=1, stderr=secret + "\\nUnauthorized (401)", stdout="")
+        with self.assertRaisesRegex(adapter.KaggleAuthBlocked, "^KAGGLE_unauthorized$") as ctx:
+            adapter.check_kernels_list(env={"KAGGLE_API_TOKEN":"placeholder"}, runner=fake_runner)
+        self.assertNotIn(secret, str(ctx.exception))
+
     def test_sanitized_private_kernel_list_success(self):
         """Private notebook names never enter return values or logs."""
         secret = "PRIVATE_SHOULD_NOT_LEAK"
         def fake_runner(cmd, *, env, text, capture_output, timeout, check):
             self.assertEqual(cmd, ["kaggle", "kernels", "list", "--mine",
-                                   "--page-size", "1", "--format", "json"])
+                                   "--page-size", "1"])
             return SimpleNamespace(returncode=0, stderr="",
-                                   stdout=json.dumps([{"ref": secret, "title": secret}]))
+                                   stdout="ref | title\\nPRIVATE_SHOULD_NOT_LEAK | " + secret)
         result = adapter.check_kernels_list(
             env={"KAGGLE_API_TOKEN": "dummy"}, runner=fake_runner)
         self.assertEqual(result["status"], "API_AUTHENTICATED_PRIVATE_KERNELS_READ_ONLY")
