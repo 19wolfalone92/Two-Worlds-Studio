@@ -53,6 +53,116 @@ Prior 23 Nov audit reported **23/23 offline tests passing**. Additional integrit
 software logic only, not T4 inference or film quality. GitHub Actions' independent
 result is not assumed without its own completed check.
 
+## Experimental hybrid integration (new, no production Studio changes)
+
+The local pipeline now integrates **three existing Studio components** through
+one strictly isolated Freevideo controller:
+
+```
+private source photo
+   -> hybrid_engine.prepare (uncropped 9:16 private derived reference)
+   -> studio.video_ai_plan._reference (production reference contract, READ ONLY)
+   -> adaptive_pipeline (T4 resource plan, model hash, GPU lock, recovery)
+   -> studio.comfy_neural (REAL local Wan2.2 I2V via ComfyUI)
+   -> Freevideo full MP4 decode + frame/receipt/SHA verification
+   -> studio.video_qc.sample_video (secondary signal statistics, NOT aesthetic proof)
+   -> private preview/final receipts and mandatory human visual review
+```
+
+**No Runway, InVideo, ElevenLabs, remote AI provider, fake video, or procedural
+animation fallback is used.** GPU computation is performed locally on permitted
+Kaggle T4 hardware if actually available. No AI model has been merged or
+replaced: this is an *integrated orchestration layer*, not a new foundational
+hybrid neural architecture. Video DeltaNet/H3 remains **NOT IMPLEMENTED**.
+
+A supplied **3:4** photo would otherwise fail the existing Studio 9:16
+contract. Freevideo now prepares a full-frame image using `contain` with
+non-generative dark padding, never cropping the subject, face, hands, or shoes.
+The original file is unchanged and SHA-pinned. This operation is NOT a neural
+video render.
+
+```bash
+python experiments/freevideo_t4/hybrid_engine.py prepare \
+  --source /private/photo.png --workdir /private/freevideo-night-01 \
+  --job-id freevideo-night-01 --seed 42 \
+  --prompt 'The seated man breathes gently, opens his eyes and slowly turns his head. The camera, chair and wall remain perfectly still.'
+
+python experiments/freevideo_t4/hybrid_engine.py status \
+  --job /private/freevideo-night-01/job.json
+```
+
+On a verified local Kaggle T4 with ComfyUI and legally installed weights:
+
+```bash
+python experiments/freevideo_t4/hybrid_engine.py preview \
+  --job /private/freevideo-night-01/job.json \
+  --weights-manifest /private/wan-weights.json \
+  --execute --accept-model-license
+```
+
+Preview requires actual operator review. To create a **FALSE by default**
+review template (this does not approve anything):
+
+```bash
+python experiments/freevideo_t4/hybrid_engine.py review-template \
+  --job /private/freevideo-night-01/job.json
+```
+
+After watching the preview, an actual human may create a new private
+`review.json` with verified checks and use:
+
+```bash
+python experiments/freevideo_t4/hybrid_engine.py final \
+  --job /private/freevideo-night-01/job.json \
+  --weights-manifest /private/wan-weights.json \
+  --review /private/freevideo-night-01/review.json \
+  --execute --accept-model-license
+```
+
+Final output is **a separate new neural inference** requiring independent
+visual review. The two stages are not an upscaling or guaranteed continuation
+of one take. The hybrid cannot claim artistic success just because MP4 exists.
+
+### Private Kaggle single-job adapter
+
+The isolated adapter packages an operator-owned **PNG** into a **private**
+Kaggle kernel. The public repository never contains the photo, encoded bytes,
+private ComfyUI checkpoints, or generated clips. The Kaggle script clones the
+exact reviewed experimental branch SHA and verifies it before any model
+download. It then installs ComfyUI, official Wan checkpoint components using
+`studio.model_install`, creates a private SHA-256 manifest, and runs exactly
+**one native neural Preview**; there are **no retry loops**.
+
+```bash
+python experiments/freevideo_t4/kaggle_private_job.py prepare \
+  --username YOUR_KAGGLE_USERNAME --nonce freevideo-night-001 \
+  --source /private/photo.png \
+  --prompt 'The seated man breathes gently, opens his eyes and turns his head slowly while the camera and furniture remain fixed.' \
+  --revision FULL_40_CHARACTER_EXPERIMENTAL_COMMIT_SHA \
+  --destination /private/freevideo-kaggle-001 \
+  --accept-model-license
+
+# Only on an authorized machine with Kaggle CLI credentials:
+kaggle kernels push -p /private/freevideo-kaggle-001 --accelerator NvidiaTeslaT4
+```
+
+Kaggle API submission is **not** performed by the packer. Before running,
+confirm personal photo processing permission, model licence review, free T4
+quota, model-download storage and internet access. The temporary worker
+stores results in a **private** Kaggle kernel, never a public GitHub artifact.
+After downloading results to a private local directory:
+
+```bash
+python experiments/freevideo_t4/kaggle_private_job.py verify \
+  --path /private/downloaded-kaggle-output --nonce freevideo-night-001
+```
+
+Verification cross-checks ZIP SHA-256, all three Studio/Freevideo/hybrid
+receipts and fully decodes all MP4 frames; any failure blocks success. Even a
+technically valid clip remains **VISUAL_REVIEW_REQUIRED**.
+Actual T4 inference, GPU-seconds, VRAM and artistic quality remain unverified
+until a permitted private Kaggle kernel finishes and its output is inspected.
+
 ## Optional real manual experiment
 
 Before any real generation: install legitimate Wan2.2 TI2V-5B weights in a
