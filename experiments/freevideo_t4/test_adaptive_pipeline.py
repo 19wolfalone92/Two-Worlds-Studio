@@ -511,5 +511,35 @@ class ExecutionAndTelemetryTests(unittest.TestCase):
                 attestation.assert_not_called()
 
 
+    def test_gpu_unknown_timeout_persists_quarantine_and_blocks_repeat(self):
+        """MOCKED timeout must fail closed without re-submitting to ComfyUI."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref = root / "ref.png"
+            ref.write_bytes(b"approved placeholder, not a real portrait")
+            args = self._args(root, ref)
+            # Choose a distinct test GPU index: no real CUDA device is accessed.
+            args.device = 31
+            marker = module._quarantine_marker(31)
+            marker.unlink(missing_ok=True)
+            try:
+                mocked_t4 = module.Hardware("Tesla T4", "7.5", 16, 14, "detected_cuda", 31)
+                with patch.object(module, "detect_hardware", return_value=mocked_t4), patch.object(
+                     module, "attest_backend", return_value={"status": "MOCKED"}), patch.object(
+                     module.subprocess, "run",
+                     side_effect=subprocess.TimeoutExpired(cmd="MOCKED bridge", timeout=1)) as bridge:
+                    with self.assertRaisesRegex(module.Blocked, "GPU_QUARANTINED"):
+                        module.run(args)
+                    self.assertEqual(bridge.call_count, 1)
+                    self.assertTrue(marker.is_file())
+                    proof = json.loads(marker.read_text())
+                    self.assertEqual(proof["status"], "GPU_QUARANTINED")
+                    with self.assertRaisesRegex(module.Blocked, "GPU_QUARANTINED"):
+                        module.run(args)
+                    self.assertEqual(bridge.call_count, 1, "No second GPU command is allowed")
+            finally:
+                marker.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()
