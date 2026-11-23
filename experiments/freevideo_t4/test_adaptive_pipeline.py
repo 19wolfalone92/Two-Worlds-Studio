@@ -86,6 +86,29 @@ class PlanningTests(unittest.TestCase):
             with self.assertRaises(module.Blocked):
                 module.run(args)
 
+    def test_single_worker_device_lock_prevents_concurrent_execution(self):
+        with module.device_lease(0):
+            with self.assertRaisesRegex(module.Blocked, "busy"):
+                with module.device_lease(0):
+                    self.fail("Lock must reject another job on the same device")
+        # A normally completed context releases the per-device file lock.
+        with module.device_lease(0):
+            pass
+        with self.assertRaises(module.Blocked):
+            with module.device_lease(-1):
+                pass
+
+    def test_busy_gpu_lock_blocks_before_cuda_or_bridge(self):
+        args = argparse.Namespace(command="preview", execute=True,
+                                 accept_model_license=True, device=0)
+        with module.device_lease(0):
+            with patch.object(module, "detect_hardware") as gpu, patch.object(
+                 module.subprocess, "run") as bridge:
+                with self.assertRaisesRegex(module.Blocked, "busy"):
+                    module.run(args)
+                gpu.assert_not_called()
+                bridge.assert_not_called()
+
     def test_t4_only_for_real_execution(self):
         args = argparse.Namespace(command="preview", execute=True, accept_model_license=True, device=0)
         with patch.object(module, "detect_hardware", return_value=module.Hardware(
