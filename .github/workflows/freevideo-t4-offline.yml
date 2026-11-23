@@ -1,0 +1,27 @@
+name: FreeVideo-inspired T4 experiment (offline only)
+on:
+  push:
+    branches:
+      - research/freevideo-t4-adaptive-20261123
+    paths:
+      - 'experiments/freevideo_t4/**'
+      - '.github/workflows/freevideo-t4-offline.yml'
+  pull_request:
+    paths:
+      - 'experiments/freevideo_t4/**'
+      - '.github/workflows/freevideo-t4-offline.yml'
+permissions:
+  contents: read
+jobs:
+  policy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Pure-CPU policy tests; no models, GPUs or Kaggle
+        run: |
+          python -m unittest discover -s experiments/freevideo_t4 -p 'test_*.py' -v
+          python experiments/freevideo_t4/adaptive_pipeline.py plan --simulate-t4
