@@ -49,7 +49,7 @@ python experiments/freevideo_t4/adaptive_pipeline.py plan --simulate-t4
 The isolated tests **do not require CUDA or Kaggle**; only an FFmpeg CPU fixture
 decodes a real synthetic 25-frame MP4. GPU inference is mocked in the tests.
 
-Verified locally on 23 Nov 2026: **18/18 offline tests pass**. This proves
+Verified locally on 23 Nov 2026: **21/21 offline tests pass**. This proves
 software logic only, not T4 inference or film quality. GitHub Actions' independent
 result is not assumed without its own completed check.
 
