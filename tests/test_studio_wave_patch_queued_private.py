@@ -30,7 +30,7 @@ class PrivateQueuedPatchTests(unittest.TestCase):
         source,digest,value=self.fixture()
         corrected=update_private_script(source,image_sha=digest)
         self.assertIn(NEW,corrected)
-        self.assertNotIn(OLD+"\n",corrected)
+        self.assertEqual(corrected.count(OLD),1)
         self.assertIn('IMAGE_B64="'+value+'"',corrected)
         self.assertEqual(corrected.count('IMAGE_B64="'+value+'"'),1)
         with self.assertRaisesRegex(JobStateError,"already patched|known broken"):
