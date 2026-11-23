@@ -10,14 +10,17 @@ from tools.eb01_kaggle2_auth_probe import query,SOURCE_DATASET
 from tools.eb01_kaggle_quota_observer import parse_quota
 
 
-def prepare(root,alias,handle,run_id,revision,lock):
+def prepare(root,alias,handle,run_id,revision,lock,*,anatomy=False):
     if (alias not in ('owner','collaborator') or not re.fullmatch(r'[1-9][0-9]{5,20}',run_id) or
         not re.fullmatch(r'[a-f0-9]{40}',revision) or not re.fullmatch(r'[A-Za-z0-9_-]{2,30}',handle)):
         raise PilotBlocked('INVALID_IMMUTABLE_BENCHMARK_IDENTITY')
-    slug='eb01-echo-2gpu-'+hashlib.sha256(('eb01-echo-parallel-v1-'+run_id+'-'+alias).encode()).hexdigest()[:14]
+    slug=('eb01-anatomy-' if anatomy else 'eb01-echo-2gpu-')+hashlib.sha256((('eb01-anatomy-v1-' if anatomy else 'eb01-echo-parallel-v1-')+run_id+'-'+alias).encode()).hexdigest()[:14]
     cfg={'private':True,'no_paid_services':True,'production_jobs':0,'benchmark_only':True,
         'source_dataset':SOURCE_DATASET,'account_alias':alias,'branch':BRANCH,'revision':revision,
         'profile':PROFILE,'upstream_revision':UPSTREAM_SHA,'model_lock':lock}
+    if anatomy:
+        from studio.eb01_anatomy_profile import PROFILE as ANATOMY_PROFILE,EXPERIMENT
+        cfg.update(profile=ANATOMY_PROFILE,experiment=EXPERIMENT)
     source=Path('tools/kaggle_eb01_echo_parallel_entry.py').read_text();tag='__EB01_ECHO_PARALLEL_CONFIG_B64__'
     if source.count(tag)!=1:raise PilotBlocked('AMBIGUOUS_BENCHMARK_CONFIG')
     folder=root/'kernel';folder.mkdir(mode=0o700)
@@ -65,7 +68,7 @@ def verify_slot(folder,spec,revision):
         'no_neon':qc['status']=='NO_NEON_ARTIFACT_FOUND','all_rgb_frames_distinct':pixels['unique_decoded_rgb_frames']==spec['frames'],
         'receipt_sha':digest==proof.get('mp4_sha256'),'pinned_revision':proof.get('studio_revision')==revision,
         'pinned_upstream':proof.get('upstream_revision')==UPSTREAM_SHA,
-        'profile':proof.get('profile')==PROFILE,
+        'profile':proof.get('profile')==spec['profile'],
         'canonical_prompt':proof.get('prompt_sha256')==spec['prompt_sha256'],
         'native_steps':proof.get('steps')==spec['steps'],
         'audio_is_actual_model_input':proof.get('audio_is_model_input') is True,
@@ -78,6 +81,12 @@ def verify_slot(folder,spec,revision):
         'exact_overlap_count':proof.get('overlap_frames_discarded')==len(segs)-1,
         'text_encoder_released':proof.get('precomputed_text_encoder_released_before_inference') is True,
         'no_upscale_or_fabricated_frames':proof.get('source_video_upscaled') is False and proof.get('synthetic_frames')==0}
+    if 'anatomy_controls' in spec:
+        from studio.eb01_anatomy_profile import native_audio_mask_numpy
+        checks['native_anatomy_controls_applied']=proof.get('anatomy_controls')==spec['anatomy_controls']
+        checks['independent_spatial_mask_bytes']=all(seg.get('spatial_audio_mask_shape')==list(native_audio_mask_numpy(spec,n).shape) and
+            seg.get('spatial_audio_mask_sha256')==hashlib.sha256(native_audio_mask_numpy(spec,n).tobytes()).hexdigest()
+            for seg,n in zip(segs,spec['segment_frames']))
     result.update(checks=checks,technical_pass=all(checks.values()),probe=meta,mp4_sha256=digest,
         native_inference_seconds=proof.get('native_inference_seconds'),process_wall_seconds=proof.get('process_wall_seconds'),**pixels)
     resource=proof.get('resources',{})
@@ -86,17 +95,19 @@ def verify_slot(folder,spec,revision):
     return result
 
 
-def run(alias,token,root,run_id,revision,attempt,lock,poll_seconds=5100):
+def run(alias,token,root,run_id,revision,attempt,lock,poll_seconds=5100,*,anatomy=False):
+    from studio.eb01_anatomy_profile import PROFILE as ANATOMY_PROFILE,anatomy_specs
     report={'schema':1,'profile':PROFILE,'account_alias':alias,'run_id':run_id,
         'gpu_submission_attempts':0,'production_jobs_submitted':0,'quality_approved':False,'whole_movie_ready':False}
+    if anatomy:report.update(profile=ANATOMY_PROFILE,experiment='anatomy_controls_v2',user_anatomy_feedback_resolved=False)
     try:
         auth,handle=query(token)
         if auth!='AUTHENTICATED_READ_ONLY' or not handle:raise PilotBlocked('ACCOUNT_AUTH_NOT_VERIFIED')
-        quota=parse_quota(call(token,['kaggle','quota','--format','json'],timeout=65))
-        report['official_quota_before']=quota['GPU']
-        if quota['GPU']['remaining_hours']<1.25:raise PilotBlocked('INSUFFICIENT_FREE_QUOTA_FOR_BOUNDED_BENCHMARK')
-        folder,kernel=prepare(root,alias,handle,run_id,revision,lock)
+        folder,kernel=prepare(root,alias,handle,run_id,revision,lock,anatomy=anatomy)
         if attempt==1:
+            quota=parse_quota(call(token,['kaggle','quota','--format','json'],timeout=65))
+            report['official_quota_before']=quota['GPU']
+            if quota['GPU']['remaining_hours']<1.25:raise PilotBlocked('INSUFFICIENT_FREE_QUOTA_FOR_BOUNDED_BENCHMARK')
             report['gpu_submission_attempts']=1
             call(token,['kaggle','kernels','push','-p',str(folder),'--timeout','3600','--accelerator','NvidiaTeslaT4'],timeout=220)
         deadline=time.monotonic()+poll_seconds
@@ -108,7 +119,7 @@ def run(alias,token,root,run_id,revision,attempt,lock,poll_seconds=5100):
                 output=root/'output';output.mkdir(mode=0o700)
                 call(token,['kaggle','kernels','output',kernel,'-p',str(output),'--force'],timeout=420)
                 results=[]
-                for slot,spec in enumerate(specs(alias)):
+                for slot,spec in enumerate(anatomy_specs(alias) if anatomy else specs(alias)):
                     try:results.append(verify_slot(output/('slot'+str(slot)),spec,revision))
                     except Exception as exc:results.append({'technical_pass':False,'error_type':type(exc).__name__,'slot':slot})
                 report['workers']=results
@@ -125,7 +136,7 @@ def run(alias,token,root,run_id,revision,attempt,lock,poll_seconds=5100):
                 seal(archive,Path('ops/eb01_native_pilot_return_public.pem'),
                     Path(os.environ['RUNNER_TEMP'])/('EB01_PARALLEL_'+alias+'.twenc'),
                     {'purpose':'eb01-echo-parallel','run_id':run_id,'account':alias})
-                passed=all(x['technical_pass'] for x in results) and telemetry.get('both_gpus_compute_busy_samples',0)>0
+                passed=state=='COMPLETE' and len(results)==2 and all(x['technical_pass'] for x in results) and telemetry.get('both_gpus_compute_busy_samples',0)>0
                 report['status']='TWO_SINGLE_CARD_GENERATORS_AND_CONTINUATIONS_TECHNICAL_PASS' if passed else 'PRIVATE_PARALLEL_BENCHMARK_FAILED_OR_QA_BLOCKED'
                 report['encrypted_private_return_created']=True
                 return report
@@ -137,11 +148,12 @@ def run(alias,token,root,run_id,revision,attempt,lock,poll_seconds=5100):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--account',choices=('owner','collaborator'),required=True);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--account',choices=('owner','collaborator'),required=True)
+    p.add_argument('--anatomy-controls',action='store_true');a=p.parse_args()
     os.umask(0o077);lock=json.loads(base64.b64decode(os.environ['EB01_MODEL_LOCK_B64'],validate=True))
     with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'],prefix='eb01-parallel-private-') as temp:
         r=run(a.account,os.environ.get('EB01_ACCOUNT_TOKEN',''),Path(temp),os.environ['GITHUB_RUN_ID'],
-              os.environ['GITHUB_SHA'],int(os.environ.get('GITHUB_RUN_ATTEMPT','1')),lock)
+              os.environ['GITHUB_SHA'],int(os.environ.get('GITHUB_RUN_ATTEMPT','1')),lock,anatomy=a.anatomy_controls)
     (Path(os.environ['RUNNER_TEMP'])/('EB01_PARALLEL_'+a.account+'_SAFE.json')).write_text(json.dumps(r,indent=2,sort_keys=True)+'\n')
     print('EB01_PARALLEL_NUMERICAL_RESULT',json.dumps(r,sort_keys=True))
     return 0 if r['status']=='TWO_SINGLE_CARD_GENERATORS_AND_CONTINUATIONS_TECHNICAL_PASS' else 2
