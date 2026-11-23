@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -56,6 +57,24 @@ class KagglePrivateJobTests(unittest.TestCase):
             self.assertFalse((args["destination"] / "private_photo.png").exists())
             with self.assertRaisesRegex(module.KaggleBlocked, "NEW private"):
                 module.prepare_private_kernel(**args)
+
+    def test_jpeg_bytes_with_png_filename_are_transported_without_reencoding(self):
+        """Original user photo can have a misleading extension; preserve bytes."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            args = self.args(root)
+            original = args["source"]
+            Image.new("RGB", (600, 800), (71, 85, 99)).save(original, format="JPEG")
+            before = original.read_bytes()
+            self.assertTrue(before.startswith(bytes.fromhex("ffd8ff")))
+            module.prepare_private_kernel(**args)
+            script = (args["destination"] / "kernel_main.py").read_text()
+            encoded = re.search(r'^CONFIG_B64 = "([A-Za-z0-9+/=]+)"', script, flags=re.M)
+            self.assertIsNotNone(encoded)
+            config = json.loads(base64.b64decode(encoded.group(1)))
+            self.assertEqual(config["reference_format"], "jpeg")
+            self.assertEqual(config["reference_sha256"], hashlib.sha256(before).hexdigest())
+            self.assertEqual(original.read_bytes(), before)
 
     def test_license_refusal_has_no_files_written(self):
         with tempfile.TemporaryDirectory() as tmp:
