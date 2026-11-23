@@ -34,10 +34,15 @@ jobs:
           python-version: "3.11"
       - name: Install offline dependencies
         run: |
-          python -m pip install -r requirements.txt -r requirements-private-output.txt
+          python -m pip install -r requirements.txt -r requirements-private-output.txt -e '.[cinematic]'
           sudo apt-get update && sudo apt-get install -y ffmpeg espeak-ng
       - name: Test renderer, editorial controls and packaging
-        run: python -m unittest discover -s tests -v
+        run: |
+          python - <<'PY'
+          import cv2,numpy
+          print('STUDIO_MANDATORY_OPEN_CV_AVAILABLE',cv2.__version__)
+          PY
+          python -m unittest discover -s tests -v
       - name: Verify premium visual asset pipeline and reference prompts (no GPU)
         run: |
           python -m studio.art_director --episode episodes/E01_THE_REFLECTION.json --output-dir dist/art
