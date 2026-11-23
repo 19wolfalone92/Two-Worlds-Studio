@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import tempfile
 import zipfile
 
 from PIL import Image
@@ -136,23 +137,65 @@ def verify_private_result(folder: str | Path, nonce: str) -> dict:
                        or (m.external_attr >> 16) & 0o170000 == 0o120000
                        for m in members)):
             raise KaggleBlocked("Unsafe/missing private preview ZIP members")
+
         raw = z.read("preview.mp4")
-        studio = json.loads(z.read("preview.receipt.json"))
+        studio_bytes = z.read("preview.receipt.json")
+        freevideo_bytes = z.read("preview.freevideo.json")
+        studio = json.loads(studio_bytes)
         hybrid = json.loads(z.read("preview.hybrid.json"))
-        freevideo = json.loads(z.read("preview.freevideo.json"))
+        freevideo = json.loads(freevideo_bytes)
+        job = json.loads(z.read("job.json"))
         digest = hashlib.sha256(raw).hexdigest()
         if (digest != record.get("clip_sha256")
                 or digest != studio.get("clip_sha256")
                 or digest != hybrid.get("clip_sha256")
                 or digest != freevideo.get("clip_sha256")
                 or hybrid.get("stage") != "preview"
-                or studio.get("inference_performed") is not True):
-            raise KaggleBlocked("Native MP4/provenance mismatch")
-    # Do not claim artistic quality or actual decoded frame validation without
-    # decoding the returned clip. Hash alone is not proof of a valid MP4.
-    return {"status": "HASHES_MATCH_GPU_RECEIPTS_DECODE_NOT_VERIFIED",
+                or studio.get("schema") != 1 or studio.get("engine") != "neural_comfy"
+                or studio.get("model") != "wan22-5b"
+                or studio.get("inference_performed") is not True
+                or studio.get("human_approved") is not False
+                or studio.get("published") is not False
+                or freevideo.get("schema") != 2
+                or freevideo.get("stage") != "preview"
+                or freevideo.get("bridge_receipt_sha256")
+                   != hashlib.sha256(studio_bytes).hexdigest()
+                or hybrid.get("studio_receipt_sha256")
+                   != hashlib.sha256(studio_bytes).hexdigest()
+                or hybrid.get("freevideo_receipt_sha256")
+                   != hashlib.sha256(freevideo_bytes).hexdigest()
+                or record.get("source_sha256") != job.get("source_sha256")
+                or hybrid.get("source_sha256") != job.get("source_sha256")
+                or hybrid.get("reference_sha256") != job.get("reference_sha256")):
+            raise KaggleBlocked("Native MP4/Studio/Freevideo provenance mismatch")
+        measured_receipt = studio.get("video", {})
+        if (not isinstance(measured_receipt, dict)
+                or measured_receipt.get("frames") != 25
+                or measured_receipt.get("width") != 432
+                or measured_receipt.get("height") != 768
+                or measured_receipt.get("fps") != "24"):
+            raise KaggleBlocked("Unexpected GPU preview frame-clock receipt")
+    # Hashes and JSON are not video decoding. Actually decode every MP4 frame.
+    try:
+        from quality_metrics import audit_video
+    except ImportError:
+        from .quality_metrics import audit_video
+    with tempfile.TemporaryDirectory() as tmp:
+        p = Path(tmp) / "kaggle_preview.mp4"
+        with p.open("xb") as stream:
+            stream.write(raw)
+        try:
+            qc = audit_video(p)
+        except (OSError, ValueError) as exc:
+            raise KaggleBlocked("Returned Kaggle clip does not fully decode") from exc
+    if (qc["video_sha256"] != digest or qc["frames"] != 25
+            or qc["width"] != 432 or qc["height"] != 768 or qc["fps"] != "24"):
+        raise KaggleBlocked("Returned MP4 decoded frame-clock differs from Studio")
+    return {"status": "REMOTE_GPU_RECEIPT_MP4_DECODED_REVIEW_REQUIRED",
             "clip_sha256": record["clip_sha256"], "nonce": nonce,
-            "actual_decoding": "NOT_TESTED", "visual_quality": "NOT_VERIFIED",
+            "actual_decoding": "CPU_VERIFIED",
+            "neural_provenance": "REMOTE_KAGGLE_STUDIO_RECEIPT",
+            "visual_quality": "NOT_VERIFIED", "temporal_flags": qc["flags"],
             "human_approved": False, "published": False}
 
 
