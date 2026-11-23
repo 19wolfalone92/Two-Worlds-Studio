@@ -418,5 +418,46 @@ class ExecutionAndTelemetryTests(unittest.TestCase):
                     module.summary(p)
 
 
+    def test_changed_reference_during_gpu_is_not_approved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference = root / "ref.png"
+            reference.write_bytes(b"original reference")
+            args = self._args(root, reference)
+            def mutate_source(command, **kwargs):
+                finished = self._bridge(command, **kwargs)
+                reference.write_bytes(b"unexpected replacement during render")
+                return finished
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                    "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                    module, "attest_backend", return_value={"status": "mock"}), patch.object(
+                    module.subprocess, "run", side_effect=mutate_source):
+                with self.assertRaisesRegex(module.Blocked, "Reference image changed"):
+                    module.run(args)
+
+    def test_bridge_receipt_frame_clock_tampering_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference = root / "ref.png"
+            reference.write_bytes(b"unchanged reference")
+            args = self._args(root, reference)
+            def tamper_bridge(command, **kwargs):
+                finished = self._bridge(command, **kwargs)
+                output = Path(command[command.index("--output") + 1])
+                receipt = output.with_suffix(".receipt.json")
+                doc = json.loads(receipt.read_text())
+                doc["video"]["frames"] = 999
+                receipt.write_text(json.dumps(doc))
+                return finished
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                    "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                    module, "attest_backend", return_value={"status": "mock"}), patch.object(
+                    module, "_video_probe", return_value={"width": 432, "height": 768,
+                                                        "fps": "24", "frames": 25}), patch.object(
+                    module.subprocess, "run", side_effect=tamper_bridge):
+                with self.assertRaisesRegex(module.Blocked, "Studio receipt"):
+                    module.run(args)
+
+
 if __name__ == "__main__":
     unittest.main()
