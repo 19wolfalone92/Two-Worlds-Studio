@@ -1,75 +1,137 @@
-# FreeVideo-inspired T4 experiment (isolated, unmerged)
+# Freevideo — isolated T4 experiment
 
-**Status: research prototype, CPU policy tests only. This is NOT a trained or merged hybrid neural model.**
+**Status (23 Nov 2026): independent research prototype, not merged.**
+This is the temporary **Freevideo** project name to distinguish it from the
+production **Two Worlds Studio**. The code lives only on
+`research/freevideo-t4-adaptive-20261123`, under
+`experiments/freevideo_t4/`.
 
-Goal: selectively test transferable engineering ideas from [FreeVideo](https://github.com/FlashML-org/FreeVideo) (adaptive memory-aware planning, cheap first-pass preview, and per-run telemetry) **without installing FreeVideo, changing Studio production code, downloading H3 weights, or using Kaggle quotas without an explicit command**.
+**What it IS:** a memory-aware *heuristic* and two-stage, operator-reviewed Wan2.2
+image-to-video workflow that delegates inference to the existing
+`studio.comfy_neural` bridge. GPU-specific plans, provenance checks, telemetry,
+local ComfyUI device identity consistency, and fail-closed rules are included.
 
-## What is included
+**What it IS NOT:** a merged neural model, MiniMax H3 implementation, Video
+DeltaNet model, real four-GPU scheduler, actual measured performance improvement,
+real-world animation QA, or a production release. No FreeVideo project source
+code/model weights are incorporated, and the project's separate license
+conditions remain unaffected. The project name is a label, not a claim of
+technical equivalence.
 
-- **Single-device CUDA probe** (via installed PyTorch) and conservative `Wan2.2 TI2V-5B` 9:16 preview/final geometry presets. Available VRAM controls the preset; these are **heuristics**, not measured memory guarantees. 4×T4 across two Kaggle sessions are **four independent workers** — memory cannot simply be pooled.
-- **Explicit two-stage generation** through the existing `python -m studio.comfy_neural` API. A **human-reviewed**, SHA-256-bound preview is required before *any* final generation. No automatic retry, model download, publishing, paid API call or remote ComfyUI access.
-- **Private JSONL real-run metrics** and grouped median timing. No fabricated speedups, anatomy scores, identity scores or claims that a different-resolution preview improves final quality.
-- **No FreeVideo/VDN/MiniMax H3 code, architectures, weights or licenses incorporated**. H3 is excluded from the T4 runtime; this is a Wan pipeline and experiment, not a neural model merge. BF16 is not used on T4.
+## Audit findings and fixes
 
-## Reproducible offline checks
+| Chain | Previously | After audit |
+| --- | --- | --- |
+| Device selection | Heuristic trusted a local CUDA VRAM query without verifying ComfyUI's GPU | Actual T4 required; `/system_stats` must report matching device index/type/name/total VRAM |
+| Memory | No invalid-VRAM validation; could allow nonsensical reports | Reject NaN, over-total and insufficient VRAM; no implicit OOM retries |
+| Preview → final | A manually written review JSON and arbitrary video hash could authorize final | Source, preview MP4, native Studio receipt, Freevideo stage receipt, prompt, seed and frame clock must match |
+| Output provenance | No Freevideo-specific take receipt | Private SHA-256-bound `.freevideo.json` stage receipt with hardware, parameters and bridge-receipt digest |
+| Frame/geometry | Not independently checked at the Freevideo boundary | `ffprobe` counts frames and verifies width, height and 24 FPS |
+| File safety | Symlinks were resolved before they could be rejected; public-path alias risk | Check lexical and resolved paths; deny file symlinks, never overwrite outputs or receipts |
+| Telemetry | Malformed/NaN JSONL could crash or mislead stats | Bounded streaming reader, strict numeric validation, real-run medians only |
+| Recovery | A telemetry write failure could look like failed GPU inference | Keep an already verified MP4 and return a clear telemetry warning; no blind automatic reruns |
+| Quality | A JSON `approved` flag could be misread as objective quality evidence | Human approval is an explicit manual assertion, not a computer vision score |
 
-From the repo root (Python 3.11+, no GPU required):
+**Important:** this branch has no independent motion/identity recognition model.
+A person must inspect full video for face consistency, hands, rigid skull and jaw,
+warping, temporal flicker and natural physical movement. The reviewer must never
+set any checks to `true` without actually watching the clip.
+
+## Offline regression tests
+
+From the repository root with **Python 3.11+** and FFmpeg/ffprobe installed:
 
 ```bash
 python -m unittest discover -s experiments/freevideo_t4 -p 'test_*.py' -v
 python experiments/freevideo_t4/adaptive_pipeline.py plan --simulate-t4
 ```
 
-`--simulate-t4` is visibly simulated and **cannot** be passed to a GPU command. Without it, `plan` reads one actual CUDA device via `torch.cuda`; Kaggle may expose multiple independent devices *inside the same session*, which must be scheduled separately.
+The isolated tests **do not require CUDA or Kaggle**; only an FFmpeg CPU fixture
+decodes a real synthetic 25-frame MP4. GPU inference is mocked in the tests.
 
-## Optional manually authorized real experiment
+Verified locally on 23 Nov 2026: **18/18 offline tests pass**. This proves
+software logic only, not T4 inference or film quality. GitHub Actions' independent
+result is not assumed without its own completed check.
 
-Prerequisites: official Wan2.2-5B model weights installed in private ComfyUI; a reachable **loopback-only** server (use SSH tunnel if necessary); valid rights/license reviewed; private reference PNG; PyTorch and Studio dependencies installed. The repo is public: **all images, clips, receipts, human review and stats must live outside Git**. No automatic setup is provided.
+## Optional real manual experiment
+
+Before any real generation: install legitimate Wan2.2 TI2V-5B weights in a
+private ComfyUI, run it on the **same CUDA T4** as this CLI, with ComfyUI bound to
+localhost and `/system_stats` reporting the selected GPU index. Ensure the
+GPU has enough free memory, PyTorch/FFmpeg are installed, the reference is
+approved, and model licenses permit the intended use.
+
+The CLI probes just **one CUDA GPU**, and forbids use of a different model or
+GPU. 2 T4s per Kaggle session are separate devices; two Kaggle sessions do
+not form one 64-GB GPU. Do **not** call four GPUs a combined model.
+
+Do not put reference art, model weights, generated MP4, human review JSON,
+receipts or GPU logs into this PUBLIC repository.
 
 ```bash
-# Inspect a real GPU; this does NOT generate or download anything.
+# Simulation only — no GPU, no model load, no network calls:
+python experiments/freevideo_t4/adaptive_pipeline.py plan --simulate-t4
+
+# On a real Kaggle T4 with compatible private local ComfyUI:
 python experiments/freevideo_t4/adaptive_pipeline.py plan
 
-# Real preview: opt-in only; may consume Kaggle quota.
+# Explicit GPU preview (25 frames, ~1 second). Never automatic.
 python experiments/freevideo_t4/adaptive_pipeline.py preview \
   --reference /private/eb01/shot.png --output /private/eb01/preview.mp4 \
-  --prompt 'A skeletal character smoothly turns its entire head and shoulders while jaw and bones remain rigid.' \
-  --history /private/eb01/timing.jsonl --accept-model-license --execute
+  --prompt 'A skeletal character turns head and shoulders while rigid skull bones preserve their exact shape.' \
+  --seed 42 --history /private/eb01/timing.jsonl \
+  --accept-model-license --execute
 ```
 
-Watch the resulting MP4. If correct, manually create `/private/eb01/review.json` (NEVER let software approve itself):
+The successful preview produces:
+- `preview.mp4` — native video marked **REVIEW REQUIRED**;
+- `preview.receipt.json` — Studio bridge provenance;
+- `preview.freevideo.json` — extra Freevideo stage provenance.
+
+**Manually inspect the actual preview**. Create the following external
+`/private/eb01/review.json`, filling SHA values from the real files and
+setting all checks true **only if genuinely satisfied**:
 
 ```json
 {
-  "schema": 1,
-  "approved": true,
-  "reviewer": "owner",
-  "preview_sha256": "<sha256 of preview.mp4>",
-  "reference_sha256": "<sha256 of shot.png>",
-  "checks": {"identity": true, "anatomy": true, "motion": true, "no_morphing": true}
+  "schema": 1, "approved": true, "reviewer": "owner",
+  "preview_sha256": "<SHA256 preview.mp4>",
+  "reference_sha256": "<SHA256 shot.png>",
+  "checks": {
+    "identity": true, "anatomy": true, "motion": true, "no_morphing": true
+  }
 }
 ```
 
-Only after visual inspection and that separate human action:
+Then, deliberately, with the **same** prompt and seed:
 
 ```bash
 python experiments/freevideo_t4/adaptive_pipeline.py final \
   --reference /private/eb01/shot.png --output /private/eb01/final.mp4 \
   --preview-video /private/eb01/preview.mp4 --review /private/eb01/review.json \
-  --prompt 'A skeletal character smoothly turns its entire head and shoulders while jaw and bones remain rigid.' \
-  --history /private/eb01/timing.jsonl --accept-model-license --execute
+  --prompt 'A skeletal character turns head and shoulders while rigid skull bones preserve their exact shape.' \
+  --seed 42 --history /private/eb01/timing.jsonl \
+  --accept-model-license --execute
 
 python experiments/freevideo_t4/adaptive_pipeline.py stats --history /private/eb01/timing.jsonl
 ```
 
-Both generated takes remain **GENERATED_REVIEW_REQUIRED**, never become published or approved final films. The preview review only authorizes a *separate* final generation; final must be visually evaluated again using existing Studio master gates.
+**Even after passing, `final.mp4` is a new independent generation** — preview
+approval is not approval of the final take. Its artistic quality must be
+visually examined again using the existing studio's human release policy.
 
-## Acceptance / future integration rules
+## Gates before considering selective integration into main
 
-1. Baseline and experiment must render **same reference, prompt, seed, resolution, frame count and steps** for any legitimate speed/quality A/B comparison. The different-resolution preview is a cost filter, not evidence of a faster model.
-2. Confirm T4 end-to-end completion with official weights and actual measured VRAM, wall-time and ComfyUI receipt. **No GPU acceptance test has been run in this branch.**
-3. Human-review Elizabeth's face/hair and Kostya's nondeforming skull/jaw across the entire clip. Check native motion (not pan/zoom on a still), hands, background warping and sound independently.
-4. Determine if the *total* spent on preview + accepted finals is lower than the baseline's discarded full-cost attempts, while maintaining final visual quality.
-5. Only after independently demonstrated improvements, request a **separate** code review and selective port; **never automatically merge this branch into `main`**.
+1. Verified *real T4* on the actual Kaggle worker. No simulation may count.
+2. Real ComfyUI backend receipt and VRAM/temperature/time observations.
+3. Visual comparison of Elizabeth and Kostya: shape, anatomy, identity, motion,
+   texture stability and absence of floating/deforming objects.
+4. Calculate **end-to-end GPU seconds per usable approved final video** against
+   a baseline. A low-quality preview can still cost more, not less.
+5. No unexpected downloads, credentials exposure, cost, or auto-publication.
+6. Independent owner review and separate explicit approval before porting **only
+   proven improvements**. **Never merge this experiment automatically.**
 
-License research (do not copy model weights): [FreeVideo](https://github.com/FlashML-org/FreeVideo), [VDN paper](https://arxiv.org/abs/2609.20744), [official Wan2.2 ComfyUI](https://docs.comfy.org/tutorials/video/wan/wan2_2), and [the Studio's existing bridge](../../studio/comfy_neural.py).
+Upstream conceptual references: [FreeVideo](https://github.com/FlashML-org/FreeVideo),
+[Video DeltaNet](https://arxiv.org/abs/2609.20744),
+[Wan2.2 ComfyUI](https://docs.comfy.org/tutorials/video/wan/wan2_2).
