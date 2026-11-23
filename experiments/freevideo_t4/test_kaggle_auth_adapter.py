@@ -55,6 +55,21 @@ class KaggleAuthAdapterTests(unittest.TestCase):
         self.assertEqual(result["gpu_quota_rows"], 1)
         self.assertFalse(result["gpu_launched"])
 
+    def test_sanitized_private_kernel_list_success(self):
+        """Private notebook names never enter return values or logs."""
+        secret = "PRIVATE_SHOULD_NOT_LEAK"
+        def fake_runner(cmd, *, env, text, capture_output, timeout, check):
+            self.assertEqual(cmd, ["kaggle", "kernels", "list", "--mine",
+                                   "--page-size", "1", "--format", "json"])
+            return SimpleNamespace(returncode=0, stderr="",
+                                   stdout=json.dumps([{"ref": secret, "title": secret}]))
+        result = adapter.check_kernels_list(
+            env={"KAGGLE_API_TOKEN": "dummy"}, runner=fake_runner)
+        self.assertEqual(result["status"], "API_AUTHENTICATED_PRIVATE_KERNELS_READ_ONLY")
+        self.assertNotIn(secret, json.dumps(result))
+        self.assertFalse(result["gpu_launched"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
