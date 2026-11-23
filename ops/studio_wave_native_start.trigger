@@ -1,0 +1,6 @@
+2026-11-23
+strict_studio_native_gpu=true
+source_only_encrypted=true
+fresh_neural_inference_required=true
+no_remaster_fallback=true
+no_public_reference=true
