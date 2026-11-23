@@ -96,6 +96,8 @@ def verify_actual_native_mp4(output_dir: Path) -> dict:
     }
     if any(proof.get(k) != v for k,v in expected.items()):
         raise JobStateError("Genuine native model receipt policy mismatch")
+    if proof.get("qa_color_all_segments") is not True:
+        raise JobStateError("Native model detected color artifacts; owner must review raw source")
     if not re.fullmatch(r"[a-f0-9]{40}",str(proof.get("source_git_sha",""))):
         raise JobStateError("Missing original source commit provenance")
     expected_sha=_sha256(video_path)
@@ -112,6 +114,16 @@ def verify_actual_native_mp4(output_dir: Path) -> dict:
                 or not isinstance(record.get("model_seconds"),(int,float))
                 or record["model_seconds"]<=0):
             raise JobStateError("Native neural segment proof incomplete")
+        if record.get("color_qa") != "NO_NEON_ARTIFACT_FOUND":
+            raise JobStateError("Native source contains color/artifact QA flags")
+        motion=record.get("numerical_motion")
+        if (not isinstance(motion,dict) or
+            motion.get("decoded_native_frames") != 33 or
+            not isinstance(motion.get("mean_frame_luma_delta"),(int,float)) or
+            motion["mean_frame_luma_delta"] <= 0.18 or
+            not isinstance(motion.get("nonidentical_motion_frames"),int) or
+            motion["nonidentical_motion_frames"] < 4):
+            raise JobStateError("Native segment is frozen or has insufficient independent frame motion")
         original=folder/("STUDIO_WAVE_REAL_SEGMENT_"+str(index)+".mp4")
         if not original.is_file() or _sha256(original)!=record["sha256"]:
             raise JobStateError("Original full-frame neural GPU segment absent or SHA mismatch")
