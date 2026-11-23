@@ -41,13 +41,28 @@ def _track_regions(first, frames, boxes):
                     criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 25, .01))
     for count, frame in enumerate(frames, start=2):
         if not len(points):
-            continue
+            continue  # The entire scene is untrackable: report unknown, never good.
         new, forward, _ = cv2.calcOpticalFlowPyrLK(first, frame, points, None, **settings)
-        back, reverse, _ = cv2.calcOpticalFlowPyrLK(frame, first, new, None, **settings)
+        if new is None or forward is None or new.shape != points.shape:
+            continue  # Optical flow may return None after a feature disappears.
         old, current = points[:, 0], new[:, 0]
-        valid = (forward[:, 0] != 0) & (reverse[:, 0] != 0)
-        valid &= np.linalg.norm(back[:, 0] - old, axis=1) <= 1.5
-        valid &= np.isfinite(current).all(axis=1)
+        forward_ok = (forward.reshape(-1) != 0) & np.isfinite(current).all(axis=1)
+        if not forward_ok.any():
+            continue
+        # Never send failed/NaN forward tracks back into OpenCV: it can crash,
+        # or make the inverse flow appear valid when there is no correspondence.
+        idx = np.flatnonzero(forward_ok)
+        safe_current = current[idx].reshape(-1, 1, 2).astype(np.float32)
+        back, reverse, _ = cv2.calcOpticalFlowPyrLK(
+            frame, first, safe_current, None, **settings
+        )
+        if back is None or reverse is None or back.shape != safe_current.shape:
+            continue
+        inverse_ok = (reverse.reshape(-1) != 0)
+        inverse_ok &= np.isfinite(back[:, 0]).all(axis=1)
+        inverse_ok &= np.linalg.norm(back[:, 0] - old[idx], axis=1) <= 1.5
+        valid = np.zeros(len(points), dtype=bool)
+        valid[idx] = inverse_ok
         for name, section in regions.items():
             keep = valid[section]
             if keep.sum() < max(MIN_TRACKS, .60 * len(keep)):
@@ -101,5 +116,8 @@ def inspect_regions(path: Path, shot: str) -> dict:
         capture.release()
     if count != meta['frames']:
         raise ValueError('Independent decoder did not read every native frame')
+    # A numerical screen is never proof of finger count, skull rigidity or acting.
+    # Missing tracks and distorted regions both require review; no false green.
     return {'shot': shot, 'decoded_frames': count, 'regions': summary, 'review_flags': flags,
+            'motion_screen_status': 'REVIEW_REQUIRED' if flags else 'METRIC_SCREEN_PASS_ONLY',
             'human_artistic_approved': False}
