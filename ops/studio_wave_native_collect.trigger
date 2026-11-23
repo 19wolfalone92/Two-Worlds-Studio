@@ -3,3 +3,5 @@ readback_only=true
 prohibit_resubmit=true
 require_real_native_mp4_and_receipt=true
 2026-11-23_verify=true
+
+after_queued_native_vae_guard_fix_check_once=true
