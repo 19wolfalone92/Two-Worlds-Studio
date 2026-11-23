@@ -1,0 +1,6 @@
+fix_verified_pinned_ltx_native_gpu_stage_marker=true
+same_kernel_only=wolf19loner92/studio-native-man-wave-81a7215251acc6b
+require_QUEUED=true
+never_touch_RUNNING=true
+never_create_duplicate_slug=true
+source_sha256=379d772afa4b7f1448b0881d84631776329ecf1d670ac8da9b5701f2ea5edc72
