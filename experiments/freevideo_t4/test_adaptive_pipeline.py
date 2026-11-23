@@ -299,6 +299,77 @@ class ExecutionAndTelemetryTests(unittest.TestCase):
                 with self.assertRaisesRegex(module.Blocked, "verified, unapproved"):
                     module.run(args)
 
+    def test_complete_two_stage_handoff_with_separate_receipts(self):
+        """Only simulated *bridge* operations; proves wrapper's chain, not GPU."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference = root / "ref.png"
+            reference.write_bytes(b"reference for mocked two-stage test")
+            prompt = "The skeletal character moves shoulders naturally with a rigid skull."
+            hardware = module.Hardware("Tesla T4", "7.5", 16, 14, "detected_cuda")
+            def decoded_video(file):
+                if Path(file).name == "take_preview.mp4":
+                    return {"width": 432, "height": 768, "frames": 25, "fps": "24"}
+                return {"width": 576, "height": 1024, "frames": 49, "fps": "24"}
+            preview = self._args(root, reference, prompt=prompt)
+            final = self._args(root, reference, stage="final", prompt=prompt)
+            with patch.object(module, "detect_hardware", return_value=hardware), patch.object(
+                 module, "attest_backend", return_value={"status": "mock"}), patch.object(
+                 module, "_video_probe", side_effect=decoded_video), patch.object(
+                 module.subprocess, "run", side_effect=self._bridge) as called:
+                preview_result = module.run(preview)
+                self.assertEqual(called.call_count, 1)
+                review_path = root / "manual_review.json"
+                review_path.write_text(json.dumps({
+                    "schema": 1, "approved": True, "reviewer": "Human reviewer",
+                    "preview_sha256": preview_result["clip_sha256"],
+                    "reference_sha256": digest(reference),
+                    "checks": dict.fromkeys(module.CHECKS, True)}))
+                final.review = str(review_path)
+                final.preview_video = preview.output
+                final_result = module.run(final)
+                self.assertEqual(called.call_count, 2)
+            self.assertEqual(final_result["status"], "GENERATED_REVIEW_REQUIRED")
+            self.assertFalse(final_result["human_approved"])
+            final_proof = json.loads(Path(final_result["stage_receipt"]).read_text())
+            self.assertEqual(final_proof["stage"], "final")
+            self.assertEqual(final_proof["geometry"]["frames"], 49)
+            self.assertEqual(module.summary(Path(final.history))["successful_runs"], 2)
+
+    def test_immutable_output_prevents_duplicate_gpu_spend(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ref = root / "ref.png"; ref.write_bytes(b"reference")
+            args = self._args(root, ref)
+            Path(args.output).write_bytes(b"do not overwrite")
+            with patch.object(module, "detect_hardware", return_value=module.Hardware(
+                  "Tesla T4", "7.5", 16, 14, "detected_cuda")), patch.object(
+                  module, "attest_backend") as attest, patch.object(
+                  module.subprocess, "run") as process:
+                with self.assertRaisesRegex(module.Blocked, "new private MP4"):
+                    module.run(args)
+                process.assert_not_called()
+                attest.assert_not_called()
+            self.assertEqual(Path(args.output).read_bytes(), b"do not overwrite")
+
+    def test_preview_seed_tamper_prevents_final_without_spending_gpu(self):
+        prompt = "A skeletal character rotates its head without face warping."
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            reference, preview, review = fake_preview(root, prompt=prompt)
+            bridge = preview.with_suffix(".receipt.json")
+            info = json.loads(bridge.read_text())
+            info["seed"] = 999
+            bridge.write_text(json.dumps(info))
+            proof = preview.with_suffix(".freevideo.json")
+            stage = json.loads(proof.read_text())
+            stage["bridge_receipt_sha256"] = digest(bridge)
+            proof.write_text(json.dumps(stage))
+            with patch.object(module, "_video_probe", return_value={
+                    "width": 432, "height": 768, "frames": 25, "fps": "24"}):
+                with self.assertRaisesRegex(module.Blocked, "Studio seed differs"):
+                    module.validate_review(review, preview, reference, prompt=prompt, seed=42)
+
     def test_successful_measurements_only_and_no_nan(self):
         with tempfile.TemporaryDirectory() as temp:
             file = Path(temp) / "runs.jsonl"
