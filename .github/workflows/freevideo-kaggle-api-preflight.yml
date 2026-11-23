@@ -1,5 +1,6 @@
 name: FREEVIDEO - isolated Kaggle API connectivity (NO GPU)
 on:
+  workflow_dispatch:
   push:
     branches:
       - research/freevideo-t4-adaptive-20261123
@@ -67,3 +68,18 @@ jobs:
           fi
           python -m experiments.freevideo_t4.kaggle_auth_adapter
           echo 'FREEVIDEO_SECONDARY_AUTHENTICATED_READ_ONLY_NO_GPU'
+      - name: Resolve Kaggle upload owner, without exposing account name
+        if: ${{ steps.primary.outcome == 'success' || success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Existing token is enough for reads; a kernel push additionally
+          # needs a username to build Kaggle kernel-metadata.json.
+          if [[ -n "${KAGGLE_USERNAME:-}" ]]; then
+            echo 'FREEVIDEO_KAGGLE_UPLOAD_USERNAME_CONFIGURED'
+          elif python -m studio.kaggle_identity --github-env "$GITHUB_ENV" > /dev/null 2>&1; then
+            echo 'FREEVIDEO_KAGGLE_UPLOAD_USERNAME_RESOLVED'
+          else
+            echo 'FREEVIDEO_KAGGLE_UPLOAD_USERNAME_NOT_RESOLVED'
+            echo 'Configure repository variable KAGGLE_USERNAME before a private GPU submission.'
+          fi
