@@ -278,6 +278,8 @@ def validate_review(review_path: Path, preview_video: Path, reference: Path,
         raise Blocked("Final prompt differs from approved preview")
     if seed is not None and stage.get("seed") != seed:
         raise Blocked("Final seed differs from approved preview")
+    if type(bridge.get("seed")) is not int or bridge["seed"] != stage.get("seed"):
+        raise Blocked("Studio seed differs from recorded Freevideo preview")
     measured = _video_probe(preview)
     params = stage.get("geometry")
     if (not isinstance(params, dict) or
@@ -410,6 +412,7 @@ def run(args: argparse.Namespace) -> dict:
     if (bridge.get("clip_sha256") != result["clip_sha256"]
             or bridge.get("reference_sha256") != _hash_file(reference)
             or bridge.get("model") != MODEL or bridge.get("inference_performed") is not True
+            or bridge.get("seed") != args.seed
             or bridge.get("human_approved") is not False or bridge.get("published") is not False):
         raise Blocked(f"Generated video receipt mismatch; inspect before retry: {output}")
     measured = _video_probe(output)
