@@ -109,12 +109,13 @@ def render_wave(source:Path,output:Path,report:Path,*,height=1920,quality=17):
          '-movflags','+faststart',str(temp)]
     proc=subprocess.Popen(cmd,stdin=subprocess.PIPE,stderr=subprocess.PIPE)
     count=0
+    current=plate
     try:
         while ok:
-            result=compose(plate if count==0 else frame,plate,alpha)
+            result=compose(current,plate,alpha)
             proc.stdin.write(result.tobytes())
             count+=1
-            ok,frame=cap.read()
+            ok,current=cap.read()
         proc.stdin.close()
         err=proc.stderr.read()
         proc.stderr.close()
