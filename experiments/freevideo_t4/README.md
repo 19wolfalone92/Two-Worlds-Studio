@@ -125,7 +125,7 @@ of one take. The hybrid cannot claim artistic success just because MP4 exists.
 
 ### Private Kaggle single-job adapter
 
-The isolated adapter packages an operator-owned **PNG** into a **private**
+The isolated adapter packages an operator-owned **PNG/JPEG** into a **private**
 Kaggle kernel. The public repository never contains the photo, encoded bytes,
 private ComfyUI checkpoints, or generated clips. The Kaggle script clones the
 exact reviewed experimental branch SHA and verifies it before any model
