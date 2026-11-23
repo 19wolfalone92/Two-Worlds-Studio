@@ -1,0 +1,41 @@
+name: STUDIO — locked-camera man waving regression, no GPUs
+
+on:
+  pull_request:
+    paths:
+      - "studio/stable_wave.py"
+      - "tests/test_stable_wave.py"
+      - ".github/workflows/studio-locked-camera-wave.yml"
+  push:
+    branches: ["feature/studio-locked-camera-man-wave-20261123"]
+    paths:
+      - "studio/stable_wave.py"
+      - "tests/test_stable_wave.py"
+      - ".github/workflows/studio-locked-camera-wave.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verified_wave_engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install actual FFmpeg and native OpenCV; no AI weights or GPUs
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install -e '.[cinematic,dev]' 'ruff>=0.8'
+      - name: Check source syntax and errors
+        run: |
+          python -m py_compile studio/stable_wave.py tests/test_stable_wave.py
+          ruff check --select E9,F63,F7,F82 studio/stable_wave.py tests/test_stable_wave.py
+      - name: Verify original-frame continuity, scene stability, full decoding, no false approvals
+        run: python -W error::ResourceWarning -m unittest tests.test_stable_wave -v
+      - name: Verify the source and output cannot be uploaded by this test job
+        run: |
+          test ! -d dist/private-portraits
+          echo "NO_GPU_NO_USER_MEDIA_NO_ARTISTIC_APPROVAL"
