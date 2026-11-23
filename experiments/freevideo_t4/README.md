@@ -49,7 +49,7 @@ python experiments/freevideo_t4/adaptive_pipeline.py plan --simulate-t4
 The isolated tests **do not require CUDA or Kaggle**; only an FFmpeg CPU fixture
 decodes a real synthetic 25-frame MP4. GPU inference is mocked in the tests.
 
-Verified locally on 23 Nov 2026: **23/23 offline tests pass**. This proves
+Prior 23 Nov audit reported **23/23 offline tests passing**. Additional integrity, source-tamper, and CPU temporal-QC tests have since been added; use the latest completed branch GitHub Actions run for the authoritative updated count. This proves
 software logic only, not T4 inference or film quality. GitHub Actions' independent
 result is not assumed without its own completed check.
 
@@ -78,6 +78,7 @@ python experiments/freevideo_t4/adaptive_pipeline.py plan
 # Explicit GPU preview (25 frames, ~1 second). Never automatic.
 python experiments/freevideo_t4/adaptive_pipeline.py preview \
   --reference /private/eb01/shot.png --output /private/eb01/preview.mp4 \
+  --weights-manifest /private/eb01/wan-weights.json \
   --prompt 'A skeletal character turns head and shoulders while rigid skull bones preserve their exact shape.' \
   --seed 42 --history /private/eb01/timing.jsonl \
   --accept-model-license --execute
@@ -108,6 +109,7 @@ Then, deliberately, with the **same** prompt and seed:
 ```bash
 python experiments/freevideo_t4/adaptive_pipeline.py final \
   --reference /private/eb01/shot.png --output /private/eb01/final.mp4 \
+  --weights-manifest /private/eb01/wan-weights.json \
   --preview-video /private/eb01/preview.mp4 --review /private/eb01/review.json \
   --prompt 'A skeletal character turns head and shoulders while rigid skull bones preserve their exact shape.' \
   --seed 42 --history /private/eb01/timing.jsonl \
@@ -119,6 +121,60 @@ python experiments/freevideo_t4/adaptive_pipeline.py stats --history /private/eb
 **Even after passing, `final.mp4` is a new independent generation** — preview
 approval is not approval of the final take. Its artistic quality must be
 visually examined again using the existing studio's human release policy.
+
+
+## Mandatory private weight-integrity manifest
+
+Every real `preview` or `final` call now requires `--weights-manifest`.
+The following JSON is a **schema example only**: use exact absolute paths and
+trusted expected SHA-256 digests for the three checkpoint files actually
+installed in the local ComfyUI directories. Do not commit manifests or weights.
+
+```json
+{
+  "schema": 1,
+  "model": "wan22-5b",
+  "license_reviewed": true,
+  "source_repository": "https://huggingface.co/Comfy-Org/",
+  "files": {
+    "wan2.2_ti2v_5B_fp16.safetensors": {
+      "path": "/private/comfy/models/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+      "sha256": "<64 lowercase hex characters from a trusted expected digest>"
+    },
+    "wan2.2_vae.safetensors": {
+      "path": "/private/comfy/models/vae/wan2.2_vae.safetensors",
+      "sha256": "<64 lowercase hex characters from a trusted expected digest>"
+    },
+    "umt5_xxl_fp8_e4m3fn_scaled.safetensors": {
+      "path": "/private/comfy/models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "sha256": "<64 lowercase hex characters from a trusted expected digest>"
+    }
+  }
+}
+```
+
+```bash
+python experiments/freevideo_t4/weights_preflight.py /private/eb01/wan-weights.json
+```
+
+This checks local bytes against operator-supplied expectations. It **does not**
+authenticate the original publisher, prove which weights a running ComfyUI
+process loaded, or demonstrate T4 compatibility. The FP8 text-encoder storage
+filename does **not** imply that the NVIDIA T4 has FP8 Tensor Core arithmetic.
+A documented model licence review remains necessary.
+
+## Independent CPU temporal diagnostics
+
+```bash
+python experiments/freevideo_t4/quality_metrics.py /private/eb01/preview.mp4
+```
+
+This performs strict full-frame FFmpeg decoding (a separate CPU test) and
+reports near-duplicate adjacent frames and abrupt pixel changes. It never
+treats camera motion, image panning, or moving textures as proof of genuine
+character articulation. Nor does it verify neural provenance or the likeness
+of Elizabeth, the rigid skull of Kostya, or artistic suitability. These are
+strictly `NOT_VERIFIED` until examined on authentic generated footage.
 
 ## Gates before considering selective integration into main
 
