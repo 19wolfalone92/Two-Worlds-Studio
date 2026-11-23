@@ -35,12 +35,25 @@ jobs:
           python-version: '3.11'
       - name: Install official Kaggle CLI without neural models
         run: python -m pip install -q 'kaggle>=2.2.4'
-      - name: Verify authenticated Kaggle private notebook access without logging account details
+      - name: Verify authenticated Kaggle private notebook access (primary token)
+        id: primary
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          # Accept either the modern token format or a legacy Kaggle
-          # kaggle.json object in the existing secret. No credentials logged.
-          # A single authenticated private-kernel listing is attempted.
+          # One read-only API request. No credentials or notebook titles logged.
           python -m experiments.freevideo_t4.kaggle_auth_adapter
           echo 'FREEVIDEO_PRIVATE_REFERENCE_NOT_UPLOADED'
+      - name: Check secondary readback token only if primary API failed
+        if: ${{ steps.primary.outcome == 'failure' }}
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN_2 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${KAGGLE_API_TOKEN:-}" ]]; then
+            echo 'FREEVIDEO_SECONDARY_KAGGLE_TOKEN_NOT_CONFIGURED'
+            exit 2
+          fi
+          python -m experiments.freevideo_t4.kaggle_auth_adapter
+          echo 'FREEVIDEO_SECONDARY_AUTHENTICATED_READ_ONLY_NO_GPU'
