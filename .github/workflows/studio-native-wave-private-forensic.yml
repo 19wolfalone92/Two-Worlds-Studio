@@ -1,0 +1,28 @@
+name: STUDIO Native Man Wave — safe read-only Kaggle failure forensic
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths:
+      - "ops/studio_wave_native_forensic.trigger"
+permissions:
+  contents: read
+jobs:
+  true_gpu_failure_root_cause:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: "Read only: collect sanitized numerical original private model logs, never resubmit"
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m py_compile tools/studio_wave_private_forensic.py
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+          python -m tools.studio_wave_private_forensic
