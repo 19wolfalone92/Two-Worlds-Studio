@@ -419,6 +419,16 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
             raise Blocked("Final requires a private human --review and --preview-video")
         validate_review(Path(args.review), Path(args.preview_video), reference,
                         prompt=args.prompt, seed=args.seed)
+    # Explicitly validate local checkpoint bytes BEFORE submitting an inference.
+    # This checks operator-supplied digests, not authenticated publisher identity,
+    # and does not prove what checkpoint the ComfyUI process has loaded.
+    if not getattr(args, "weights_manifest", None):
+        raise Blocked("--weights-manifest is mandatory before a real GPU submission")
+    from weights_preflight import IntegrityBlocked, verify_weights_manifest
+    try:
+        weight_check = verify_weights_manifest(args.weights_manifest)
+    except IntegrityBlocked as exc:
+        raise Blocked(f"Private Wan weight integrity preflight failed: {exc}") from exc
     stage = plan[args.command]
     # The local PyTorch probe does NOT prove ComfyUI is using the same device.
     # Deny when backend cannot corroborate GPU identity/index and total VRAM.
@@ -470,6 +480,8 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
     stage_proof = {
         "schema": 2, "stage": args.command, "backend": MODEL, "human_approved": False,
         "published": False, "weights_verified": bridge.get("weights_verified") is True,
+        "operator_manifest_status": weight_check["status"],
+        "publisher_signature_verified": False,
         "reference_sha256": reference_hash_before_gpu,
         "clip_sha256": result["clip_sha256"],
         "bridge_receipt_sha256": _hash_file(bridge_path),
@@ -523,6 +535,7 @@ def main(argv=None) -> int:
     parser.add_argument("--review", help="external human-approved review JSON")
     parser.add_argument("--preview-video", help="exact approved preview.mp4")
     parser.add_argument("--history", help="private append-only actual timings")
+    parser.add_argument("--weights-manifest", help="private three-file SHA-256 manifest, mandatory for execution")
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--accept-model-license", action="store_true")
     args = parser.parse_args(argv)
