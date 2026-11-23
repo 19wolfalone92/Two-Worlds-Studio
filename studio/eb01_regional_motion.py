@@ -170,8 +170,34 @@ def compare_paired_motion(control: dict, anchored: dict) -> dict:
         improved &= meaningful
         metrics[region] = {'before_px': before, 'after_px': after, 'delta_px': gain,
                            'comparison': 'NUMERICAL_GAIN' if meaningful else 'NO_MEASURABLE_GAIN'}
+    # An apparently rigid skull with a drifting background is not an improvement.
+    backgrounds = []
+    for take in (control, anchored):
+        region = take.get('regions', {}).get('background', {})
+        frames = region.get('expected_comparisons')
+        n = region.get('measured_frames')
+        p95 = region.get('p95_displacement_px')
+        tracks = region.get('initial_tracks')
+        if (type(frames) is int and frames >= 1
+                and type(n) is int and n >= .9 * frames and n <= frames
+                and type(tracks) is int and tracks >= MIN_TRACKS
+                and type(p95) in (int, float) and math.isfinite(p95) and p95 >= 0):
+            backgrounds.append(float(p95))
+        else:
+            backgrounds.append(None)
+    if None in backgrounds:
+        enough = False
+        improved = False
+        camera = {'comparison': 'INSUFFICIENT_RELIABLE_TRACKING'}
+    else:
+        before, after = backgrounds
+        stable = after <= 3.0 and after <= before + .25
+        improved &= stable
+        camera = {'before_px': before, 'after_px': after,
+                  'comparison': 'CAMERA_STABLE' if stable else 'CAMERA_DRIFT_OR_REGRESSION'}
     conclusion = ('INSUFFICIENT_EVIDENCE' if not enough else
                   'NUMERICAL_GAIN_NOT_ANATOMY_APPROVAL' if improved else 'NO_RELIABLE_IMPROVEMENT')
-    return {'shot': shot, 'measured_regions': metrics, 'conclusion': conclusion,
-            'complete_tracking': enough, 'numerically_improved': enough and improved,
+    return {'shot': shot, 'measured_regions': metrics, 'camera_stability': camera,
+            'conclusion': conclusion, 'complete_tracking': enough,
+            'numerically_improved': enough and improved,
             'human_artistic_approved': False, 'full_production_authorized': False}
