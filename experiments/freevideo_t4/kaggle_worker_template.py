@@ -41,12 +41,19 @@ def sha256(path: Path) -> str:
 
 
 def _load_private_source(config: dict) -> Path:
-    work = WORK / "freevideo_source_input.png"
+    fmt = config.get("reference_format")
+    if fmt not in ("png", "jpeg"):
+        raise ValueError("Expected inspected PNG or JPEG format in private config")
+    suffix = ".png" if fmt == "png" else ".jpg"
+    work = WORK / ("freevideo_source_input" + suffix)
     if work.exists():
         raise ValueError("Output collision; do not overwrite a private reference")
     data = base64.b64decode(IMAGE_B64, validate=True)
     if not 1024 <= len(data) <= 32 * 1024 * 1024:
         raise ValueError("Private reference size outside permitted bounds")
+    if (fmt == "png" and data[:8] != bytes.fromhex("89504e470d0a1a0a")) or (
+            fmt == "jpeg" and data[:3] != bytes.fromhex("ffd8ff")):
+        raise ValueError("Embedded photo bytes mismatch inspected file format")
     if hashlib.sha256(data).hexdigest() != config["reference_sha256"]:
         raise ValueError("Private reference SHA mismatch")
     with work.open("xb") as f:
