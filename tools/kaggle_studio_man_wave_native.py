@@ -55,142 +55,142 @@ def main():
     run(["git","checkout","--detach",LTX_SHA],cwd=LTX)
     if run(["git","rev-parse","HEAD"],cwd=LTX).strip()!=LTX_SHA:
         raise RuntimeError("Official LTX revision changed")
-        source=LTX/"ltx_video"/"inference.py"
-        code=source.read_text()
-        old=[
-          "return Transformer3DModel.from_pretrained(ckpt_path).to(torch.bfloat16)",
-          "vae = vae.to(torch.bfloat16)",
-          "text_encoder = text_encoder.to(torch.bfloat16)"
-        ]
-        for item in old:
-            if code.count(item)!=1:raise RuntimeError("Official LTX source changed; cannot safely patch T4")
-            # T4 cannot compute BF16. Keep 2B transformer/T5 in FP16 but
-            # use FP32 for sequentially-offloaded VIDEO VAE to avoid
-            # potential FP16 decoder overflows behind neon RGB artifacts.
-            # The previous full FP16 real GPU generated 33 valid frames yet
-            # color gate flagged 33/33, so this is an actual A/B numerical
-            # precision change, NOT another unchanged expensive rerun.
-            chosen=("torch.float32" if item.startswith("vae = vae.to(")
-                    else "torch.float16")
-            code=code.replace(item,item.replace("torch.bfloat16",chosen))
-        # ROOT CAUSE VERIFIED IN FIRST LTX GPU LOG: ~14.42/14.56 GiB
-        # exhausted while create_ltx_video_pipeline simultaneously places
-        # transformer, T5 and VAE on CUDA, *before* offload_to_cpu can run.
-        # Stage all original official weights on CPU. Inside the sampler,
-        # move T5 -> CPU, transformer -> CPU, VAE -> CUDA sequentially.
-        # Keep the full actual LTX inference on the real T4, no fake frames.
-        original_call="        sampler=sampler,\n        device=device,\n        enhance_prompt=enhance_prompt,"
-        if code.count(original_call)!=1:
-            raise RuntimeError("Official LTX pipeline call changed; memory fix cannot be verified")
-        code=code.replace(original_call,
-            "        sampler=sampler,\n        device='cpu',\n        enhance_prompt=enhance_prompt,")
-        # Emit only predefined stage labels, not private actor prompts.
-        upstream_events=[
-          ("    pipeline = create_ltx_video_pipeline(",
-           "    print('WAVE_STAGE_BEGIN_MODEL_LOAD',flush=True)\n    pipeline = create_ltx_video_pipeline("),
-          ('    if pipeline_config.get("pipeline_type", None) == "multi-scale":',
-           '    print("WAVE_STAGE_END_MODEL_LOAD",flush=True)\n    if pipeline_config.get("pipeline_type", None) == "multi-scale":'),
-          ('        logger.warning(f"Output saved to {output_filename}")',
-           '        print("WAVE_STAGE_NATIVE_VIDEO_OUTPUT_READY",flush=True)\n        logger.warning(f"Output saved to {output_filename}")'),
-        ]
-        for original,updated in upstream_events:
-            if code.count(original)!=1:
-                raise RuntimeError("Pinned official LTX inference stage changed")
-            code=code.replace(original,updated)
-        source.write_text(code)
-        stages=LTX/"ltx_video"/"pipelines"/"pipeline_ltx_video.py"
-        pipe=stages.read_text()
-        updates=[
-          ("        device = self._execution_device\n\n        self.video_scale_factor",
-           "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n\n        self.video_scale_factor"),
-          ("self.text_encoder = self.text_encoder.to(self._execution_device)",
-           "print('WAVE_STAGE_BEGIN_PROMPT_ENCODE',flush=True)\n            self.text_encoder = self.text_encoder.to(device)"),
-          # ROOT FIX 2: I2V input photo encoding invokes vae_encode()
-          # *before* denoising. The previous "memory fix" left VAE on
-          # CPU in FP16 and shifted the transformer to CUDA too early,
-          # causing slow/unsupported FP16 CPU VAE and GPU residency overlap.
-          # Encode the original reference on CUDA using just VAE, then
-          # offload VAE and load the transformer for 8-step sampling.
-          ("self.transformer = self.transformer.to(self._execution_device)",
-           "print('WAVE_STAGE_BEGIN_CONDITIONING_VAE',flush=True)\n        self.vae = self.vae.to(device)"),
-          (").to(dtype=init_latents.dtype)\n",
-           ").to(dtype=init_latents.dtype, device=init_latents.device)\n"),
-          ("            image = vae_decode(\n",
-           "            print('WAVE_STAGE_BEGIN_DECODE',flush=True)\n            self.vae = self.vae.to(device)\n            image = vae_decode(\n"),
-        ]
-        for previous,updated in updates:
-            if pipe.count(previous)!=1:
-                raise RuntimeError("Official LTX pipeline stage changed; unsafe GPU memory patch")
-            pipe=pipe.replace(previous,updated)
-        stage_events=[
-          ('        if offload_to_cpu and self.text_encoder is not None:',
-           '        print("WAVE_STAGE_END_PROMPT_ENCODE",flush=True)\n        if offload_to_cpu and self.text_encoder is not None:'),
-          ("            for i, t in enumerate(timesteps):",
-           "            for i, t in enumerate(timesteps):\n                print('WAVE_STAGE_DENOISE_STEP_START',i+1,flush=True)"),
-          ("                # call the callback, if provided",
-           "                print('WAVE_STAGE_DENOISE_STEP_END',i+1,flush=True)\n                # call the callback, if provided"),
-          ("        if offload_to_cpu:\n            self.transformer = self.transformer.cpu()",
-           "        print('WAVE_STAGE_END_TRANSFORMER',flush=True)\n        if offload_to_cpu:\n            self.transformer = self.transformer.cpu()"),
-          ("            image = self.image_processor.postprocess(image, output_type=output_type)",
-           "            image = self.image_processor.postprocess(image, output_type=output_type)\n            print('WAVE_STAGE_END_DECODE',flush=True)"),
-        ]
-        for original,updated in stage_events:
-            if pipe.count(original)!=1:
-                raise RuntimeError("Pinned official LTX pipeline stage instrumentation changed")
-            pipe=pipe.replace(original,updated)
-        # After the conditioning/photo VAE encoding completes, transfer it
-        # back to RAM before moving 2B transformer to GPU. Then after
-        # transformer sampling the existing decode-stage patch moves VAE
-        # back to GPU. Never keep all T5+VAE+transformer on T4 at once.
-        stage_after="        # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline"
-        if pipe.count(stage_after)!=1:
-            raise RuntimeError("Official LTX after-conditioning boundary changed; cannot safely stage CUDA VAE")
-        pipe=pipe.replace(stage_after,
-            "        if offload_to_cpu:\n"
-            "            self.vae = self.vae.cpu()\n"
-            "            torch.cuda.empty_cache()\n"
-            "        print('WAVE_STAGE_END_CONDITIONING_VAE',flush=True)\n"
-            "        self.transformer = self.transformer.to(device)\n"
-            "        print('WAVE_STAGE_BEGIN_TRANSFORMER',flush=True)\n\n"
-            +stage_after)
-        stages.write_text(pipe)
-        if native_profile:
-            from studio.studio_wave_native_t4_profile import patch_native_sources
-            native_patch_sha=patch_native_sources(source,stages,LTX/"ltx_video/models/autoencoders/vae.py")
-        patched=sha(source)
-        stage_sha=sha(stages)
-        print("WAVE_T4_NATIVE_PRECISION_POLICY",
-              "transformer_fp16",True,"text_fp16",True,
-              "vae_encoder_decoder_fp32",True,flush=True)
-        print("WAVE_ALT_ENGINE_ROOT_CAUSE_OOM_FIXED_SEQUENTIAL_CPU_GPU_STAGE",
-              "inference_sha",patched,"pipeline_sha",stage_sha,flush=True)
-        run([sys.executable,"-m","pip","install","-q","-e",str(LTX)+"[inference]"],timeout=960)
-        c=LTX/"configs"/"ltxv-2b-0.9.6-distilled.yaml"
-        if not c.is_file() or "ltxv-2b-0.9.6-distilled-04-25.safetensors" not in c.read_text():
-            raise RuntimeError("Expected authentic LTX 2B model not configured")
-        # CONFIRMED ROOT CAUSE OF BOTH GPU TIMEOUTS: official config uses
-        # prompt_enhancement_words_threshold=120. The original 70-word
-        # EB01 actor prompt therefore silently loads Florence-2-large AND
-        # Llama-3.2-3B, then runs 3B prompt enhancement on CPU under the
-        # memory-offload patch. This is neither the LTX 2B distilled video
-        # sampler nor necessary for the original human-approved scene prompt.
-        # Disable the unsolicited extra 3B caption+LLM pipeline, preserving
-        # the original scene motion wording, official 2B video weights and
-        # EXACT 8-step distilled scheduler. Never change reference images.
-        original_config=c.read_text(encoding="utf-8")
-        threshold="prompt_enhancement_words_threshold: 120"
-        if original_config.count(threshold)!=1:
-            raise RuntimeError("Official LTX prompt-enhancer config changed; cannot remove unapproved 3B CPU bottleneck")
-        c.write_text(original_config.replace(
-            threshold,"prompt_enhancement_words_threshold: 0"
-        ),encoding="utf-8")
-        print("WAVE_REAL_LTX_2B_STAGING_ONLY_NO_FLORENCE_LLAMA_3B",
-              "original_config_sha256",hashlib.sha256(original_config.encode()).hexdigest(),
-              "patched_config_sha256",sha(c),
-              "distilled_native_steps",8,
-              "exact_approved_prompt_unmodified",True,flush=True)
+    source=LTX/"ltx_video"/"inference.py"
+    code=source.read_text()
+    old=[
+      "return Transformer3DModel.from_pretrained(ckpt_path).to(torch.bfloat16)",
+      "vae = vae.to(torch.bfloat16)",
+      "text_encoder = text_encoder.to(torch.bfloat16)"
+    ]
+    for item in old:
+        if code.count(item)!=1:raise RuntimeError("Official LTX source changed; cannot safely patch T4")
+        # T4 cannot compute BF16. Keep 2B transformer/T5 in FP16 but
+        # use FP32 for sequentially-offloaded VIDEO VAE to avoid
+        # potential FP16 decoder overflows behind neon RGB artifacts.
+        # The previous full FP16 real GPU generated 33 valid frames yet
+        # color gate flagged 33/33, so this is an actual A/B numerical
+        # precision change, NOT another unchanged expensive rerun.
+        chosen=("torch.float32" if item.startswith("vae = vae.to(")
+                else "torch.float16")
+        code=code.replace(item,item.replace("torch.bfloat16",chosen))
+    # ROOT CAUSE VERIFIED IN FIRST LTX GPU LOG: ~14.42/14.56 GiB
+    # exhausted while create_ltx_video_pipeline simultaneously places
+    # transformer, T5 and VAE on CUDA, *before* offload_to_cpu can run.
+    # Stage all original official weights on CPU. Inside the sampler,
+    # move T5 -> CPU, transformer -> CPU, VAE -> CUDA sequentially.
+    # Keep the full actual LTX inference on the real T4, no fake frames.
+    original_call="        sampler=sampler,\n        device=device,\n        enhance_prompt=enhance_prompt,"
+    if code.count(original_call)!=1:
+        raise RuntimeError("Official LTX pipeline call changed; memory fix cannot be verified")
+    code=code.replace(original_call,
+        "        sampler=sampler,\n        device='cpu',\n        enhance_prompt=enhance_prompt,")
+    # Emit only predefined stage labels, not private actor prompts.
+    upstream_events=[
+      ("    pipeline = create_ltx_video_pipeline(",
+       "    print('WAVE_STAGE_BEGIN_MODEL_LOAD',flush=True)\n    pipeline = create_ltx_video_pipeline("),
+      ('    if pipeline_config.get("pipeline_type", None) == "multi-scale":',
+       '    print("WAVE_STAGE_END_MODEL_LOAD",flush=True)\n    if pipeline_config.get("pipeline_type", None) == "multi-scale":'),
+      ('        logger.warning(f"Output saved to {output_filename}")',
+       '        print("WAVE_STAGE_NATIVE_VIDEO_OUTPUT_READY",flush=True)\n        logger.warning(f"Output saved to {output_filename}")'),
+    ]
+    for original,updated in upstream_events:
+        if code.count(original)!=1:
+            raise RuntimeError("Pinned official LTX inference stage changed")
+        code=code.replace(original,updated)
+    source.write_text(code)
+    stages=LTX/"ltx_video"/"pipelines"/"pipeline_ltx_video.py"
+    pipe=stages.read_text()
+    updates=[
+      ("        device = self._execution_device\n\n        self.video_scale_factor",
+       "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n\n        self.video_scale_factor"),
+      ("self.text_encoder = self.text_encoder.to(self._execution_device)",
+       "print('WAVE_STAGE_BEGIN_PROMPT_ENCODE',flush=True)\n            self.text_encoder = self.text_encoder.to(device)"),
+      # ROOT FIX 2: I2V input photo encoding invokes vae_encode()
+      # *before* denoising. The previous "memory fix" left VAE on
+      # CPU in FP16 and shifted the transformer to CUDA too early,
+      # causing slow/unsupported FP16 CPU VAE and GPU residency overlap.
+      # Encode the original reference on CUDA using just VAE, then
+      # offload VAE and load the transformer for 8-step sampling.
+      ("self.transformer = self.transformer.to(self._execution_device)",
+       "print('WAVE_STAGE_BEGIN_CONDITIONING_VAE',flush=True)\n        self.vae = self.vae.to(device)"),
+      (").to(dtype=init_latents.dtype)\n",
+       ").to(dtype=init_latents.dtype, device=init_latents.device)\n"),
+      ("            image = vae_decode(\n",
+       "            print('WAVE_STAGE_BEGIN_DECODE',flush=True)\n            self.vae = self.vae.to(device)\n            image = vae_decode(\n"),
+    ]
+    for previous,updated in updates:
+        if pipe.count(previous)!=1:
+            raise RuntimeError("Official LTX pipeline stage changed; unsafe GPU memory patch")
+        pipe=pipe.replace(previous,updated)
+    stage_events=[
+      ('        if offload_to_cpu and self.text_encoder is not None:',
+       '        print("WAVE_STAGE_END_PROMPT_ENCODE",flush=True)\n        if offload_to_cpu and self.text_encoder is not None:'),
+      ("            for i, t in enumerate(timesteps):",
+       "            for i, t in enumerate(timesteps):\n                print('WAVE_STAGE_DENOISE_STEP_START',i+1,flush=True)"),
+      ("                # call the callback, if provided",
+       "                print('WAVE_STAGE_DENOISE_STEP_END',i+1,flush=True)\n                # call the callback, if provided"),
+      ("        if offload_to_cpu:\n            self.transformer = self.transformer.cpu()",
+       "        print('WAVE_STAGE_END_TRANSFORMER',flush=True)\n        if offload_to_cpu:\n            self.transformer = self.transformer.cpu()"),
+      ("            image = self.image_processor.postprocess(image, output_type=output_type)",
+       "            image = self.image_processor.postprocess(image, output_type=output_type)\n            print('WAVE_STAGE_END_DECODE',flush=True)"),
+    ]
+    for original,updated in stage_events:
+        if pipe.count(original)!=1:
+            raise RuntimeError("Pinned official LTX pipeline stage instrumentation changed")
+        pipe=pipe.replace(original,updated)
+    # After the conditioning/photo VAE encoding completes, transfer it
+    # back to RAM before moving 2B transformer to GPU. Then after
+    # transformer sampling the existing decode-stage patch moves VAE
+    # back to GPU. Never keep all T5+VAE+transformer on T4 at once.
+    stage_after="        # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline"
+    if pipe.count(stage_after)!=1:
+        raise RuntimeError("Official LTX after-conditioning boundary changed; cannot safely stage CUDA VAE")
+    pipe=pipe.replace(stage_after,
+        "        if offload_to_cpu:\n"
+        "            self.vae = self.vae.cpu()\n"
+        "            torch.cuda.empty_cache()\n"
+        "        print('WAVE_STAGE_END_CONDITIONING_VAE',flush=True)\n"
+        "        self.transformer = self.transformer.to(device)\n"
+        "        print('WAVE_STAGE_BEGIN_TRANSFORMER',flush=True)\n\n"
+        +stage_after)
+    stages.write_text(pipe)
+    if native_profile:
+        from studio.studio_wave_native_t4_profile import patch_native_sources
+        native_patch_sha=patch_native_sources(source,stages,LTX/"ltx_video/models/autoencoders/vae.py")
+    patched=sha(source)
+    stage_sha=sha(stages)
+    print("WAVE_T4_NATIVE_PRECISION_POLICY",
+          "transformer_fp16",True,"text_fp16",True,
+          "vae_encoder_decoder_fp32",True,flush=True)
+    print("WAVE_ALT_ENGINE_ROOT_CAUSE_OOM_FIXED_SEQUENTIAL_CPU_GPU_STAGE",
+          "inference_sha",patched,"pipeline_sha",stage_sha,flush=True)
+    run([sys.executable,"-m","pip","install","-q","-e",str(LTX)+"[inference]"],timeout=960)
+    c=LTX/"configs"/"ltxv-2b-0.9.6-distilled.yaml"
+    if not c.is_file() or "ltxv-2b-0.9.6-distilled-04-25.safetensors" not in c.read_text():
+        raise RuntimeError("Expected authentic LTX 2B model not configured")
+    # CONFIRMED ROOT CAUSE OF BOTH GPU TIMEOUTS: official config uses
+    # prompt_enhancement_words_threshold=120. The original 70-word
+    # EB01 actor prompt therefore silently loads Florence-2-large AND
+    # Llama-3.2-3B, then runs 3B prompt enhancement on CPU under the
+    # memory-offload patch. This is neither the LTX 2B distilled video
+    # sampler nor necessary for the original human-approved scene prompt.
+    # Disable the unsolicited extra 3B caption+LLM pipeline, preserving
+    # the original scene motion wording, official 2B video weights and
+    # EXACT 8-step distilled scheduler. Never change reference images.
+    original_config=c.read_text(encoding="utf-8")
+    threshold="prompt_enhancement_words_threshold: 120"
+    if original_config.count(threshold)!=1:
+        raise RuntimeError("Official LTX prompt-enhancer config changed; cannot remove unapproved 3B CPU bottleneck")
+    c.write_text(original_config.replace(
+        threshold,"prompt_enhancement_words_threshold: 0"
+    ),encoding="utf-8")
+    print("WAVE_REAL_LTX_2B_STAGING_ONLY_NO_FLORENCE_LLAMA_3B",
+          "original_config_sha256",hashlib.sha256(original_config.encode()).hexdigest(),
+          "patched_config_sha256",sha(c),
+          "distilled_native_steps",8,
+          "exact_approved_prompt_unmodified",True,flush=True)
 
-        print("STUDIO_WAVE_OFFICIAL_LTX_PINNED_STAGE_READY",flush=True)
+    print("STUDIO_WAVE_OFFICIAL_LTX_PINNED_STAGE_READY",flush=True)
     generated=OUT/"STUDIO_WAVE_NATIVE_PRIVATE_GENERATION";generated.mkdir(exist_ok=False)
     prompts=[
        "Photorealistic locked-off vertical studio portrait of the SAME bald, bearded man wearing black rectangular glasses and cream shirt, seated in the SAME studio with bookshelf and plants. He naturally raises his free right hand to wave hello, smiles gently, tilts his head slightly, realistic neck and shoulder biomechanics; his mouth and beard remain attached to his face, natural articulation of all five fingers. Absolutely stationary camera, bookshelf, chair, lamp and plant. No face morphing, no unstable glasses, no floating beard, no jumping or cut.",
@@ -242,8 +242,7 @@ infer(settings)
             # Condition segment 2 on the actual LAST RGB frame of segment 1.
             if segment==0:
                 conditioner=OUT/"STUDIO_WAVE_PRIVATE_LASTFRAME.png"
-                run(["ffmpeg","-v","error","-xerror","-sseof","-0.0416666",
-                     "-i",safe,"-frames:v","1",conditioner],timeout=45)
+                run(["ffmpeg","-v","error","-xerror","-i",safe,"-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
                 if not conditioner.exists():raise RuntimeError("No continuity image from first native segment")
         # Drop duplicated conditioning frame from next segment, preserve all true model frames.
         merged=OUT/"STUDIO_WAVE_TRUE_NATIVE_65F_24FPS.mp4"
