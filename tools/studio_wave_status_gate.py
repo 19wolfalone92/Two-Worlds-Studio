@@ -28,7 +28,7 @@ class JobStateError(RuntimeError):
 def parse_state(value: str) -> str:
     if not isinstance(value, str):
         raise JobStateError("STATUS_NOT_TEXT")
-    matches = re.findall(r"KernelWorkerStatus\\.([A-Z_]+)", value)
+    matches = re.findall(r"KernelWorkerStatus\.([A-Z_]+)", value)
     if len(matches) != 1 or matches[0] not in ALLOWED_STATES:
         raise JobStateError("AMBIGUOUS_OR_UNKNOWN_KAGGLE_STATE")
     return matches[0]
