@@ -156,7 +156,7 @@ def main():
     stages.write_text(pipe)
     if native_profile:
         from studio.eb01_native_t4_profile import patch_native_sources
-        native_patch_sha=patch_native_sources(source,stages,LTX/"ltx_video/models/autoencoders/vae.py")
+        native_patch_sha=patch_native_sources(source,stages,LTX/"ltx_video/models/autoencoders/vae.py",stage_prefix="WAVE")
     patched=sha(source)
     stage_sha=sha(stages)
     print("WAVE_T4_NATIVE_PRECISION_POLICY",
