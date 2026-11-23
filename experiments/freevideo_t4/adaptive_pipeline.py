@@ -110,6 +110,33 @@ def choose_plan(hardware: Hardware) -> dict:
                      "Execution only allows T4 and a matching, local ComfyUI device."]}
 
 
+def _quarantine_marker(index: int) -> Path:
+    if type(index) is not int or not 0 <= index <= 31:
+        raise Blocked("Invalid CUDA device index")
+    return (Path(tempfile.gettempdir()) / f"freevideo-t4-lock-{os.getuid()}"
+            / f"gpu-{index}.quarantine.json")
+
+
+def quarantine_unknown_job(index: int, reason: str) -> Path:
+    """Persist unknown ComfyUI job state; never allow a blind second GPU run."""
+    marker = _quarantine_marker(index)
+    marker.parent.mkdir(mode=0o700, exist_ok=True)
+    if os.path.lexists(marker):
+        return marker
+    data = json.dumps({"schema": 1, "status": "GPU_QUARANTINED",
+                       "reason": reason, "epoch_s": int(time.time())}) + "\\n"
+    try:
+        fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                     | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except FileExistsError:
+        pass
+    return marker
+
+
 @contextmanager
 def device_lease(index: int):
     """Reject simultaneous Freevideo jobs on one T4 in the *same* Kaggle worker.
@@ -140,6 +167,9 @@ def device_lease(index: int):
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise Blocked("This GPU is busy with another Freevideo job; no concurrent render") from exc
+        if os.path.lexists(_quarantine_marker(index)):
+            raise Blocked("GPU_QUARANTINED: previous job completion is unknown; inspect ComfyUI history "
+                          "and queue before manually clearing the private quarantine marker")
         yield
     finally:
         os.close(handle)
@@ -445,14 +475,17 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
         process = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True,
                                  timeout=args.timeout + 120, check=False)
     except subprocess.TimeoutExpired as exc:
-        raise Blocked(f"GPU timeout; inspect the existing ComfyUI job before retrying. Output: {output}") from exc
+        quarantine_unknown_job(args.device, "subprocess_timeout_unknown_comfy_job_state")
+        raise Blocked(f"GPU timeout; GPU_QUARANTINED pending ComfyUI job inspection. Output: {output}") from exc
     if process.returncode != 0:
-        raise Blocked(f"Studio bridge refused this run (possibly still running); inspect before retry: "
+        quarantine_unknown_job(args.device, "bridge_failure_unknown_comfy_job_state")
+        raise Blocked(f"Studio bridge refused this run; GPU_QUARANTINED until job is inspected: "
                       + process.stdout[-1000:] + process.stderr[-500:])
     try:
         result = json.loads(process.stdout)
     except (ValueError, UnicodeError) as exc:
-        raise Blocked(f"Studio returned invalid JSON; inspect generated files before retry: {output}") from exc
+        quarantine_unknown_job(args.device, "invalid_bridge_response_unknown_comfy_job_state")
+        raise Blocked(f"Studio returned invalid JSON; GPU_QUARANTINED: {output}") from exc
     if not isinstance(result, dict) or result.get("status") != "GENERATED_REVIEW_REQUIRED" or result.get("human_approved") is not False:
         raise Blocked(f"Studio bridge did not confirm a verified, unapproved take: {output}")
     if not output.is_file() or result.get("clip_sha256") != _hash_file(output):
