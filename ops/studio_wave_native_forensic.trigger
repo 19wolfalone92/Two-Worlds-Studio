@@ -3,3 +3,5 @@ strict_readonly=true
 no_fabricated_results=true
 
 verify_hotfix_live_native_model_no_resubmit=true
+
+read_queue_progress_snapshot_20261123_1106=true
