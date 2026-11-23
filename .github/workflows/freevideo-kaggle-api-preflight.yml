@@ -35,12 +35,12 @@ jobs:
           python-version: '3.11'
       - name: Install official Kaggle CLI without neural models
         run: python -m pip install -q 'kaggle>=2.2.4'
-      - name: Verify API identity and free GPU quota without disclosing account details
+      - name: Verify authenticated Kaggle private notebook access without logging account details
         shell: bash
         run: |
           set -euo pipefail
           # Accept either the modern token format or a legacy Kaggle
           # kaggle.json object in the existing secret. No credentials logged.
-          # A single authenticated quota query is attempted.
+          # A single authenticated private-kernel listing is attempted.
           python -m experiments.freevideo_t4.kaggle_auth_adapter
           echo 'FREEVIDEO_PRIVATE_REFERENCE_NOT_UPLOADED'
