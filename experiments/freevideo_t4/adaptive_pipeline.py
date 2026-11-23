@@ -400,6 +400,9 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
         raise Blocked("Freevideo experimental runtime permits only a real NVIDIA Tesla T4")
     plan = choose_plan(hardware)
     reference = _private_path(Path(args.reference))
+    # Lock the source before invoking a potentially long-running neural backend.
+    # A modified source while rendering would otherwise break review provenance.
+    reference_hash_before_gpu = _hash_file(reference)
     if reference.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"} or reference.stat().st_size > 32 * 2**20:
         raise Blocked("Reference must be a private image <=32 MiB")
     output = _private_path(Path(args.output), must_exist=False)
@@ -444,22 +447,30 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
         raise Blocked(f"Studio bridge did not confirm a verified, unapproved take: {output}")
     if not output.is_file() or result.get("clip_sha256") != _hash_file(output):
         raise Blocked(f"Generated video hash mismatch; do not retry blindly: {output}")
+    if _hash_file(reference) != reference_hash_before_gpu:
+        raise Blocked(f"Reference image changed during GPU inference; quarantine this take: {output}")
     bridge_path = output.with_suffix(".receipt.json")
     bridge = _json_file(_private_path(bridge_path))
-    if (bridge.get("clip_sha256") != result["clip_sha256"]
-            or bridge.get("reference_sha256") != _hash_file(reference)
+    if (bridge.get("schema") != 1 or bridge.get("engine") != "neural_comfy"
+            or not re.fullmatch(r"[0-9a-f]{64}", str(bridge.get("workflow_sha256", "")))
+            or bridge.get("clip_sha256") != result["clip_sha256"]
+            or bridge.get("reference_sha256") != reference_hash_before_gpu
             or bridge.get("model") != MODEL or bridge.get("inference_performed") is not True
-            or bridge.get("seed") != args.seed
+            or type(bridge.get("seed")) is not int or bridge["seed"] != args.seed
             or bridge.get("human_approved") is not False or bridge.get("published") is not False):
         raise Blocked(f"Generated video receipt mismatch; inspect before retry: {output}")
     measured = _video_probe(output)
+    from_bridge = bridge.get("video")
     if (measured["frames"] != stage["frames"] or measured["width"] != stage["width"]
-            or measured["height"] != stage["height"] or measured["fps"] != "24"):
-        raise Blocked(f"Generated video does not match planned frame clock/size: {output}")
+            or measured["height"] != stage["height"] or measured["fps"] != "24"
+            or not isinstance(from_bridge, dict)
+            or any(from_bridge.get(k) != measured[k] for k in ("frames", "width", "height", "fps"))):
+        raise Blocked(f"Generated video differs from planned geometry or Studio receipt: {output}")
     elapsed = round(max(time.monotonic() - start, .001), 3)
     stage_proof = {
         "schema": 2, "stage": args.command, "backend": MODEL, "human_approved": False,
-        "published": False, "reference_sha256": _hash_file(reference),
+        "published": False, "weights_verified": bridge.get("weights_verified") is True,
+        "reference_sha256": reference_hash_before_gpu,
         "clip_sha256": result["clip_sha256"],
         "bridge_receipt_sha256": _hash_file(bridge_path),
         "prompt_sha256": hashlib.sha256(args.prompt.encode()).hexdigest(),
