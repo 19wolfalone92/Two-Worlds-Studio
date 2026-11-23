@@ -49,7 +49,7 @@ jobs:
           PY
           test -n "${KAGGLE_API_TOKEN}"
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-          python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12'
+          python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2'
       - name: Create ONE-TIME confidential private source ingress key; commit ONLY public component
         run: |
           set -euo pipefail
@@ -59,12 +59,12 @@ jobs:
           from studio.sealed_artifacts import generate_keys
           root=Path(os.environ['RUNNER_TEMP'])
           generate_keys(root/'STUDIO_EPHEMERAL_SOURCE_PRIVATE.pem',
-                        Path('ops/studio_wave_native_ingress_public.pem'))
+                        Path('ops')/('studio_wave_native_ingress_public_'+os.environ['GITHUB_RUN_ID']+'.pem'))
           print('STUDIO_EPHEMERAL_INGRESS_PUBLIC_KEY_READY_ONLY')
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ops/studio_wave_native_ingress_public.pem
+          git add "ops/studio_wave_native_ingress_public_${GITHUB_RUN_ID}.pem"
           git commit -m "Studio native wave: one-time ingress public key, NEVER its private component"
           git push origin "HEAD:refs/heads/${STUDIO_NATIVE_BRANCH}"
       - name: Retrieve user reference ONLY as RSA-AES authenticated ENCRYPTED envelope
@@ -72,8 +72,8 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 80); do
             git fetch origin "${STUDIO_NATIVE_BRANCH}" -q
-            if git cat-file -e "origin/${STUDIO_NATIVE_BRANCH}:ops/studio_wave_native_input.twenc" 2>/dev/null; then
-              git show "origin/${STUDIO_NATIVE_BRANCH}:ops/studio_wave_native_input.twenc" > "$RUNNER_TEMP/STUDIO_PRIVATE_INPUT.twenc"
+            if git cat-file -e "origin/${STUDIO_NATIVE_BRANCH}:ops/studio_wave_native_input_${GITHUB_RUN_ID}.twenc" 2>/dev/null; then
+              git show "origin/${STUDIO_NATIVE_BRANCH}:ops/studio_wave_native_input_${GITHUB_RUN_ID}.twenc" > "$RUNNER_TEMP/STUDIO_PRIVATE_INPUT.twenc"
               break
             fi
             echo "STUDIO_NATIVE_ENCRYPTED_REFERENCE_HANDSHAKE" "$attempt"
@@ -192,8 +192,8 @@ jobs:
           PY
           git fetch origin "$STUDIO_NATIVE_BRANCH" -q
           git checkout -B "$STUDIO_NATIVE_BRANCH" "origin/$STUDIO_NATIVE_BRANCH"
-          cp "$RUNNER_TEMP/STUDIO_WAVE_TRUE_NATIVE_RESULT.twenc" ops/studio_wave_native_result.twenc
-          git add ops/studio_wave_native_result.twenc
+          cp "$RUNNER_TEMP/STUDIO_WAVE_TRUE_NATIVE_RESULT.twenc" "ops/studio_wave_native_result_${GITHUB_RUN_ID}.twenc"
+          git add "ops/studio_wave_native_result_${GITHUB_RUN_ID}.twenc"
           git commit -m "Studio native wave: private result AUTHENTICATED ENCRYPTED; never upload raw video"
           git push origin "HEAD:refs/heads/$STUDIO_NATIVE_BRANCH"
           echo "STUDIO_NATIVE_TRUE_GPU_VIDEO_RETURNED_ENCRYPTED_ONLY"
