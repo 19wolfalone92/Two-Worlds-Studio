@@ -230,6 +230,15 @@ class SecurityAndProvenanceTests(unittest.TestCase):
 
 
 class ExecutionAndTelemetryTests(unittest.TestCase):
+    def setUp(self):
+        # GPU bridge runs below are MOCKED, including their tiny fake movie bytes.
+        # Real video decode is covered by test_quality_metrics instead.
+        self._mock_full_decode = patch.object(module, "_audit_decoded_video", return_value={
+            "status": "CPU_PIXEL_METRICS_ONLY", "artistic_quality": "NOT_VERIFIED",
+            "near_duplicate_pairs": 0, "abrupt_pixel_change_pairs": 0, "flags": []})
+        self._mock_full_decode.start()
+        self.addCleanup(self._mock_full_decode.stop)
+
     def _args(self, root: Path, reference: Path, *, stage="preview", prompt=None):
         # Three MOCKED checkpoint-byte fixtures exercise the hash gate only.
         # They do not emulate Wan model inference or verify true model origin.
@@ -539,6 +548,22 @@ class ExecutionAndTelemetryTests(unittest.TestCase):
                     self.assertEqual(bridge.call_count, 1, "No second GPU command is allowed")
             finally:
                 marker.unlink(missing_ok=True)
+
+
+class FullDecodeBoundaryTests(unittest.TestCase):
+    def test_full_decode_hash_mismatch_blocks(self):
+        with patch("quality_metrics.audit_video", return_value={
+                "status": "CPU_PIXEL_METRICS_ONLY", "artistic_quality": "NOT_VERIFIED",
+                "video_sha256": "f" * 64}):
+            with self.assertRaisesRegex(module.Blocked, "Video bytes changed"):
+                module._audit_decoded_video(Path("/private/mock.mp4"), expected_sha256="a" * 64)
+
+    def test_full_decode_must_not_claim_artistic_verification(self):
+        with patch("quality_metrics.audit_video", return_value={
+                "status": "CPU_PIXEL_METRICS_ONLY", "artistic_quality": "VISUALLY_VERIFIED",
+                "video_sha256": "a" * 64}):
+            with self.assertRaisesRegex(module.Blocked, "Unexpected CPU pixel audit"):
+                module._audit_decoded_video(Path("/private/mock.mp4"), expected_sha256="a" * 64)
 
 
 if __name__ == "__main__":
