@@ -1,0 +1,57 @@
+name: FREEVIDEO - isolated Kaggle API connectivity (NO GPU)
+on:
+  push:
+    branches:
+      - research/freevideo-t4-adaptive-20261123
+    paths:
+      - '.github/workflows/freevideo-kaggle-api-preflight.yml'
+permissions:
+  contents: read
+
+concurrency:
+  group: freevideo-kaggle-api-preflight
+  cancel-in-progress: false
+
+jobs:
+  verify-private-kaggle-api:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require existing Kaggle API secret; do not print it
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${KAGGLE_API_TOKEN:-}" ]]; then
+            echo 'FREEVIDEO_KAGGLE_BLOCKED_MISSING_SECRET (GPU not started)'
+            exit 2
+          fi
+          echo 'FREEVIDEO_KAGGLE_SECRET_PRESENT (no GPU used)'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install official Kaggle CLI without neural models
+        run: python -m pip install -q 'kaggle>=2.2.4'
+      - name: Verify API identity and free GPU quota without disclosing account details
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+          python -m studio.kaggle_api_limits quota > "$RUNNER_TEMP/freevideo-kaggle-quota.json"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          p=Path(os.environ["RUNNER_TEMP"])/"freevideo-kaggle-quota.json"
+          d=json.loads(p.read_text())
+          assert d["status"] == "quota_reported"
+          rows=d["compute_quota_rows"]
+          print("FREEVIDEO_KAGGLE_API_AUTHENTICATED")
+          print("FREEVIDEO_GPU_QUOTA_REPORT_OBTAINED")
+          print("FREEVIDEO_GPU_ROWS", sum(r["resource"]=="GPU" for r in rows))
+          print("FREEVIDEO_GPU_INFERENCE_NOT_STARTED")
+          print("FREEVIDEO_PRIVATE_REFERENCE_NOT_UPLOADED")
+          PY
