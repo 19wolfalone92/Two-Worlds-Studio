@@ -1,0 +1,55 @@
+name: EB01 — remeasure existing private S01/S06 MP4s, zero GPU
+
+on:
+  push:
+    branches: ["fix/eb01-failclosed-optical-flow-20261123"]
+    paths: ["ops/eb01_previous_anatomy_readonly.trigger"]
+permissions:
+  contents: read
+jobs:
+  only_existing_native_kaggle_output:
+    # The Studio repository itself is public, but this job is pinned to
+    # the owner's own PUSH event; it never runs from pull requests or forks.
+    # Raw media stay on a temporary runner, only numeric evidence is uploaded.
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - account: owner
+            secret: KAGGLE_API_TOKEN
+          - account: collaborator
+            secret: KAGGLE_API_TOKEN2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install CPU verification, Kaggle readback and FFmpeg only
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install -e '.[private,cinematic]' 'kaggle>=2.2.4' 'six>=1.16,<2' 'ruff>=0.8'
+      - name: Verify zero-push read-only contract and offline regressions
+        run: |
+          python -m py_compile tools/eb01_compare_existing_anatomy_pilots.py
+          ruff check --select E9,F63,F7,F82 tools/eb01_compare_existing_anatomy_pilots.py tests/test_eb01_existing_anatomy_readonly.py
+          python -m unittest tests.test_eb01_existing_anatomy_readonly tests.test_eb01_regional_motion -v
+      - name: Retrieve exactly two ORIGINAL finished native pilots; compute paired regional QA
+        env:
+          EB01_ACCOUNT_TOKEN: ${{ secrets[matrix.secret] }}
+          PYTHONUNBUFFERED: '1'
+        run: python -m tools.eb01_compare_existing_anatomy_pilots --account '${{ matrix.account }}'
+      - name: Upload only numeric evidence; never original media, raw JSON receipts or Kaggle identities
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EB01_EXISTING_ANATOMY_${{ matrix.account }}_SANITIZED_ONLY
+          path: ${{ runner.temp }}/EB01_EXISTING_ANATOMY_${{ matrix.account }}_SAFE.json
+          retention-days: 14
+          if-no-files-found: warn
+      - name: Erase any temporary private media
+        if: always()
+        run: rm -rf "$RUNNER_TEMP"/eb01-previous-native-readonly-*

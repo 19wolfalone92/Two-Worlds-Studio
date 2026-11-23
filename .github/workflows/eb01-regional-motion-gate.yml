@@ -1,0 +1,53 @@
+name: EB01 — strict regional motion QA (CPU, no video generation)
+
+on:
+  pull_request:
+    paths:
+      - "studio/eb01_regional_motion.py"
+      - "tools/eb01_echo_parallel_pilot.py"
+      - "tests/test_eb01_regional_motion.py"
+      - ".github/workflows/eb01-regional-motion-gate.yml"
+  push:
+    branches: ["fix/eb01-failclosed-optical-flow-20261123"]
+    paths:
+      - "studio/eb01_regional_motion.py"
+      - "tools/eb01_echo_parallel_pilot.py"
+      - "tests/test_eb01_regional_motion.py"
+      - ".github/workflows/eb01-regional-motion-gate.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  motion_failclosed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install the real CPU OpenCV implementation, no GPU/models
+        run: python -m pip -q install -e '.[cinematic,dev]' 'ruff>=0.8'
+      - name: Detect actual syntax/static errors
+        run: |
+          python -m py_compile studio/eb01_regional_motion.py tools/eb01_echo_parallel_pilot.py tests/test_eb01_regional_motion.py
+          ruff check --select E9,F63,F7,F82 studio/eb01_regional_motion.py tools/eb01_echo_parallel_pilot.py tests/test_eb01_regional_motion.py
+      - name: Execute missing-flow, NaN, paired-comparison and genuine OpenCV regression tests
+        run: python -m unittest tests.test_eb01_regional_motion -v
+      - name: Preserve strict artistic gate
+        run: |
+          python - <<'PY'
+          from studio.eb01_regional_motion import compare_paired_motion
+          report = {'shot':'S06','decoded_frames':2,'regions':{'upper_skull':{
+              'initial_tracks':12,'expected_comparisons':1,'measured_frames':1,
+              'p95_shape_residual_px':5.0},
+              'background': {'initial_tracks':12,'expected_comparisons':1,
+                  'measured_frames':1,'p95_displacement_px':0.2}}}
+          result = compare_paired_motion(report, {**report, 'regions': {**report['regions'], 'upper_skull': {
+              **report['regions']['upper_skull'], 'p95_shape_residual_px':1.0}}})
+          assert result['numerically_improved'] is True
+          assert result['human_artistic_approved'] is False
+          assert result['full_production_authorized'] is False
+          print('EB01_NUMERICAL_METRICS_NEVER_AUTHORIZE_RELEASE')
+          PY
