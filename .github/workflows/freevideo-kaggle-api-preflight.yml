@@ -39,7 +39,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+          # Kaggle's modern token-only authentication can omit a legacy
+          # username in 'config view'. Test an authenticated API call FIRST.
           python -m studio.kaggle_api_limits quota > "$RUNNER_TEMP/freevideo-kaggle-quota.json"
           python - <<'PY'
           import json
@@ -52,6 +53,7 @@ jobs:
           print("FREEVIDEO_KAGGLE_API_AUTHENTICATED")
           print("FREEVIDEO_GPU_QUOTA_REPORT_OBTAINED")
           print("FREEVIDEO_GPU_ROWS", sum(r["resource"]=="GPU" for r in rows))
+          print("FREEVIDEO_USERNAME_NOT_REQUIRED_FOR_QUOTA_PREFLIGHT")
           print("FREEVIDEO_GPU_INFERENCE_NOT_STARTED")
           print("FREEVIDEO_PRIVATE_REFERENCE_NOT_UPLOADED")
           PY
