@@ -34,7 +34,7 @@ def fake_preview(root: Path, *, prompt: str, seed: int = 42):
         "schema": 1, "engine": "neural_comfy", "model": "wan22-5b",
         "clip_sha256": clip_hash, "reference_sha256": source_hash,
         "inference_performed": True, "human_approved": False, "published": False,
-        "workflow_sha256": "a" * 64,
+        "workflow_sha256": "a" * 64, "seed": seed,
         "video": {"frames": 25, "width": 432, "height": 768, "fps": "24"}}))
     clip.with_suffix(".freevideo.json").write_text(json.dumps({
         "schema": 2, "stage": "preview", "backend": "wan22-5b",
@@ -226,7 +226,12 @@ class ExecutionAndTelemetryTests(unittest.TestCase):
             "schema": 1, "engine": "neural_comfy", "clip_sha256": d,
             "reference_sha256": digest(ref), "model": "wan22-5b",
             "inference_performed": True, "human_approved": False, "published": False,
-            "video": {"width": 432, "height": 768, "frames": 25, "fps": "24"}}))
+            "seed": int(command[command.index("--seed") + 1]),
+            "workflow_sha256": "a" * 64,
+            "video": {"width": int(command[command.index("--width") + 1]),
+                      "height": int(command[command.index("--height") + 1]),
+                      "frames": int(command[command.index("--frames") + 1]),
+                      "fps": "24"}}))
         return subprocess.CompletedProcess(command, 0, json.dumps({
             "status": "GENERATED_REVIEW_REQUIRED", "human_approved": False,
             "clip_sha256": d}), "")
