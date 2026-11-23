@@ -19,9 +19,9 @@ import zipfile
 from PIL import Image
 
 try:
-    from .hybrid_engine import ROOT, private_path, sha256
+    from .hybrid_engine import ROOT, private_path, sha256, HybridBlocked
 except ImportError:
-    from hybrid_engine import ROOT, private_path, sha256
+    from hybrid_engine import ROOT, private_path, sha256, HybridBlocked
 
 ACCOUNT = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{1,29}\Z")
 NONCE = re.compile(r"[a-z0-9][a-z0-9_-]{4,59}\Z")
