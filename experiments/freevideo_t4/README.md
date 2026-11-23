@@ -29,7 +29,7 @@ technical equivalence.
 | Frame/geometry | Not independently checked at the Freevideo boundary | `ffprobe` counts frames and verifies width, height and 24 FPS |
 | File safety | Symlinks were resolved before they could be rejected; public-path alias risk | Check lexical and resolved paths; deny file symlinks, never overwrite outputs or receipts |
 | Telemetry | Malformed/NaN JSONL could crash or mislead stats | Bounded streaming reader, strict numeric validation, real-run medians only |
-| Recovery | A telemetry write failure could look like failed GPU inference | Keep an already verified MP4 and return a clear telemetry warning; no blind automatic reruns |
+| Concurrency | Two tasks could race for one T4 and waste GPU quota | Per-worker per-device exclusive file lock, no implicit scheduling across Kaggle sessions |\n| Recovery | A telemetry write failure could look like failed GPU inference | Keep an already verified MP4 and return a clear telemetry warning; no blind automatic reruns |
 | Quality | A JSON `approved` flag could be misread as objective quality evidence | Human approval is an explicit manual assertion, not a computer vision score |
 
 **Important:** this branch has no independent motion/identity recognition model.
@@ -49,7 +49,7 @@ python experiments/freevideo_t4/adaptive_pipeline.py plan --simulate-t4
 The isolated tests **do not require CUDA or Kaggle**; only an FFmpeg CPU fixture
 decodes a real synthetic 25-frame MP4. GPU inference is mocked in the tests.
 
-Verified locally on 23 Nov 2026: **21/21 offline tests pass**. This proves
+Verified locally on 23 Nov 2026: **23/23 offline tests pass**. This proves
 software logic only, not T4 inference or film quality. GitHub Actions' independent
 result is not assumed without its own completed check.
 
