@@ -41,7 +41,9 @@ jobs:
           from studio.eb01_regional_motion import compare_paired_motion
           report = {'shot':'S06','decoded_frames':2,'regions':{'upper_skull':{
               'initial_tracks':12,'expected_comparisons':1,'measured_frames':1,
-              'p95_shape_residual_px':5.0}}}
+              'p95_shape_residual_px':5.0},
+              'background': {'initial_tracks':12,'expected_comparisons':1,
+                  'measured_frames':1,'p95_displacement_px':0.2}}}
           result = compare_paired_motion(report, {**report, 'regions': {'upper_skull': {
               **report['regions']['upper_skull'], 'p95_shape_residual_px':1.0}}})
           assert result['numerically_improved'] is True
