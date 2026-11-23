@@ -4,6 +4,8 @@ on:
     branches: ["feature/studio-native-man-wave-ltx-20261123"]
     paths:
       - "tools/kaggle_studio_man_wave_native.py"
+      - "tools/studio_wave_status_gate.py"
+      - "tests/test_studio_wave_status_gate.py"
       - ".github/workflows/studio-native-man-wave-cpu.yml"
   pull_request:
     paths:
@@ -20,7 +22,14 @@ jobs:
         with:
           python-version: "3.11"
       - run: |
-          python -m py_compile tools/kaggle_studio_man_wave_native.py
+          python -m py_compile tools/kaggle_studio_man_wave_native.py tools/studio_wave_status_gate.py tests/test_studio_wave_status_gate.py
+          python -m unittest tests.test_studio_wave_status_gate -v
+          python - <<'PY'
+          from tools.studio_wave_status_gate import parse_state,classify
+          assert classify(parse_state('KernelWorkerStatus.QUEUED'))['requires_later_readback']
+          assert not classify(parse_state('KernelWorkerStatus.QUEUED'))['real_mp4_accepted']
+          print('STUDIO_QUEUED_IS_NOT_GPU_FAILURE_AND_NEVER_FINISHED_VIDEO')
+          PY
           python - <<'PY'
           from pathlib import Path
           import ast
