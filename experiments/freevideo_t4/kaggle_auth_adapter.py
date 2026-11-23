@@ -19,7 +19,10 @@ ERROR_LABELS = (
     ("not_found", ("404", "not found")),
     ("dns_or_network", ("name resolution", "failed to resolve", "dns", "connection refused", "connectionerror")),
     ("legacy_file_required", ("kaggle.json", "could not find kaggle")),
-    ("cli_incompatible", ("unrecognized arguments", "invalid choice", "no such option")),
+    ("cli_incompatible", ("unrecognized arguments", "invalid choice", "no such option", "unrecognized option", "no such command", "error: argument")),
+    ("format_misconfigured", ("invalid token format", "invalid credentials format", "malformed credential", "invalid json")),
+    ("ssl_failure", ("sslerror", "certificate verify failed", "tlsv1", "handshake failure")),
+    ("http_server_error", ("500 internal server error", "502 bad gateway", "503 service unavailable")),
 )
 
 
@@ -68,6 +71,20 @@ def diagnose_error(message: str) -> str:
     for label, fragments in ERROR_LABELS:
         if any(fragment in lower for fragment in fragments):
             return label
+    # Emit only an enumerated code for common Python/CLI failure classes.
+    # No exception message or remote response is allowed in public CI logs.
+    if "traceback (most recent call last)" in lower:
+        if "modulenotfounderror:" in lower:
+            return "python_missing_dependency"
+        if "permissionerror:" in lower:
+            return "local_permission_error"
+        if "filenotfounderror:" in lower:
+            return "local_file_missing"
+        return "python_exception_redacted"
+    if "usage: kaggle" in lower:
+        return "cli_usage_error_redacted"
+    if "error" in lower and "http" in lower:
+        return "http_failure_redacted"
     return "unclassified_cli_error"
 
 
@@ -94,7 +111,9 @@ def check_quota(env=None, runner=subprocess.run) -> dict:
 def check_kernels_list(env=None, runner=subprocess.run) -> dict:
     """Single read-only authenticated Kaggle kernels-list query, no item names."""
     mode, safe_env = token_environment(dict(os.environ if env is None else env))
-    cmd = ["kaggle", "kernels", "list", "--mine", "--page-size", "1", "--format", "json"]
+    # The official 'kernels list' CLI does NOT accept --format json.
+    # It is a human-readable table. Never log even one private notebook title.
+    cmd = ["kaggle", "kernels", "list", "--mine", "--page-size", "1"]
     try:
         result = runner(cmd, env=safe_env, text=True, capture_output=True,
                         timeout=65, check=False)
@@ -103,12 +122,10 @@ def check_kernels_list(env=None, runner=subprocess.run) -> dict:
     if result.returncode:
         raise KaggleAuthBlocked(
             "KAGGLE_" + diagnose_error((result.stderr or "") + "\n" + (result.stdout or "")))
-    try:
-        data = json.loads(result.stdout)
-    except (ValueError, UnicodeError) as exc:
-        raise KaggleAuthBlocked("KAGGLE_KERNELS_RESPONSE_INVALID_JSON") from exc
-    if not isinstance(data, (list, dict)):
-        raise KaggleAuthBlocked("KAGGLE_KERNELS_RESPONSE_INVALID_SHAPE")
+    # Only exit code is used: output is a table, not a JSON document. It can
+    # contain private notebook names, so stdout is never returned or printed.
+    if len(result.stdout or "") > 4 * 1024 * 1024:
+        raise KaggleAuthBlocked("KAGGLE_KERNELS_RESPONSE_OVERSIZED")
     return {"status": "API_AUTHENTICATED_PRIVATE_KERNELS_READ_ONLY",
             "credential_format": mode, "gpu_launched": False,
             "private_kernel_details": "NOT_LOGGED", "published": False}
