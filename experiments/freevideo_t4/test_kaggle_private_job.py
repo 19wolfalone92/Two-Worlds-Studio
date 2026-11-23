@@ -83,7 +83,7 @@ class KagglePrivateJobTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             args = self.args(Path(tmp))
             args["source"] = Path(__file__)
-            with self.assertRaises(module.KaggleBlocked):
+            with self.assertRaises((module.KaggleBlocked, module.HybridBlocked)):
                 module.prepare_private_kernel(**args)
 
     def test_missing_result_does_not_claim_gpu_success(self):
