@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "tools/kaggle_studio_recliner_native.py"
-USER_IMAGE_SHA = "9957a9f198dad3cc0fb6ed367bc9efcb259c80738491202d23dc6552003ec657"
+USER_IMAGE_SHA = "b2a235c7493df7d7d2cb98572d5baa27836511572172abb4a911784ae93a2e21"
 
 class ReclinerNativeStudioTests(unittest.TestCase):
     def test_source_compiles_without_coupling_to_freevideo(self):
@@ -19,7 +19,7 @@ class ReclinerNativeStudioTests(unittest.TestCase):
     def test_owner_source_and_frame_origin_are_strictly_anchored(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn(USER_IMAGE_SHA,source)
-        self.assertIn("photo.size!=(1152,1536)",source)
+        self.assertIn("photo.size!=(576,768)",source)
         self.assertIn("height=768,width=576,num_frames=33",source)
         self.assertIn("stage_prefix=\"WAVE\"",source)
         self.assertIn("run_native_bounded",source)
