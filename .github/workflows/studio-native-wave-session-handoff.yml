@@ -24,7 +24,7 @@ jobs:
           set -euo pipefail
           test -n "$KAGGLE_API_TOKEN"
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'numpy>=1.26,<3' 'cryptography>=42,<47'
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'numpy>=1.26,<3' 'Pillow>=10,<12' 'cryptography>=42,<47'
           python - <<'PY'
           import json,os,subprocess,hashlib
           from pathlib import Path
