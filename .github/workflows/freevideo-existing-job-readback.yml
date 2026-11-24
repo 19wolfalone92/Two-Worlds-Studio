@@ -1,0 +1,123 @@
+name: FREEVIDEO - recover existing private 5-second job (NO GPU SUBMISSION)
+on:
+  push:
+    branches: [research/freevideo-t4-adaptive-20261123]
+    paths: ['.github/workflows/freevideo-existing-job-readback.yml']
+permissions:
+  contents: read
+concurrency:
+  group: freevideo-existing-6def3f0503ef-readback
+  cancel-in-progress: false
+jobs:
+  recover-existing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      JOB_NONCE: night-awakens-20261124-02
+      SLUG: freevideo-hybrid-6def3f0503ef
+      ENCRYPTED_PHOTO: experiments/freevideo_t4/private_transport/night-awakens.encrypted.json
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install readback tools and verify nonce
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'kaggle==2.2.4' 'six>=1.16,<2' 'cryptography>=43,<48' 'Pillow>=10,<12' -e .
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+          test "$SLUG" = "freevideo-hybrid-$(printf %s "$JOB_NONCE" | sha256sum | cut -c1-12)"
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV" >/dev/null
+      - name: Resume monitoring existing kernel, never submit or rerun
+        id: monitor
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import os, time
+          from studio.kaggle_api import poll_kernel
+          kernel = os.environ['KAGGLE_USERNAME'] + '/' + os.environ['SLUG']
+          # Existing library limits each poll to 5400 seconds.
+          # Continue only on a genuine deadline, never on ERROR or cancellation.
+          for budget in (5400, 4200):
+              try:
+                  poll_kernel(kernel, timeout_seconds=budget, interval_seconds=30)
+                  break
+              except TimeoutError:
+                  print('FREEVIDEO_READBACK_POLL_WINDOW_EXPIRED', flush=True)
+          else:
+              raise SystemExit('FREEVIDEO_READBACK_DEADLINE_EXCEEDED')
+          PY
+      - name: Read only approved private result and diagnostic files
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/freevideo_kaggle_result"
+          for name in FREEVIDEO_PRIVATE_PREVIEW.zip FREEVIDEO_PRIVATE_CANDIDATE.zip freevideo_result.json freevideo_candidate_result.json freevideo_progress.json; do
+            kaggle kernels output "$KAGGLE_USERNAME/$SLUG" -p "$RUNNER_TEMP/freevideo_kaggle_result" --file-pattern "^$name$" --page-size 200 >"$RUNNER_TEMP/readback-$name.stdout" 2>"$RUNNER_TEMP/readback-$name.stderr" || true
+          done
+      - name: Independently verify and encrypt each available package
+        if: always()
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/freevideo_kaggle_result"
+          for STAGE in preview candidate; do
+            ARCHIVE="$DIR/FREEVIDEO_PRIVATE_${STAGE^^}.zip"
+            if [[ ! -s "$ARCHIVE" ]]; then
+              echo "FREEVIDEO_ARCHIVE_MISSING=$STAGE"
+              continue
+            fi
+            if python experiments/freevideo_t4/kaggle_private_job.py verify --path "$DIR" --nonce "$JOB_NONCE" --stage "$STAGE" >"$RUNNER_TEMP/freevideo_${STAGE}_verification.json"; then
+              python -m experiments.freevideo_t4.secure_transport seal-result "$ARCHIVE" "$ENCRYPTED_PHOTO" "$RUNNER_TEMP/freevideo_${STAGE}_result.encrypted.json"
+              echo "FREEVIDEO_DECODE_VERIFIED_ENCRYPTED=$STAGE"
+            else
+              echo "FREEVIDEO_PACKAGE_VERIFICATION_FAILED=$STAGE"
+            fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: freevideo-existing-job-encrypted-only
+          path: ${{ runner.temp }}/freevideo_*_result.encrypted.json
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Report safe diagnostics and distinguish technical from visual acceptance
+        if: always()
+        env:
+          MONITOR: ${{ steps.monitor.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          folder = root / 'freevideo_kaggle_result'
+          for name in ('freevideo_result.json', 'freevideo_candidate_result.json', 'freevideo_progress.json'):
+              p = folder / name
+              if not p.is_file():
+                  continue
+              d = json.loads(p.read_text())
+              for k in ('stage', 'status', 'error_type'):
+                  v = d.get(k)
+                  if isinstance(v, str) and re.fullmatch(r'[A-Za-z_0-9]{1,80}', v):
+                      print('FREEVIDEO_' + name.split('.')[0].upper() + '_' + k.upper() + '=' + v)
+              s = d.get('error_summary', '')
+              if isinstance(s,str):
+                  for marker in ('out of memory', 'not json serializable', 'timeout', 'no space left', 'not found', 'unexpected keyword argument'):
+                      if marker in s.lower():
+                          print('FREEVIDEO_ERROR_CATEGORY=' + marker)
+              g = d.get('gpu')
+              if isinstance(g, dict):
+                  for k in ('free_gib','total_gib'):
+                      if isinstance(g.get(k),(int,float)):
+                          print('FREEVIDEO_GPU_'+k.upper()+'='+str(g[k]))
+          if not (root / 'freevideo_candidate_result.encrypted.json').is_file():
+              raise SystemExit('FREEVIDEO_FULL_CANDIDATE_NOT_VERIFIED')
+          print('FREEVIDEO_CANDIDATE_TECHNICALLY_VERIFIED_VISUAL_REVIEW_REQUIRED')
+          PY
