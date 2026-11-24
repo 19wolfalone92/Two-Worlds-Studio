@@ -222,7 +222,8 @@ infer(settings)
             observed=run_native_bounded([sys.executable,"-u","-c",script],
                 cwd=LTX,env=env,
                 log_path=OUT/("STUDIO_WAVE_PRIVATE_GPU_"+str(segment)+".log"),
-                deadline_seconds=1400,heartbeat_seconds=20)
+                deadline_seconds=1400,heartbeat_seconds=20,
+                stage_prefix="WAVE")
             clips=list(target.rglob("*.mp4"))
             if len(clips)!=1:raise RuntimeError("Genuine neural MP4 missing or ambiguous")
             clip=clips[0]
