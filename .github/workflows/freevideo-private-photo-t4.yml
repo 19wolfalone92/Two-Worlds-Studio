@@ -5,7 +5,6 @@ on:
       - research/freevideo-t4-adaptive-20261123
     paths:
       - 'experiments/freevideo_t4/private_transport/night-awakens.encrypted.json'
-      - '.github/workflows/freevideo-private-photo-t4.yml'
 permissions:
   contents: read
 concurrency:
@@ -100,9 +99,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m studio.kaggle_api poll \
-            --kernel "$KAGGLE_USERNAME/freevideo-hybrid-$(printf %s "$JOB_NONCE" | sha256sum | cut -c1-12)" \
-            --timeout 9600
+          python - <<'PY'
+          import hashlib, os
+          from studio.kaggle_api import poll_kernel
+          nonce = os.environ['JOB_NONCE']
+          kernel = os.environ['KAGGLE_USERNAME'] + '/freevideo-hybrid-' + hashlib.sha256(nonce.encode()).hexdigest()[:12]
+          for budget in (5400, 4200):
+              try:
+                  poll_kernel(kernel, timeout_seconds=budget, interval_seconds=30)
+                  break
+              except TimeoutError:
+                  print('FREEVIDEO_POLL_WINDOW_EXPIRED', flush=True)
+          else:
+              raise SystemExit('FREEVIDEO_POLL_DEADLINE_EXCEEDED')
+          PY
       - name: Retrieve only private result packages and stage diagnostics
         if: ${{ always() && steps.submit.outcome == 'success' }}
         shell: bash
