@@ -61,9 +61,9 @@ def audit_video(video_path: str | Path) -> dict:
         raise VideoRejected("Decoded frames differ from ffprobe frame count")
     arr = np.frombuffer(raw.stdout, dtype=np.uint8).reshape(frames, h, w).astype(np.int16)
     diffs = np.abs(np.diff(arr, axis=0)).mean(axis=(1, 2)) / 255.0
-    near_duplicates = sum(d < .001 for d in diffs)
+    near_duplicates = int(np.count_nonzero(diffs < .001))
     median = float(np.median(diffs))
-    spikes = sum(d > max(.14, 4 * median) for d in diffs)
+    spikes = int(np.count_nonzero(diffs > max(.14, 4 * median)))
     flags = []
     if near_duplicates / (frames - 1) >= .5:
         flags.append("POSSIBLE_FROZEN_OR_REPEATED_FRAMES")
