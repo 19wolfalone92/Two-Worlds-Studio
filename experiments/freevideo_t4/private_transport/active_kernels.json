@@ -12,7 +12,10 @@
       "kernel": "wolf19loner92/freevideo-hybrid-f399e0b3e7b3",
       "submitted_at": "2026-11-24T19:58:11Z",
       "last_confirmed_status": "QUEUED",
-      "last_confirmed_status_at": "2026-11-24T19:58:12Z"
+      "last_confirmed_status_at": "2026-11-24T19:58:12Z",
+      "result_recovered": false,
+      "result_abandoned": false,
+      "kernel_submission_confirmed": true
     },
     {
       "workflow_run_id": 45475935059,
@@ -21,9 +24,13 @@
       "kernel": "wolf19loner92/freevideo-hybrid-7559aea3ceee",
       "submitted_at": "2026-11-24T20:19:05Z",
       "last_confirmed_status": "NOT_CONFIRMED",
-      "last_confirmed_status_at": null
+      "last_confirmed_status_at": null,
+      "result_recovered": false,
+      "result_abandoned": false,
+      "kernel_submission_confirmed": true
     }
   ],
   "last_api_failure": "HTTP 429 — dynamic Kaggle API rate limit",
-  "recovery_policy": "Read-only status/readback only; stop immediately on 429; do not push or rerun kernels until both entries are confirmed terminal."
+  "recovery_policy": "Read-only status/readback only; stop immediately on 429; do not push or rerun kernels until both entries are confirmed terminal.",
+  "last_update": "2026-11-24T20:27:00Z"
 }
