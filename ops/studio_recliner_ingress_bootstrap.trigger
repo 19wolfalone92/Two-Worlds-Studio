@@ -1,0 +1,4 @@
+one_time_stable_private_ingress_key=true
+private_pem_secret_wrapped=true
+photo_never_public=true
+only_Studio=true
