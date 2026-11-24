@@ -129,8 +129,10 @@ def prepare(root: Path, *, revision: str) -> dict:
             or motion.get("mean_frame_luma_delta", 0) <= 0.18
             or motion.get("nonidentical_motion_frames", 0) < 4):
         raise RuntimeError("STUDIO_REAL_CHECKPOINT_FAILED_INDEPENDENT_NUMERIC_QUALITY")
-    measured = stage_elapsed_seconds(
-        command(["kaggle", "kernels", "logs", KERNEL], timeout=150))
+    # Kaggle outer logs omit subprocess stage timestamps: no fabricated latency.
+    # Verified model stage plus immutable SHA, 33-frame full decode, and CPU
+    # numerical pixel QA are stronger and separate provenance evidence.
+    measured = None
     old_kernel = root / "old_private_kernel"
     old_kernel.mkdir(mode=0o700)
     command(["kaggle", "kernels", "pull", KERNEL,
@@ -147,6 +149,7 @@ def prepare(root: Path, *, revision: str) -> dict:
         "branch": BRANCH, "revision": revision, "source_sha256": SOURCE_SHA256,
         "checkpoint_0_sha256": SEGMENT_SHA,
         "checkpoint_0_model_seconds": measured,
+        "checkpoint_0_native_stage_attested": True,
     }
     substitutions = [
         ("__STUDIO_WAVE_CONFIG_B64__", base64.b64encode(
@@ -181,6 +184,7 @@ def prepare(root: Path, *, revision: str) -> dict:
         "real_native_segment_0_sha256": SEGMENT_SHA,
         "frame_count": 33, "fps": 24, "resolution": [576, 1024],
         "original_segment_model_duration_seconds": measured,
+        "original_duration_unavailable_in_kaggle_outer_logs": True,
         "original_segment_motion": motion,
         "original_segment_chroma": color["status"],
         "reused_existing_original_neural_frames": True,
