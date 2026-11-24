@@ -1,0 +1,11 @@
+kernel_mode=real_LTX2B_private_Kaggle_T4
+source_image_sha256=b2a235c7493df7d7d2cb98572d5baa27836511572172abb4a911784ae93a2e21
+native_segments=4
+native_frames=129
+width=576
+height=768
+fps=24
+privacy=one_time_RSA_AES_GCM_transport
+no_freevideo=true
+no_fake_video=true
+no_merge=true
