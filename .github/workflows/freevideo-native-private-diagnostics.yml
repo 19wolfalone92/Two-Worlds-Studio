@@ -1,0 +1,57 @@
+name: FREEVIDEO - encrypted diagnostic readback of rejected native job
+on:
+  push:
+    branches: [research/freevideo-t4-adaptive-20261123]
+    paths: ['.github/workflows/freevideo-native-private-diagnostics.yml']
+permissions:
+  contents: read
+jobs:
+  readback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      DIAG_PUBLIC: YnZqkvZCsJSZ4CtXrIqLsYFKKfVUlCDjYLaeo4JnCz4=
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          set -euo pipefail
+          python -m pip install -q 'kaggle==2.2.4' 'six>=1.16,<2' 'cryptography>=43,<48'
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV" >/dev/null
+      - name: Retrieve diagnostics only and encrypt to ephemeral local diagnostic public key
+        run: |
+          set -euo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/diag"
+          kaggle kernels output "$KAGGLE_USERNAME/freevideo-hybrid-68adc8db5a9a" -p "$RUNNER_TEMP/diag" --file-pattern '^(freevideo_result[.]json|freevideo_progress[.]json|freevideo_private_comfy[.]log)$' --page-size 200 >/dev/null 2>&1
+          python - <<'PY'
+          import os,io,json,zipfile
+          from pathlib import Path
+          from experiments.freevideo_t4.secure_transport import seal_result_zip
+          p=Path(os.environ['RUNNER_TEMP'])
+          names=('freevideo_result.json','freevideo_progress.json','freevideo_private_comfy.log')
+          assert json.loads((p/'diag'/names[0]).read_text())['nonce']=='night-awakens-20261124-03'
+          buf=io.BytesIO()
+          with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
+              for name in names:
+                  f=p/'diag'/name
+                  if f.is_file() and f.stat().st_size<5*1024*1024:
+                      z.write(f,name)
+              z.writestr('purpose.txt','diagnostic only; no source image or video; separate temporary public key; original recipient unchanged')
+          raw=buf.getvalue()
+          if len(raw)<1024:
+              with zipfile.ZipFile(buf,'a') as z:
+                  z.writestr('padding',os.urandom(1024))
+          (p/'freevideo_diag.encrypted.json').write_text(json.dumps(seal_result_zip(buf.getvalue(),os.environ['DIAG_PUBLIC']),separators=(',',':')))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freevideo-private-diagnostics-encrypted
+          path: ${{ runner.temp }}/freevideo_diag.encrypted.json
+          retention-days: 1
+          if-no-files-found: error
