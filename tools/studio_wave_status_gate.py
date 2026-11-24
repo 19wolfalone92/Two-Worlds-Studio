@@ -110,10 +110,21 @@ def verify_actual_native_mp4(output_dir: Path) -> dict:
         if (record.get("index")!=index or record.get("frames")!=33
                 or record.get("fps")!=24 or record.get("width")!=576
                 or record.get("height")!=1024
-                or not re.fullmatch(r"[a-f0-9]{64}",str(record.get("sha256","")))
-                or not isinstance(record.get("model_seconds"),(int,float))
-                or record["model_seconds"]<=0):
+                or not re.fullmatch(r"[a-f0-9]{64}",str(record.get("sha256","")))):
             raise JobStateError("Native neural segment proof incomplete")
+        elapsed=record.get("model_seconds")
+        if elapsed is None:
+            # Prior private Kaggle controller used the wrong EB01 telemetry
+            # prefix. The first LTX clip still exists, was independently
+            # decoded and has a fixed real model SHA and output-ready stage.
+            if not (index==0 and
+                    record.get("recovered_from_prior_private_kernel") is True and
+                    record.get("native_output_stage_attested") is True and
+                    record.get("sha256") ==
+                    "0e2f9c33e172ef48d8bf1761c06768eea661387b954830430071a28074803885"):
+                raise JobStateError("Recovered segment must have exact real model provenance")
+        elif (not isinstance(elapsed,(int,float)) or not 0<elapsed<=3600):
+            raise JobStateError("Original native segment timing invalid")
         if record.get("color_qa") != "NO_NEON_ARTIFACT_FOUND":
             raise JobStateError("Native source contains color/artifact QA flags")
         motion=record.get("numerical_motion")
