@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "tools/kaggle_studio_recliner_native.py"
-USER_IMAGE_SHA = "b2a235c7493df7d7d2cb98572d5baa27836511572172abb4a911784ae93a2e21"
+USER_IMAGE_SHA = "9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3"
 
 class ReclinerNativeStudioTests(unittest.TestCase):
     def test_source_compiles_without_coupling_to_freevideo(self):
