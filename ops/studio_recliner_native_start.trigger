@@ -9,3 +9,6 @@ privacy=one_time_RSA_AES_GCM_transport
 no_freevideo=true
 no_fake_video=true
 no_merge=true
+
+retry_after_original_25_min_photo_wait_timeout=2026-11-24
+new_private_input_sha256=9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3
