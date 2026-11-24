@@ -34,6 +34,46 @@ class KaggleBlocked(ValueError):
     """Stop before uploading a photo or spending Kaggle quota."""
 
 
+TERMINAL_KERNEL_STATES = {"COMPLETE", "ERROR", "CANCEL_ACKNOWLEDGED"}
+
+
+def guard_active_kernels(lock_path: str | Path | None = None) -> dict:
+    """Fail closed while any submitted private Kaggle kernel is unresolved.
+
+    A GitHub Actions polling failure does not stop a remote Kaggle kernel.
+    The durable lock must be updated only after status and output recovery.
+    """
+    path = Path(lock_path) if lock_path is not None else (
+        ROOT / "experiments/freevideo_t4/private_transport/active_kernels.json"
+    )
+    if path.is_symlink() or not path.is_file():
+        raise KaggleBlocked("ACTIVE_KERNEL_LOCK_MISSING_OR_UNSAFE")
+    try:
+        lock = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise KaggleBlocked("ACTIVE_KERNEL_LOCK_INVALID") from None
+    if not isinstance(lock, dict) or lock.get("schema") != 1:
+        raise KaggleBlocked("ACTIVE_KERNEL_LOCK_INVALID")
+    status = lock.get("status")
+    jobs = lock.get("submitted_jobs")
+    if not isinstance(jobs, list):
+        raise KaggleBlocked("ACTIVE_KERNEL_LOCK_INVALID")
+    if lock.get("do_not_submit_new_gpu_job") is True:
+        raise KaggleBlocked("ACTIVE_PRIVATE_KERNELS_UNRESOLVED")
+    if status == "NO_ACTIVE_KERNELS" and not jobs:
+        return {"status": "NO_ACTIVE_KERNELS_CONFIRMED", "jobs_checked": 0}
+    if status not in {"ALL_TERMINAL", "RESOLVED"}:
+        raise KaggleBlocked("ACTIVE_PRIVATE_KERNELS_UNRESOLVED")
+    for job in jobs:
+        if not isinstance(job, dict):
+            raise KaggleBlocked("ACTIVE_KERNEL_LOCK_INVALID")
+        if (job.get("last_confirmed_status") not in TERMINAL_KERNEL_STATES
+                or not (job.get("result_recovered") is True
+                        or job.get("result_abandoned") is True)):
+            raise KaggleBlocked("ACTIVE_PRIVATE_KERNELS_UNRESOLVED")
+    return {"status": "NO_ACTIVE_KERNELS_CONFIRMED", "jobs_checked": len(jobs)}
+
+
 def prepare_private_kernel(username: str, nonce: str, source: str | Path,
                            prompt: str, destination: str | Path, *,
                            revision: str, seed: int = 42,
@@ -221,6 +261,7 @@ def main(argv=None) -> int:
     v = p.parse_args(argv)
     try:
         if v.cmd == "prepare":
+            guard_active_kernels()
             result = prepare_private_kernel(v.username, v.nonce, v.source,
                                             v.prompt, v.destination,
                                             revision=v.revision, seed=v.seed,
