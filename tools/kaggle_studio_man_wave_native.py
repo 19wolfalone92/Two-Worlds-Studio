@@ -216,7 +216,7 @@ infer(settings)
         # Restore exactly the previous real T4 model output when a telemetry
         # bug prevented the controller from accepting an already completed
         # neural segment. Never regenerate/replace previously verified frames.
-        resume_native=CHECKPOINT_B64!="__STUDIO_WAVE_CHECKPOINT_B64__"
+        resume_native=cfg.get("checkpoint_0_sha256") is not None
         if resume_native:
             original=base64.b64decode(CHECKPOINT_B64,validate=True)
             expected=cfg.get("checkpoint_0_sha256")
