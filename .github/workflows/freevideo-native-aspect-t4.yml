@@ -13,6 +13,9 @@ concurrency:
 
 jobs:
   one-private-wan22-video:
+    # Safety lock: two private Kaggle kernels remain unresolved after HTTP 429.
+    # Re-enable only after active_kernels.json is RESOLVED and output recovery is verified.
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     env:
@@ -106,7 +109,7 @@ jobs:
           kernel = os.environ['KAGGLE_USERNAME'] + '/freevideo-hybrid-' + hashlib.sha256(nonce.encode()).hexdigest()[:12]
           for budget in (5400, 5400, 5400, 3600):
               try:
-                  poll_kernel(kernel, timeout_seconds=budget, interval_seconds=30)
+                  poll_kernel(kernel, timeout_seconds=budget, interval_seconds=300)
                   break
               except TimeoutError:
                   print('FREEVIDEO_POLL_WINDOW_EXPIRED', flush=True)
