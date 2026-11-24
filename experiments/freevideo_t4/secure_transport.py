@@ -23,11 +23,12 @@ MAGIC = 'FREEVIDEO_ENCRYPTED_IMAGE_V1'
 def _b64(raw: bytes) -> str:
     return base64.b64encode(raw).decode('ascii')
 
-def _unb64(value: str, expected: int | None = None) -> bytes:
-    if not isinstance(value, str) or len(value) > 2000000:
+def _unb64(value: str, expected: int | None = None, *, max_bytes: int = 1024) -> bytes:
+    limit = expected if expected is not None else max_bytes
+    if not isinstance(value, str) or len(value) > 4 * ((limit + 2) // 3):
         raise ValueError('Invalid base64 field length')
     raw = base64.b64decode(value, validate=True)
-    if expected is not None and len(raw) != expected:
+    if len(raw) > limit or (expected is not None and len(raw) != expected):
         raise ValueError('Invalid binary field size')
     return raw
 
@@ -80,7 +81,7 @@ def decrypt(payload: dict, token: str) -> bytes:
     key=HKDF(algorithm=hashes.SHA256(),length=32,salt=salt,
              info=CONTEXT+b'/image').derive(shared)
     aad=MAGIC.encode()+b'|'+digest.encode()+b'|'+output_public
-    raw=AESGCM(key).decrypt(nonce,_unb64(payload['ciphertext']),aad)
+    raw=AESGCM(key).decrypt(nonce,_unb64(payload['ciphertext'], max_bytes=8*1024*1024+16),aad)
     if hashlib.sha256(raw).hexdigest()!=digest:
         raise ValueError('Photo SHA mismatch')
     kind='jpeg' if raw.startswith(bytes.fromhex('ffd8ff')) else 'png' if raw.startswith(
@@ -121,7 +122,7 @@ def unseal_result_zip(payload: dict, private_key_bytes: bytes) -> bytes:
     shared=private.exchange(remote)
     key=HKDF(algorithm=hashes.SHA256(),length=32,salt=_unb64(payload['salt'],16),
              info=CONTEXT+b'/result').derive(shared)
-    raw=AESGCM(key).decrypt(_unb64(payload['nonce'],12),_unb64(payload['ciphertext']),
+    raw=AESGCM(key).decrypt(_unb64(payload['nonce'],12),_unb64(payload['ciphertext'], max_bytes=300*1024*1024+16),
                             RESULT_MAGIC.encode()+b'|'+digest.encode())
     if hashlib.sha256(raw).hexdigest()!=digest:
         raise ValueError('Output integrity error')

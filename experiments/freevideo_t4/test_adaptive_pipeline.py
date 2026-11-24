@@ -58,7 +58,8 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(p["bf16_allowed"])
         self.assertIn("freevideo_h3_not_t4_compatible", p["excluded"])
         self.assertEqual(p["final"], {"width": 576, "height": 1024, "frames": 49, "steps": 36})
-        for stage in ("preview", "final"):
+        self.assertEqual(p["candidate"], {"width": 432, "height": 768, "frames": 121, "steps": 24})
+        for stage in ("preview", "final", "candidate"):
             dims = p[stage]
             self.assertEqual(dims["width"] * 16, dims["height"] * 9)
             self.assertEqual((dims["frames"] - 1) % 4, 0)
@@ -179,6 +180,18 @@ class SecurityAndProvenanceTests(unittest.TestCase):
                 review.write_text(json.dumps(content))
                 with self.assertRaisesRegex(module.Blocked, "manually approved"):
                     module.validate_review(review, clip, ref, prompt=prompt, seed=42)
+
+    def test_candidate_technical_gate_does_not_require_or_create_visual_approval(self):
+        prompt = "A figure moves in a continuous shot with stable anatomy."
+        with tempfile.TemporaryDirectory() as temp:
+            ref, clip, review = fake_preview(Path(temp), prompt=prompt)
+            review.unlink()
+            with patch.object(module, "_video_probe", return_value={
+                    "width": 432, "height": 768, "frames": 25, "fps": "24"}):
+                self.assertEqual(module._validate_preview_provenance(clip, ref, prompt=prompt, seed=42)["frames"], 25)
+                with self.assertRaises(module.Blocked):
+                    module._validate_preview_provenance(clip, ref, prompt=prompt, seed=43)
+                self.assertFalse(review.exists())
 
     def test_missing_or_inconsistent_receipts_fail_closed(self):
         prompt = "A figure moves through a slow natural head turn."

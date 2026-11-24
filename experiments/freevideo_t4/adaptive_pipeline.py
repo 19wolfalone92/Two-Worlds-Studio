@@ -102,12 +102,14 @@ def choose_plan(hardware: Hardware) -> dict:
         "usable_vram_gib": round(budget, 2), "reserved_vram_gib": round(reserved, 2),
         "precision": "fp16", "bf16_allowed": major >= 8, "fps": 24,
         "preview": config(preview), "final": config(final),
+        "candidate": config((432, 768, 121, 24) if budget >= 12 else (288, 512, 121, 20)),
         "excluded": ["freevideo_h3_not_t4_compatible", "vdn_h3_weights_not_used",
                      "no_cross_session_vram_pool", "no_bf16_on_t4",
                      "no_automatic_oom_retry", "no_automatic_publication"],
         "warnings": ["Estimated VRAM only: real Wan weights/ComfyUI may still OOM.",
                      "Preview is a separately generated 1-second take, not an upscaled final.",
                      "Final is a separate 2-second take and requires its own visual review.",
+                     "Candidate is a native 5-second experimental take; never an approved final.",
                      "Execution only allows T4 and a matching, local ComfyUI device."]}
 
 
@@ -339,6 +341,17 @@ def validate_review(review_path: Path, preview_video: Path, reference: Path,
         raise Blocked("Preview/reference SHA-256 differs from reviewed source")
     if not isinstance(review.get("checks"), dict) or any(review["checks"].get(k) is not True for k in CHECKS):
         raise Blocked("Identity, anatomy, movement, and no-morphing checks must be manually approved")
+    _validate_preview_provenance(preview, reference, prompt=prompt, seed=seed)
+    return review
+
+
+def _validate_preview_provenance(preview: Path, reference: Path, *,
+                                 prompt: str | None = None, seed: int | None = None) -> dict:
+    """Technical gate only; it does not create or imply any visual approval."""
+    preview = _private_path(preview)
+    if preview.suffix.lower() != ".mp4":
+        raise Blocked("Preview must be an MP4")
+    source_hash, clip_hash = _hash_file(reference), _hash_file(preview)
     bridge_path = _private_path(preview.with_suffix(".receipt.json"))
     bridge = _json_file(bridge_path)
     if (bridge.get("schema") != 1 or bridge.get("engine") != "neural_comfy"
@@ -373,7 +386,7 @@ def validate_review(review_path: Path, preview_video: Path, reference: Path,
             any(measured.get(k) != from_bridge.get(k) for k in ("width", "height", "frames"))
             or from_bridge.get("fps") != "24"):
         raise Blocked("Studio neural receipt differs from actual decoded preview")
-    return review
+    return measured
 
 
 def _history_append(path: Path, entry: dict) -> None:
@@ -416,7 +429,7 @@ def summary(history: Path) -> dict:
             elapsed = r.get("elapsed_s")
             if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0:
                 raise Blocked(f"Invalid execution time at line {number}")
-            if r.get("backend") != MODEL or r.get("stage") not in ("preview", "final"):
+            if r.get("backend") != MODEL or r.get("stage") not in ("preview", "final", "candidate"):
                 raise Blocked(f"Unknown backend or stage in metrics at line {number}")
             key = (r.get("hardware"), r.get("stage"), r.get("resolution"), r.get("frames"))
             if any(not isinstance(k, (str, int)) for k in key):
@@ -464,6 +477,11 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
             raise Blocked("Final requires a private human --review and --preview-video")
         validate_review(Path(args.review), Path(args.preview_video), reference,
                         prompt=args.prompt, seed=args.seed)
+    if args.command == "candidate":
+        if not args.preview_video:
+            raise Blocked("Candidate requires a technically validated native preview")
+        _validate_preview_provenance(Path(args.preview_video), reference,
+                                     prompt=args.prompt, seed=args.seed)
     # Explicitly validate local checkpoint bytes BEFORE submitting an inference.
     # This checks operator-supplied digests, not authenticated publisher identity,
     # and does not prove what checkpoint the ComfyUI process has loaded.
@@ -572,7 +590,7 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
 
 def run(args: argparse.Namespace) -> dict:
     """Permit only one explicitly authorized GPU job per device and worker."""
-    if args.command in ("preview", "final"):
+    if args.command in ("preview", "final", "candidate"):
         if not args.execute or not args.accept_model_license:
             raise Blocked("Generation requires BOTH --execute and --accept-model-license")
         with device_lease(args.device):
@@ -582,7 +600,7 @@ def run(args: argparse.Namespace) -> dict:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Freevideo isolated T4-only experiment (Wan2.2, NOT H3)")
-    parser.add_argument("command", choices=("plan", "preview", "final", "stats"))
+    parser.add_argument("command", choices=("plan", "preview", "final", "candidate", "stats"))
     parser.add_argument("--simulate-t4", action="store_true", help="PLAN ONLY, never executes GPU")
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--reference")
@@ -601,7 +619,7 @@ def main(argv=None) -> int:
     try:
         if args.simulate_t4 and args.command != "plan":
             raise Blocked("Simulation is only permitted for plan, never for execution")
-        if args.command in ("preview", "final") and not all((args.reference, args.output, args.prompt)):
+        if args.command in ("preview", "final", "candidate") and not all((args.reference, args.output, args.prompt)):
             raise Blocked("--reference, --output and --prompt are required")
         if args.command == "stats" and not args.history:
             raise Blocked("--history is required for stats")

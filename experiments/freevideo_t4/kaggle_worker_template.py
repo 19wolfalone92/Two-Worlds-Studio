@@ -25,6 +25,8 @@ ROOT = Path("/kaggle/temp/freevideo_public_source")
 COMFY = Path("/kaggle/temp/freevideo_comfy")
 OUT = WORK / "freevideo_result.json"
 ARCHIVE = WORK / "FREEVIDEO_PRIVATE_PREVIEW.zip"
+CANDIDATE_ARCHIVE = WORK / "FREEVIDEO_PRIVATE_CANDIDATE.zip"
+CANDIDATE_OUT = WORK / "freevideo_candidate_result.json"
 DIAGNOSTIC = WORK / "freevideo_progress.json"
 STAGE = "bootstrap"
 
@@ -146,7 +148,7 @@ def _weight_manifest() -> Path:
 
 
 def _start_comfy() -> tuple[subprocess.Popen, object]:
-    log = (WORK / "freevideo_private_comfy.log").open("xb")
+    log = (WORK / "freevideo_private_comfy.log").open("ab")
     process = subprocess.Popen([
         sys.executable, "main.py", "--listen", "127.0.0.1", "--port", "8188",
         "--disable-auto-launch", "--lowvram", "--cpu-vae"
@@ -208,53 +210,68 @@ def run_job(data: dict) -> dict:
     backend = _install_backend(data)
     checkpoint("weight_manifest")
     weights = _weight_manifest()
-    process = log = None
-    try:
-        checkpoint("start_comfy")
-        process, log = _start_comfy()
-        checkpoint("native_preview_inference")
-        result = run_stage(setup["job_file"], "preview",
-                           execute=True, accept_model_license=True,
-                           weights_manifest=str(weights), device=0,
-                           host="http://127.0.0.1:8188", timeout=2700)
-        if result.get("status") != "GENERATED_REVIEW_REQUIRED":
-            raise RuntimeError("Native GPU I2V did not generate a validated preview")
-    finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                process.kill()
-        if log is not None:
-            log.close()
+    def infer(stage: str, timeout: int) -> None:
+        process = log = None
+        try:
+            checkpoint("start_comfy_" + stage)
+            process, log = _start_comfy()
+            checkpoint("native_" + stage + "_inference")
+            result = run_stage(setup["job_file"], stage,
+                               execute=True, accept_model_license=True,
+                               weights_manifest=str(weights), device=0,
+                               host="http://127.0.0.1:8188", timeout=timeout)
+            if result.get("status") != "GENERATED_REVIEW_REQUIRED":
+                raise RuntimeError("Native GPU I2V did not generate a validated take")
+        finally:
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=20)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=20)
+            if log is not None:
+                log.close()
 
-    checkpoint("package_verified_preview")
-    clip = private_work / "preview.mp4"
-    files = [
-        "preview.mp4", "preview.receipt.json", "preview.freevideo.json",
-        "preview.hybrid.json", "job.json", "timings.jsonl"
-    ]
-    with zipfile.ZipFile(ARCHIVE, "x", compression=zipfile.ZIP_DEFLATED,
-                         compresslevel=3) as package:
-        for filename in files:
-            p = private_work / filename
-            if p.is_file():
-                package.write(p, arcname=filename)
-    record = {
-        "schema": 1, "nonce": data["nonce"], "source_revision": data["source_revision"],
-        "source_sha256": data["reference_sha256"],
-        "archive_sha256": sha256(ARCHIVE), "clip_sha256": sha256(clip),
-        "video_stage": "preview", "gpu": gpu, "backend_revisions": backend,
-        "real_neural_backend": "studio.comfy_neural/wan22-5b",
-        "status": "REAL_GPU_PREVIEW_REVIEW_REQUIRED",
-        "human_approved": False, "published": False,
-        "visual_quality": "NOT_VERIFIED",
-        "note": "Original private photo not included in output archive."
-    }
-    with OUT.open("x", encoding="utf-8") as f:
-        json.dump(record, f, indent=2)
-    checkpoint("complete_preview")
+    def package(stage: str, archive: Path, receipt: Path) -> dict:
+        checkpoint("package_" + stage)
+        clip = private_work / (stage + ".mp4")
+        files = [stage + suffix for suffix in
+                 (".mp4", ".receipt.json", ".freevideo.json", ".hybrid.json")]
+        files += ["job.json", "timings.jsonl"]
+        for required in files[:-1]:
+            if not (private_work / required).is_file():
+                raise RuntimeError("Incomplete private stage result")
+        with zipfile.ZipFile(archive, "x", compression=zipfile.ZIP_DEFLATED,
+                             compresslevel=3) as z:
+            for filename in files:
+                f = private_work / filename
+                if f.is_file():
+                    z.write(f, arcname=filename)
+        record = {
+            "schema": 1, "nonce": data["nonce"], "source_revision": data["source_revision"],
+            "source_sha256": data["reference_sha256"],
+            "archive_sha256": sha256(archive), "clip_sha256": sha256(clip),
+            "video_stage": stage, "gpu": gpu, "backend_revisions": backend,
+            "real_neural_backend": "studio.comfy_neural/wan22-5b",
+            "status": "REAL_GPU_" + stage.upper() + "_REVIEW_REQUIRED",
+            "human_approved": False, "published": False,
+            "visual_quality": "NOT_VERIFIED",
+            "note": "Original private photo not included in output archive."
+        }
+        with receipt.open("x", encoding="utf-8") as f:
+            json.dump(record, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        return record
+
+    infer("preview", 2700)
+    package("preview", ARCHIVE, OUT)
+    # A fresh local server releases the previous take's GPU allocations.
+    # This is a separate native 121-frame candidate, not an interpolated preview.
+    infer("candidate", 5400)
+    record = package("candidate", CANDIDATE_ARCHIVE, CANDIDATE_OUT)
+    checkpoint("complete_candidate")
     return record
 
 
@@ -271,8 +288,12 @@ def main():
                   "status": "BLOCKED_GPU_NOT_VERIFIED", "error_type": type(exc).__name__,
                   "error_summary": str(exc)[:220], "stage": STAGE,
                   "traceback_private": traceback.format_exc()[-16000:], "published": False}
-        with OUT.open("w", encoding="utf-8") as f:
-            json.dump(record, f, indent=2)
+        failure_out = CANDIDATE_OUT if OUT.exists() else OUT
+        if not failure_out.exists():
+            with failure_out.open("x", encoding="utf-8") as f:
+                json.dump(record, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
         traceback.print_exc()
         raise
 

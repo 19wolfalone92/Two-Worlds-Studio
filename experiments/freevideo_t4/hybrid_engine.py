@@ -216,8 +216,8 @@ def run_stage(job_file: str | Path, stage: str, *,
               host: str = "http://127.0.0.1:8188", timeout: int = 3600,
               review: str | None = None) -> dict:
     path, doc = _load_job(job_file)
-    if stage not in ("preview", "final"):
-        raise HybridBlocked("Only preview and final neural stages are supported")
+    if stage not in ("preview", "final", "candidate"):
+        raise HybridBlocked("Only preview, candidate and final neural stages are supported")
     if not execute or not accept_model_license:
         raise HybridBlocked("Neural GPU inference requires explicit execution and licence consent")
     if not weights_manifest:
@@ -239,7 +239,7 @@ def run_stage(job_file: str | Path, stage: str, *,
         seed=doc["seed"], timeout=timeout, host=host,
         history=str(path.parent / "timings.jsonl"),
         weights_manifest=weights_manifest, simulate_t4=False,
-        review=review, preview_video=str(path.parent / "preview.mp4") if stage == "final" else None)
+        review=review, preview_video=str(path.parent / "preview.mp4") if stage in ("final", "candidate") else None)
     result = adaptive_pipeline.run(args)
     if result.get("status") != "GENERATED_REVIEW_REQUIRED":
         raise HybridBlocked("Neural Studio bridge did not confirm a generated MP4")

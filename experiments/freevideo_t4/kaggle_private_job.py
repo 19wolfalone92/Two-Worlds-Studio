@@ -112,16 +112,18 @@ def prepare_private_kernel(username: str, nonce: str, source: str | Path,
         "warning": "Private kernel contains user's source photo; never publish or add to GitHub."}
 
 
-def verify_private_result(folder: str | Path, nonce: str) -> dict:
+def verify_private_result(folder: str | Path, nonce: str, stage: str = "preview") -> dict:
     """Validate returned Kaggle archive without trusting declared success."""
     location = Path(folder).expanduser().absolute()
     if not NONCE.fullmatch(nonce):
         raise KaggleBlocked("Invalid nonce")
-    manifest = private_path(location / "freevideo_result.json")
-    archive = private_path(location / "FREEVIDEO_PRIVATE_PREVIEW.zip")
+    if stage not in ("preview", "candidate"):
+        raise KaggleBlocked("Unsupported private stage")
+    manifest = private_path(location / ("freevideo_result.json" if stage == "preview" else "freevideo_candidate_result.json"))
+    archive = private_path(location / ("FREEVIDEO_PRIVATE_" + stage.upper() + ".zip"))
     record = json.loads(manifest.read_text(encoding="utf-8"))
     if (not isinstance(record, dict) or record.get("nonce") != nonce
-            or record.get("status") != "REAL_GPU_PREVIEW_REVIEW_REQUIRED"
+            or record.get("status") != "REAL_GPU_" + stage.upper() + "_REVIEW_REQUIRED"
             or record.get("human_approved") is not False
             or record.get("published") is not False
             or record.get("visual_quality") != "NOT_VERIFIED"):
@@ -130,8 +132,8 @@ def verify_private_result(folder: str | Path, nonce: str) -> dict:
         raise KaggleBlocked("Private preview archive size invalid")
     if sha256(archive) != record.get("archive_sha256"):
         raise KaggleBlocked("Kaggle ZIP SHA mismatch")
-    wanted = {"preview.mp4", "preview.receipt.json", "preview.freevideo.json",
-              "preview.hybrid.json", "job.json"}
+    wanted = {stage + suffix for suffix in (".mp4", ".receipt.json", ".freevideo.json", ".hybrid.json")}
+    wanted.add("job.json")
     with zipfile.ZipFile(archive) as z:
         members = z.infolist()
         names = [m.filename for m in members]
@@ -142,11 +144,11 @@ def verify_private_result(folder: str | Path, nonce: str) -> dict:
                        for m in members)):
             raise KaggleBlocked("Unsafe/missing private preview ZIP members")
 
-        raw = z.read("preview.mp4")
-        studio_bytes = z.read("preview.receipt.json")
-        freevideo_bytes = z.read("preview.freevideo.json")
+        raw = z.read(stage + ".mp4")
+        studio_bytes = z.read(stage + ".receipt.json")
+        freevideo_bytes = z.read(stage + ".freevideo.json")
         studio = json.loads(studio_bytes)
-        hybrid = json.loads(z.read("preview.hybrid.json"))
+        hybrid = json.loads(z.read(stage + ".hybrid.json"))
         freevideo = json.loads(freevideo_bytes)
         job = json.loads(z.read("job.json"))
         digest = hashlib.sha256(raw).hexdigest()
@@ -154,14 +156,14 @@ def verify_private_result(folder: str | Path, nonce: str) -> dict:
                 or digest != studio.get("clip_sha256")
                 or digest != hybrid.get("clip_sha256")
                 or digest != freevideo.get("clip_sha256")
-                or hybrid.get("stage") != "preview"
+                or hybrid.get("stage") != stage
                 or studio.get("schema") != 1 or studio.get("engine") != "neural_comfy"
                 or studio.get("model") != "wan22-5b"
                 or studio.get("inference_performed") is not True
                 or studio.get("human_approved") is not False
                 or studio.get("published") is not False
                 or freevideo.get("schema") != 2
-                or freevideo.get("stage") != "preview"
+                or freevideo.get("stage") != stage
                 or freevideo.get("bridge_receipt_sha256")
                    != hashlib.sha256(studio_bytes).hexdigest()
                 or hybrid.get("studio_receipt_sha256")
@@ -173,10 +175,10 @@ def verify_private_result(folder: str | Path, nonce: str) -> dict:
                 or hybrid.get("reference_sha256") != job.get("reference_sha256")):
             raise KaggleBlocked("Native MP4/Studio/Freevideo provenance mismatch")
         measured_receipt = studio.get("video", {})
+        expected_frames = 25 if stage == "preview" else 121
         if (not isinstance(measured_receipt, dict)
-                or measured_receipt.get("frames") != 25
-                or measured_receipt.get("width") != 432
-                or measured_receipt.get("height") != 768
+                or measured_receipt.get("frames") != expected_frames
+                or (measured_receipt.get("width"), measured_receipt.get("height")) not in ((432, 768), (288, 512))
                 or measured_receipt.get("fps") != "24"):
             raise KaggleBlocked("Unexpected GPU preview frame-clock receipt")
     # Hashes and JSON are not video decoding. Actually decode every MP4 frame.
@@ -192,11 +194,11 @@ def verify_private_result(folder: str | Path, nonce: str) -> dict:
             qc = audit_video(p)
         except (OSError, ValueError) as exc:
             raise KaggleBlocked("Returned Kaggle clip does not fully decode") from exc
-    if (qc["video_sha256"] != digest or qc["frames"] != 25
-            or qc["width"] != 432 or qc["height"] != 768 or qc["fps"] != "24"):
+    if (qc["video_sha256"] != digest or qc["frames"] != expected_frames
+            or qc["width"] != measured_receipt["width"] or qc["height"] != measured_receipt["height"] or qc["fps"] != "24"):
         raise KaggleBlocked("Returned MP4 decoded frame-clock differs from Studio")
     return {"status": "REMOTE_GPU_RECEIPT_MP4_DECODED_REVIEW_REQUIRED",
-            "clip_sha256": record["clip_sha256"], "nonce": nonce,
+            "clip_sha256": record["clip_sha256"], "nonce": nonce, "stage": stage,
             "actual_decoding": "CPU_VERIFIED",
             "neural_provenance": "REMOTE_KAGGLE_STUDIO_RECEIPT",
             "visual_quality": "NOT_VERIFIED", "temporal_flags": qc["flags"],
@@ -214,6 +216,7 @@ def main(argv=None) -> int:
     b = cmd.add_parser("verify")
     b.add_argument("--path", required=True)
     b.add_argument("--nonce", required=True)
+    b.add_argument("--stage", choices=("preview", "candidate"), default="preview")
     v = p.parse_args(argv)
     try:
         if v.cmd == "prepare":
@@ -222,7 +225,7 @@ def main(argv=None) -> int:
                                             revision=v.revision, seed=v.seed,
                                             accept_model_license=v.accept_model_license)
         else:
-            result = verify_private_result(v.path, v.nonce)
+            result = verify_private_result(v.path, v.nonce, v.stage)
         code = 0
     except (KaggleBlocked, OSError, ValueError, RuntimeError, zipfile.BadZipFile) as exc:
         result, code = {"status": "BLOCKED", "reason": str(exc),
