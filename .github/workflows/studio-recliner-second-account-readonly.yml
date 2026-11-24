@@ -1,0 +1,57 @@
+name: STUDIO Recliner — second Kaggle account availability READ ONLY
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_second_account_probe.trigger"]
+permissions:
+  contents: read
+jobs:
+  second_account_gpu_read_only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip -q install "kaggle==2.2.4" "six>=1.16,<2"
+      - name: Confirm second token is independent and read current job states, NO GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,re,json
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          from tools.eb01_kaggle2_auth_probe import query
+          token=os.environ.get("KAGGLE_API_TOKEN","")
+          if not token:
+              print("STUDIO_SECOND_ACCOUNT_TOKEN_MISSING")
+              raise SystemExit(0)
+          state,handle=query(token)
+          print("STUDIO_SECOND_ACCOUNT_AUTH",state)
+          if state!="AUTHENTICATED_READ_ONLY" or not handle:
+              raise SystemExit(0)
+          api=KaggleApi()
+          api.authenticate()
+          kernels=[]
+          for p in (1,2):
+              current=api.kernels_list(mine=True,page_size=100,page=p)
+              kernels.extend(current)
+              if len(current)<100: break
+          active=[]
+          for item in kernels:
+              slug=str(getattr(item,"ref","") or "")
+              if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+",slug): continue
+              try:
+                  st=str(getattr(api.kernels_status(slug),"status","UNKNOWN"))
+              except Exception:
+                  continue
+              if st not in ("KernelWorkerStatus.COMPLETE","KernelWorkerStatus.ERROR","KernelWorkerStatus.CANCELLED","KernelWorkerStatus.CANCELED"):
+                  active.append({"alias":"second","status":st})
+          print("STUDIO_SECOND_ACCOUNT_KERNELS_CHECKED",len(kernels))
+          print("STUDIO_SECOND_ACCOUNT_ACTIVE_COUNT",len(active))
+          print("STUDIO_SECOND_ACCOUNT_ACTIVE_STATES",json.dumps(active[:10]))
+          print("STUDIO_SECOND_ACCOUNT_READ_ONLY_NO_GPU_NO_OWNER_MEDIA")
+          PY
