@@ -33,14 +33,21 @@ jobs:
               print("STUDIO_GPU_QUOTA_PROBE_ERROR_CLASS",type(exc).__name__)
               raise SystemExit(1)
           safe=[]
+          counts={}
+          exemplars=[]
           for x in entries:
               slug=str(getattr(x,"ref",getattr(x,"slug","")) or "")
               if not re.fullmatch(r"[A-Za-z0-9_/-]{1,130}",slug): slug="REDACTED"
               status=str(getattr(x,"status",getattr(x,"last_run_status","UNKNOWN")))
               if not re.fullmatch(r"[A-Za-z0-9_. -]{1,80}",status): status="REDACTED"
-              if any(t in status.upper() for t in ("RUNNING","QUEUED","INITIALIZ","PENDING","STARTING")):
+              attr_status=str(getattr(x,"last_run_status","MISSING"))
+              counts[status+" | "+attr_status]=counts.get(status+" | "+attr_status,0)+1
+              if len(exemplars)<5: exemplars.append({"slug":slug,"status":status,"last_run_status":attr_status})
+              if any(t in (status+" "+attr_status).upper() for t in ("RUNNING","QUEUED","INITIALIZ","PENDING","STARTING")):
                   safe.append({"owner_job":slug,"state":status})
           print("STUDIO_GPU_QUOTA_ACTIVE_OWNER_JOBS",json.dumps(safe[:25],sort_keys=True))
           print("STUDIO_GPU_QUOTA_TOTAL_LISTED",len(entries))
+          print("STUDIO_GPU_QUOTA_STATUS_DISTRIBUTION",json.dumps(counts,sort_keys=True))
+          print("STUDIO_GPU_QUOTA_RECENT_EXEMPLARS",json.dumps(exemplars,sort_keys=True))
           print("STUDIO_GPU_QUOTA_NO_SUBMISSION_NO_PRIVATE_MEDIA")
           PY
