@@ -1,0 +1,80 @@
+name: STUDIO Native Wave — safe existing Kaggle readback, no new GPUs
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths:
+      - "ops/studio_wave_native_collect.trigger"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: two-worlds-studio-native-man-wave-owner-kaggle
+  cancel-in-progress: false
+
+jobs:
+  read_only_existing_kaggle_job:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Mandatory source, state-machine and dependency preflight, fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m py_compile tools/studio_wave_status_gate.py tools/studio_wave_collect_once.py
+          python -m unittest tests.test_studio_wave_status_gate tests.test_studio_wave_collect_once -v
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'cryptography>=42,<47'
+      - name: Observe SAME original native Kaggle kernel, never submit another GPU job
+        id: observe
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.studio_wave_collect_once --working "$RUNNER_TEMP/studio_wave_readback"
+          python - <<'PY'
+          from pathlib import Path
+          import json,os
+          r=json.loads((Path(os.environ["RUNNER_TEMP"])/"studio_wave_readback"/
+                        "STUDIO_WAVE_SAFE_STATE.json").read_text())
+          # The workflow may conclude successfully while Kaggle is still queued.
+          # NEVER advertise this GitHub success as a generated video.
+          verified=r["status"]=="TRUE_GPU_MP4_VERIFIED_ENCRYPTED_OWNER_REVIEW"
+          with open(os.environ["GITHUB_OUTPUT"],"a") as out:
+              out.write("real_video_verified="+str(verified).lower()+"\n")
+              out.write("kaggle_state="+r["kernel_state"]+"\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a") as out:
+              out.write("### Studio native wave\\n")
+              out.write("Kaggle kernel: **"+r["kernel_state"]+"**\\n\\n")
+              out.write("Real native MP4 technically verified: **"+str(verified)+"**\\n\\n")
+              out.write("New GPU submissions: **0**. No fake approvals.\\n")
+          PY
+      - name: Deliver actual authenticated encrypted video to owner only after full proof
+        if: steps.observe.outputs.real_video_verified == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="feature/studio-native-man-wave-ltx-20261123"
+          git fetch origin "$branch" -q
+          git checkout -B "$branch" "origin/$branch"
+          src="$RUNNER_TEMP/studio_wave_readback/STUDIO_WAVE_NATIVE_USER_ENCRYPTED.twenc"
+          dst="ops/studio_wave_native_result_${GITHUB_RUN_ID}.twenc"
+          test -s "$src" && test ! -e "$dst"
+          cp "$src" "$dst"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dst"
+          git commit -m "Studio actual two-segment LTX GPU video VERIFIED then encrypted for owner, never raw source"
+          git push origin "HEAD:refs/heads/$branch"
+          echo "REAL_STUDIO_MODEL_MP4_VERIFIED_AND_USER_ENCRYPTED_ONLY"

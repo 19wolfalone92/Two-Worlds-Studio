@@ -49,6 +49,53 @@ class SafeNativeStageMonitorTests(unittest.TestCase):
                      "import time;print('EB01_STAGE_BEGIN_MODEL_LOAD',flush=True);time.sleep(60)"],
                     cwd=root,env={},log_path=root/"log",deadline_seconds=10,
                     heartbeat_seconds=1,monotonic=clock)
+    def test_wave_native_marker_is_verified_without_being_confused_with_eb01(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            log=root/"gpu.log"
+            child=("print('WAVE_STAGE_BEGIN_MODEL_LOAD',flush=True);"
+                   "print('WAVE_STAGE_BEGIN_TRANSFORMER',flush=True);"
+                   "print('WAVE_STAGE_END_DECODE',flush=True);"
+                   "print('WAVE_STAGE_NATIVE_VIDEO_OUTPUT_READY',flush=True)")
+            result=run_native_bounded(
+                [sys.executable,"-u","-c",child],
+                cwd=root,env={},log_path=log,
+                deadline_seconds=10,heartbeat_seconds=1,stage_prefix="WAVE")
+            self.assertEqual(result["last_stage"],"NATIVE_VIDEO_OUTPUT_READY")
+            self.assertTrue(result["native_pipeline_completed"])
+            self.assertEqual(latest_stage(log), "NO_NATIVE_STAGE_MARKER")
+            self.assertEqual(latest_stage(log,stage_prefix="WAVE"), "NATIVE_VIDEO_OUTPUT_READY")
+
+    def test_cross_project_marker_must_not_accept_false_native_completion(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            child="print('EB01_STAGE_NATIVE_VIDEO_OUTPUT_READY',flush=True)"
+            with self.assertRaisesRegex(RuntimeError,"NO_NATIVE_STAGE_MARKER"):
+                run_native_bounded(
+                    [sys.executable,"-u","-c",child],
+                    cwd=root,env={},log_path=root/"gpu.log",
+                    deadline_seconds=10,heartbeat_seconds=1,stage_prefix="WAVE")
+
+    def test_invalid_stage_prefix_rejected_without_running_child(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            with self.assertRaisesRegex(ValueError,"Unsupported"):
+                run_native_bounded(["does-not-exist"],cwd=root,env={},
+                                   log_path=root/"gpu.log",deadline_seconds=10,
+                                   heartbeat_seconds=1,stage_prefix="WAVE\\nEB01")
+            self.assertFalse((root/"gpu.log").exists())
+
+    def test_subprocess_zero_requires_final_stage_not_just_decode(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d)
+            child=("print('WAVE_STAGE_BEGIN_DECODE',flush=True);"
+                   "print('WAVE_STAGE_END_DECODE',flush=True)")
+            with self.assertRaisesRegex(RuntimeError,"last_stage=END_DECODE"):
+                run_native_bounded(
+                    [sys.executable,"-u","-c",child],
+                    cwd=root,env={},log_path=root/"gpu.log",
+                    deadline_seconds=10,heartbeat_seconds=1,stage_prefix="WAVE")
+
     def test_invalid_unbounded_inference_configuration_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d)

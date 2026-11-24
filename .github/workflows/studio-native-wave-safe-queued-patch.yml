@@ -1,0 +1,40 @@
+name: STUDIO Wave — fix verified private T4 VAE marker on SAME queued Kaggle kernel
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths:
+      - "ops/studio_wave_private_vae_patch.trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: two-worlds-studio-native-man-wave-owner-kaggle
+  cancel-in-progress: false
+
+jobs:
+  safe_patch_queued_kernel_only:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Fail-closed offline regression BEFORE any Kaggle writes
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m py_compile tools/studio_wave_patch_queued_private.py
+          python -m unittest tests.test_studio_wave_patch_queued_private -v
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2'
+      - name: Patch private original notebook ONLY if STILL QUEUED, never duplicate kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.studio_wave_patch_queued_private --working "$RUNNER_TEMP/studio-wave-same-kernel-private"
+          echo "STUDIO_PRIVATE_SAME_KERNEL_PATCH_WORKFLOW_FINISHED_NOT_REAL_VIDEO_OUTPUT"

@@ -1,0 +1,84 @@
+name: STUDIO Native Wave — session-encrypted MP4 handoff, private Kaggle only
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths: ["ops/studio_wave_ephemeral_session_delivery.trigger"]
+permissions:
+  contents: read
+jobs:
+  authenticated_encrypted_model_media:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Read ONLY private Kaggle video, verify every frame, seal to session key
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'numpy>=1.26,<3' 'Pillow>=10,<12' 'cryptography>=42,<47'
+          python - <<'PY'
+          import json,os,subprocess,hashlib
+          from pathlib import Path
+          from tools.studio_wave_status_gate import (
+              KERNEL,SOURCE_SHA256,VIDEO_NAME,parse_state,verify_actual_native_mp4)
+          from studio.sealed_artifacts import seal
+          root=Path(os.environ["RUNNER_TEMP"])/"studio_private_readback"
+          root.mkdir(mode=0o700)
+          def cli(argv,timeout):
+              p=subprocess.run(argv,capture_output=True,text=True,timeout=timeout)
+              if p.returncode:raise RuntimeError("Private Kaggle read-only transport failed")
+              return p.stdout
+          state=parse_state(cli(["kaggle","kernels","status",KERNEL],70))
+          if state not in ("COMPLETE","ERROR"):
+              raise RuntimeError("No complete private GPU output for this Kaggle revision; no fake preview")
+          cli(["kaggle","kernels","output",KERNEL,"-p",str(root),"--force"],300)
+          if state=="COMPLETE":
+              proof=verify_actual_native_mp4(root)
+              assert proof["frames"]==65
+              chosen=root/VIDEO_NAME
+              verified_frame_count=65
+          else:
+              from studio.eb01_motion_artifact_gate import inspect_clip
+              from tools.eb01_true_gpu_clip_numbers import gray_motion
+              from studio.comfy_neural import _probe
+              chosen=root/"STUDIO_WAVE_NATIVE_PRIVATE_GENERATION"/"segment_0"/"video_output_0_photorealistic-lockedoff_2026112301_1024x576x33_0.mp4"
+              expected="0e2f9c33e172ef48d8bf1761c06768eea661387b954830430071a28074803885"
+              assert chosen.is_file()
+              assert hashlib.sha256(chosen.read_bytes()).hexdigest()==expected
+              p=_probe(chosen)
+              assert (p.get("frames"),p.get("fps"),p.get("width"),p.get("height"))==(33,"24",576,1024)
+              assert inspect_clip(chosen)["status"]=="NO_NEON_ARTIFACT_FOUND"
+              assert gray_motion(chosen)["nonidentical_motion_frames"]>=4
+              subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(chosen),"-f","null","-"],
+                             capture_output=True,check=True,timeout=120)
+              verified_frame_count=33
+          target=Path(os.environ["RUNNER_TEMP"])/"STUDIO_WAVE_SESSION_ENCRYPTED_MP4.twenc"
+          seal(chosen,Path("ops/studio_wave_ephemeral_session_recipient_public.pem"),target,
+               {"purpose":"studio-native-wave-session-delivery","schema":1,
+                "source_sha256":SOURCE_SHA256,"verified_frames":verified_frame_count})
+          print("STUDIO_PRIVATE_SESSION_ENCRYPTED_NATIVE_MP4",
+                json.dumps({"state":state,"neural_verified_frames":verified_frame_count,
+                            "fps":24,"width":576,"height":1024,
+                            "raw_mp4_sha256":hashlib.sha256(chosen.read_bytes()).hexdigest(),
+                            "sealed_bytes":target.stat().st_size,
+                            "owner_private_source_published":False,
+                            "raw_movie_published":False,
+                            "human_artistic_approved":False}))
+          PY
+      - name: Upload ONLY RSA-AES ciphertext as temporary session artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-wave-session-encrypted-native-mp4
+          path: ${{ runner.temp }}/STUDIO_WAVE_SESSION_ENCRYPTED_MP4.twenc
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error

@@ -46,15 +46,17 @@ def replace_once(text: str, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
-def patch_native_sources(inference: Path, pipeline: Path, vae: Path) -> dict:
+def patch_native_sources(inference: Path, pipeline: Path, vae: Path, *, stage_prefix: str = "EB01") -> dict:
     """Build on the verified sequential FP16/FP32 policy, with exact source guards.
 
     Upstream tiled decode bypassed _decode(), losing latent normalization and
     timestep conditioning. Forward both through the same decoder as untiled.
     Do not enable temporal tiling: it loses causal context between chunks.
     """
+    if stage_prefix not in ("EB01", "WAVE"):
+        raise ValueError("Unsupported native GPU stage prefix")
     code = inference.read_text()
-    marker = '    print("EB01_STAGE_END_MODEL_LOAD",flush=True)'
+    marker = '    print("'+stage_prefix+'_STAGE_END_MODEL_LOAD",flush=True)'
     code = replace_once(code, marker,
         '    pipeline.vae.set_tiling_params(sample_size=256, overlap_factor=0.25)\n'
         '    pipeline.vae.enable_hw_tiling()\n'

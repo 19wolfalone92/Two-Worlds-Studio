@@ -4,11 +4,19 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import cv2
-import numpy as np
-from studio.stable_wave import compose, foreground_envelope, render_wave, sha256
+try:
+    import cv2
+    import numpy as np
+    from studio.stable_wave import compose, foreground_envelope, render_wave, sha256
+except ModuleNotFoundError as exc:
+    if exc.name not in {"cv2", "numpy"}:
+        raise
+    cv2 = None
+    np = None
 
 
+@unittest.skipUnless(cv2 is not None and np is not None,
+                     "Optional OpenCV/NumPy are tested by the dedicated Studio media CI")
 class StableWaveTests(unittest.TestCase):
     def test_unoccluded_background_fixed_but_person_remains_live(self):
         alpha=foreground_envelope(720,1280)

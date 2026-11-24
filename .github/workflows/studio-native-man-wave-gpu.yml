@@ -1,0 +1,199 @@
+name: STUDIO Native Man Wave — private source, real Kaggle T4 LTX 2B
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths:
+      - "ops/studio_wave_native_start.trigger"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: two-worlds-studio-native-man-wave-owner-kaggle
+  cancel-in-progress: false
+
+jobs:
+  studio_real_model_private_wave:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: wolf19loner92
+      STUDIO_NATIVE_BRANCH: feature/studio-native-man-wave-ltx-20261123
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate real native LTX2B source and install CPU-only transport tools
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/kaggle_studio_man_wave_native.py studio/sealed_artifacts.py
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          text=Path("tools/kaggle_studio_man_wave_native.py").read_text()
+          ast.parse(text)
+          assert text.count("__STUDIO_WAVE_CONFIG_B64__")==1
+          assert text.count("__STUDIO_WAVE_IMAGE_B64__")==1
+          assert 'ltxv-2b-0.9.6-distilled.yaml' in text
+          assert 'true_cuda' not in text and 'human_artistic_approved":False' in text
+          assert 'STUDIO_WAVE_TRUE_NATIVE_65F_24FPS.mp4' in text
+          assert Path("ops/studio_wave_native_recipient_public.pem").exists()
+          print("STUDIO_PRIVATE_LTX_SOURCE_CPU_CONTRACT_PASS")
+          PY
+          test -n "${KAGGLE_API_TOKEN}"
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2'
+      - name: Create ONE-TIME confidential private source ingress key; commit ONLY public component
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from studio.sealed_artifacts import generate_keys
+          root=Path(os.environ['RUNNER_TEMP'])
+          generate_keys(root/'STUDIO_EPHEMERAL_SOURCE_PRIVATE.pem',
+                        Path('ops')/('studio_wave_native_ingress_public_'+os.environ['GITHUB_RUN_ID']+'.pem'))
+          print('STUDIO_EPHEMERAL_INGRESS_PUBLIC_KEY_READY_ONLY')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "ops/studio_wave_native_ingress_public_${GITHUB_RUN_ID}.pem"
+          git commit -m "Studio native wave: one-time ingress public key, NEVER its private component"
+          git push origin "HEAD:refs/heads/${STUDIO_NATIVE_BRANCH}"
+      - name: Retrieve user reference ONLY as RSA-AES authenticated ENCRYPTED envelope
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 80); do
+            git fetch origin "${STUDIO_NATIVE_BRANCH}" -q
+            if git cat-file -e "origin/${STUDIO_NATIVE_BRANCH}:ops/studio_wave_native_input_${GITHUB_RUN_ID}.twenc" 2>/dev/null; then
+              git show "origin/${STUDIO_NATIVE_BRANCH}:ops/studio_wave_native_input_${GITHUB_RUN_ID}.twenc" > "$RUNNER_TEMP/STUDIO_PRIVATE_INPUT.twenc"
+              break
+            fi
+            echo "STUDIO_NATIVE_ENCRYPTED_REFERENCE_HANDSHAKE" "$attempt"
+            sleep 15
+          done
+          test -s "$RUNNER_TEMP/STUDIO_PRIVATE_INPUT.twenc"
+          python - <<'PY'
+          from pathlib import Path
+          import os,hashlib
+          from studio.sealed_artifacts import unseal
+          root=Path(os.environ["RUNNER_TEMP"])
+          original=root/"STUDIO_PRIVATE_WAVE_REFERENCE.jpg"
+          unseal(root/"STUDIO_PRIVATE_INPUT.twenc",root/"STUDIO_EPHEMERAL_SOURCE_PRIVATE.pem",
+                 original,{"purpose":"studio-native-wave-input","schema":1,
+                  "source_sha256":"379d772afa4b7f1448b0881d84631776329ecf1d670ac8da9b5701f2ea5edc72"})
+          assert hashlib.sha256(original.read_bytes()).hexdigest()=="379d772afa4b7f1448b0881d84631776329ecf1d670ac8da9b5701f2ea5edc72"
+          from PIL import Image
+          with Image.open(original) as p:
+            assert p.size == (720,1280)
+            p.verify()
+          print("STUDIO_REAL_OWNER_REFERENCE_SHA_AND_DIMENSIONS_PASS",original.stat().st_size)
+          PY
+      - name: Prepare ONE private Kaggle script and source image for ORIGINAL neural generation
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import base64,hashlib,json,os
+          folder=Path(os.environ['RUNNER_TEMP'])/"studio-native-private-kernel"
+          folder.mkdir(mode=0o700)
+          script=Path("tools/kaggle_studio_man_wave_native.py").read_text()
+          ref=Path(os.environ['RUNNER_TEMP'])/"STUDIO_PRIVATE_WAVE_REFERENCE.jpg"
+          slug="studio-native-man-wave-"+hashlib.sha256(("studio-wave-"+os.environ['GITHUB_RUN_ID']).encode()).hexdigest()[:15]
+          kernel=os.environ['KAGGLE_USERNAME']+"/"+slug
+          cfg={"schema":1,"mode":"studio-native-wave","private":True,
+               "no_paid_services":True,"allow_social_publish":False,
+               "human_artistic_approved":False,
+               "branch":"feature/studio-native-man-wave-ltx-20261123",
+               "revision":os.environ['GITHUB_SHA'],
+               "source_sha256":"379d772afa4b7f1448b0881d84631776329ecf1d670ac8da9b5701f2ea5edc72"}
+          for marker,value in [
+             ("__STUDIO_WAVE_CONFIG_B64__",base64.b64encode(json.dumps(cfg,sort_keys=True).encode()).decode()),
+             ("__STUDIO_WAVE_IMAGE_B64__",base64.b64encode(ref.read_bytes()).decode())]:
+            assert script.count(marker)==1
+            script=script.replace(marker,value)
+          (folder/"kernel_main.py").write_text(script)
+          metadata={"id":kernel,"title":slug,"code_file":"kernel_main.py",
+               "language":"python","kernel_type":"script","is_private":"true",
+               "enable_gpu":"true","enable_internet":"true",
+               "machine_shape":"NvidiaTeslaT4","dataset_sources":[],
+               "competition_sources":[],"kernel_sources":[],"model_sources":[]}
+          (folder/"kernel-metadata.json").write_text(json.dumps(metadata))
+          (Path(os.environ['RUNNER_TEMP'])/"STUDIO_WAVE_NATIVE_KERNEL.txt").write_text(kernel)
+          print("STUDIO_PRIVATE_KERNEL_CREATED_ONLY",kernel)
+          print("STUDIO_PRIVATE_REFERENCE_NOT_COMMITTED_TO_REPO")
+          PY
+      - name: Execute ONE REAL Kaggle T4 native I2V kernel (two 33-frame model segments)
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/studio-native-private-kernel" --timeout 3600 --accelerator NvidiaTeslaT4
+      - name: Poll original model and verify actual neural MP4, no artistic approvals
+        run: |
+          set -euo pipefail
+          kernel="$(cat "$RUNNER_TEMP/STUDIO_WAVE_NATIVE_KERNEL.txt")"
+          for attempt in $(seq 1 65); do
+            state="$(kaggle kernels status "$kernel")"
+            echo "STUDIO_WAVE_NATIVE_GPU_STATE" "$state"
+            if [[ "$state" == *'KernelWorkerStatus.COMPLETE'* ]]; then
+              mkdir -p "$RUNNER_TEMP/studio-native-real-output"
+              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/studio-native-real-output" --force > "$RUNNER_TEMP/studio-private-download.log" 2>&1
+              break
+            fi
+            if [[ "$state" == *'KernelWorkerStatus.ERROR'* || "$state" == *'KernelWorkerStatus.CANCEL'* ]]; then
+              echo "::error::Real Kaggle model failed; there is NO completed native video. Review private Kaggle notebook and sanitized logs."
+              exit 1
+            fi
+            sleep 55
+          done
+          test -s "$RUNNER_TEMP/studio-native-real-output/STUDIO_WAVE_TRUE_NATIVE_65F_24FPS.mp4"
+          test -s "$RUNNER_TEMP/studio-native-real-output/STUDIO_WAVE_TRUE_NATIVE_RECEIPT.json"
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,json,subprocess,os
+          root=Path(os.environ['RUNNER_TEMP'])/"studio-native-real-output"
+          movie=root/'STUDIO_WAVE_TRUE_NATIVE_65F_24FPS.mp4'
+          receipt=json.loads((root/'STUDIO_WAVE_TRUE_NATIVE_RECEIPT.json').read_text())
+          assert receipt['actual_native_gpu_inference'] is True
+          assert receipt['human_artistic_approved'] is False
+          assert receipt['private_media_only'] is True
+          assert receipt['output_sha256']==hashlib.sha256(movie.read_bytes()).hexdigest()
+          assert receipt['source_reference_sha256']=="379d772afa4b7f1448b0881d84631776329ecf1d670ac8da9b5701f2ea5edc72"
+          assert len(receipt['original_neural_segments'])==2
+          q=json.loads(subprocess.check_output(['ffprobe','-v','error','-count_frames',
+             '-select_streams','v:0','-show_entries',
+             'stream=width,height,avg_frame_rate,nb_read_frames','-of','json',str(movie)]))
+          s=q['streams'][0]
+          assert (s['width'],s['height'],s['nb_read_frames'],s['avg_frame_rate'])==(576,1024,'65','24/1')
+          subprocess.run(['ffmpeg','-v','error','-xerror','-i',str(movie),'-f','null','-'],
+              check=True,capture_output=True,timeout=120)
+          print("STUDIO_NATIVE_REAL_NEURAL_GPU_65_FRAMES_FULL_DECODING_PASS",receipt['output_sha256'])
+          PY
+      - name: Encrypt actual video for user; upload ONLY encrypted MP4 to own GitHub branch
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from studio.sealed_artifacts import seal
+          root=Path(os.environ["RUNNER_TEMP"])
+          src=root/'studio-native-real-output'/'STUDIO_WAVE_TRUE_NATIVE_65F_24FPS.mp4'
+          seal(src,Path('ops/studio_wave_native_recipient_public.pem'),
+              root/'STUDIO_WAVE_TRUE_NATIVE_RESULT.twenc',
+              {'purpose':'studio-native-wave-output','schema':1,
+               'source_sha256':'379d772afa4b7f1448b0881d84631776329ecf1d670ac8da9b5701f2ea5edc72'})
+          print('STUDIO_NATIVE_USER_ART_ONLY_SEALED_TRUE')
+          PY
+          git fetch origin "$STUDIO_NATIVE_BRANCH" -q
+          git checkout -B "$STUDIO_NATIVE_BRANCH" "origin/$STUDIO_NATIVE_BRANCH"
+          cp "$RUNNER_TEMP/STUDIO_WAVE_TRUE_NATIVE_RESULT.twenc" "ops/studio_wave_native_result_${GITHUB_RUN_ID}.twenc"
+          git add "ops/studio_wave_native_result_${GITHUB_RUN_ID}.twenc"
+          git commit -m "Studio native wave: private result AUTHENTICATED ENCRYPTED; never upload raw video"
+          git push origin "HEAD:refs/heads/$STUDIO_NATIVE_BRANCH"
+          echo "STUDIO_NATIVE_TRUE_GPU_VIDEO_RETURNED_ENCRYPTED_ONLY"
