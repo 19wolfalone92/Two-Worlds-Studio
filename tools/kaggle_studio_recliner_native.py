@@ -27,17 +27,17 @@ def main():
     if (cfg.get("schema")!=1 or cfg.get("mode")!="studio-native-wave" or
         cfg.get("private") is not True or cfg.get("no_paid_services") is not True or
         cfg.get("allow_social_publish") is not False or cfg.get("human_artistic_approved") is not False or
-        cfg.get("source_sha256")!="9957a9f198dad3cc0fb6ed367bc9efcb259c80738491202d23dc6552003ec657"):
+        cfg.get("source_sha256")!="b2a235c7493df7d7d2cb98572d5baa27836511572172abb4a911784ae93a2e21"):
         raise ValueError("Unsafe native Studio reference or privacy policy")
     import torch
     from PIL import Image
     if not torch.cuda.is_available() or torch.cuda.get_device_properties(0).total_memory<14*2**30:
         raise RuntimeError("True CUDA T4 >=14GiB unavailable; no CPU fake")
-    reference=OUT/"STUDIO_RECLINER_PRIVATE_REFERENCE.jpg"
+    reference=OUT/"STUDIO_RECLINER_PRIVATE_REFERENCE.webp"
     reference.write_bytes(base64.b64decode(IMAGE_B64,validate=True))
     if sha(reference)!=cfg["source_sha256"]:raise ValueError("Reference hash mismatch")
     with Image.open(reference) as photo:
-        if photo.size!=(1152,1536):raise ValueError("Reference geometry mismatch")
+        if photo.size!=(576,768):raise ValueError("Reference geometry mismatch")
         photo.verify()
     run(["git","clone","--depth","1","--branch",cfg["branch"],
          "https://github.com/19wolfalone92/Two-Worlds-Studio.git",ROOT],timeout=300)
