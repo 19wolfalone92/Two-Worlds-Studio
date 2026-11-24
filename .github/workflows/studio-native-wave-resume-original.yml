@@ -1,0 +1,125 @@
+name: STUDIO Native Wave — resume real recovered segment on private Kaggle T4
+on:
+  push:
+    branches: ["feature/studio-native-man-wave-ltx-20261123"]
+    paths: ["ops/studio_wave_native_resume.trigger"]
+permissions:
+  contents: write
+concurrency:
+  group: two-worlds-studio-native-man-wave-owner-kaggle
+  cancel-in-progress: false
+jobs:
+  resume_real_model:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      STUDIO_NATIVE_BRANCH: feature/studio-native-man-wave-ltx-20261123
+      STUDIO_KERNEL: wolf19loner92/studio-native-man-wave-81a7215251acc6b
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify repaired source and dependencies before spending T4 budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m py_compile tools/eb01_bounded_inference.py tools/kaggle_studio_man_wave_native.py tools/studio_wave_resume_original.py
+          python -m unittest tests.test_eb01_bounded_inference tests.test_studio_wave_status_gate tests.test_studio_wave_resume_original -v
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'numpy>=1.26,<3' 'cryptography>=42,<47'
+      - name: Validate and recover true original 33-frame native output without any new GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m tools.studio_wave_resume_original --working "$RUNNER_TEMP/studio_wave_resume" --revision "$GITHUB_SHA"
+          test -s "$RUNNER_TEMP/studio_wave_resume/STUDIO_WAVE_ORIGINAL_NEURAL_SEGMENT0.twenc"
+          test -s "$RUNNER_TEMP/studio_wave_resume/private_resume_kernel/kernel_main.py"
+      - name: Preserve owner-encrypted checkpoint BEFORE overwriting old failed Kaggle revision
+        shell: bash
+        run: |
+          set -euo pipefail
+          dst="ops/studio_wave_native_checkpoint_segment0_$GITHUB_RUN_ID.twenc"
+          git fetch origin "$STUDIO_NATIVE_BRANCH" -q
+          git checkout -B "$STUDIO_NATIVE_BRANCH" "origin/$STUDIO_NATIVE_BRANCH"
+          test ! -e "$dst"
+          cp "$RUNNER_TEMP/studio_wave_resume/STUDIO_WAVE_ORIGINAL_NEURAL_SEGMENT0.twenc" "$dst"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dst"
+          git commit -m "Studio: preserve real first 33 LTX frames as owner ciphertext before resume"
+          git push origin "HEAD:refs/heads/$STUDIO_NATIVE_BRANCH"
+          echo "STUDIO_PREVIOUS_33_ACTUAL_NEURAL_FRAMES_CHECKPOINT_BACKED_UP_ENCRYPTED"
+      - name: Submit ONE patched version of SAME existing private Kaggle kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$(kaggle kernels status "$STUDIO_KERNEL")"
+          [[ "$state" == *'KernelWorkerStatus.ERROR'* ]] || { echo "::error::Original kernel no longer ERROR; no duplicate GPU job allowed"; exit 1; }
+          kaggle kernels push -p "$RUNNER_TEMP/studio_wave_resume/private_resume_kernel" --timeout 3600 --accelerator NvidiaTeslaT4
+          echo "STUDIO_PRIVATE_LTX_ONE_RESUME_SUBMISSION"
+      - name: Require real second neural segment and independently verified final MP4
+        shell: bash
+        run: |
+          set -euo pipefail
+          completed=false
+          for attempt in $(seq 1 65); do
+            state="$(kaggle kernels status "$STUDIO_KERNEL")"
+            echo "STUDIO_PRIVATE_LTX_STATE" "$state"
+            if [[ "$state" == *'KernelWorkerStatus.COMPLETE'* ]]; then
+              mkdir -p "$RUNNER_TEMP/studio_wave_verified_output"
+              kaggle kernels output "$STUDIO_KERNEL" -p "$RUNNER_TEMP/studio_wave_verified_output" --force > "$RUNNER_TEMP/studio-kaggle-private-output.log" 2>&1
+              completed=true
+              break
+            fi
+            if [[ "$state" == *'KernelWorkerStatus.ERROR'* || "$state" == *'KernelWorkerStatus.CANCEL'* ]]; then
+              python -m tools.studio_wave_private_forensic || true
+              echo "::error::Private neural model failed. No fabricated MP4, no blind retry."
+              exit 1
+            fi
+            sleep 55
+          done
+          [[ "$completed" == true ]] || { echo "::error::Kernel not complete. Existing job may still be queued; no duplicate job."; exit 1; }
+          python - <<'PY'
+          from pathlib import Path
+          import os,json
+          from tools.studio_wave_status_gate import verify_actual_native_mp4
+          path=Path(os.environ["RUNNER_TEMP"])/"studio_wave_verified_output"
+          proof=verify_actual_native_mp4(path)
+          assert proof["actual_native_gpu_inference"] is True
+          assert proof["frames"]==65 and proof["human_artistic_approved"] is False
+          print("STUDIO_NATIVE_TRUE_GPU_65_FRAMES_VERIFIED",json.dumps(proof,sort_keys=True))
+          PY
+      - name: Seal and deliver private actual MP4 to user ONLY after all frame gates pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from studio.sealed_artifacts import seal
+          from tools.studio_wave_status_gate import SOURCE_SHA256,VIDEO_NAME
+          root=Path(os.environ["RUNNER_TEMP"])
+          seal(root/"studio_wave_verified_output"/VIDEO_NAME,
+               Path("ops/studio_wave_native_recipient_public.pem"),
+               root/"STUDIO_WAVE_GENUINE_USER.twenc",
+               {"purpose":"studio-native-wave-output","schema":1,
+                "source_sha256":SOURCE_SHA256})
+          print("STUDIO_TRUE_LTX_MP4_OWNER_ENCRYPTED_ONLY")
+          PY
+          git fetch origin "$STUDIO_NATIVE_BRANCH" -q
+          git checkout -B "$STUDIO_NATIVE_BRANCH" "origin/$STUDIO_NATIVE_BRANCH"
+          dst="ops/studio_wave_native_result_$GITHUB_RUN_ID.twenc"
+          test ! -e "$dst"
+          cp "$RUNNER_TEMP/STUDIO_WAVE_GENUINE_USER.twenc" "$dst"
+          git add "$dst"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Studio: return genuine verified 65-frame LTX native video encrypted for owner"
+          git push origin "HEAD:refs/heads/$STUDIO_NATIVE_BRANCH"
+          echo "STUDIO_TRUE_MODEL_MP4_DELIVERED_SEALED_HUMAN_ARTISTIC_REVIEW_REQUIRED"
