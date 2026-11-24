@@ -10,3 +10,4 @@ do_not_merge_main=true
 do_not_publish_raw_media=true
 trigger_date=2026-11-24
 resubmit_after_cpu_test_expected_error_fixed=2026-11-24
+retry_cpu_private_qa_after_confirmed_pillow_missing_fixed_and_checkpoint_unique=2026-11-24T07:48+03:00
