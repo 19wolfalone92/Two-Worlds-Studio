@@ -71,8 +71,31 @@ jobs:
                   print('FREEVIDEO_NEURAL_PREVIEW=' + (
                       'CLAIMED_NOT_VERIFIED' if status=='REAL_GPU_PREVIEW_REVIEW_REQUIRED'
                       else 'NOT_PRODUCED'))
-                  # Never print error_summary. It can contain sensitive
-                  # file names, request IDs, photo hints or endpoint strings.
+                  # Classify only fixed, non-sensitive Python error vocabulary.
+                  # Never emit raw exception text, paths, values, or arbitrary identifiers.
+                  summary = r.get('error_summary', '')
+                  if not isinstance(summary, str): summary = ''
+                  import re
+                  allowed = set("""typeerror got an unexpected keyword argument missing required positional arguments
+                  takes from to but were given multiple values for cannot unpack non iterable object
+                  is not callable subscriptable iterable must be str int float bool list tuple dict
+                  nonetype unsupported operand types expected bytes string pathlike tensor device
+                  torch cuda mem_get_info get_device_properties model_info hf_hub_download
+                  install inventory prepare run_stage run _reference load json dumps
+                  revision files_metadata local_dir accept_license execute timeout cwd
+                  weights_manifest device host seed reference output prompt dtype
+                  forward sample decode encode attention unet comfyui wan
+                  none python object function method keyword positional argument
+                  integers integer indices slices sequence mapping only
+                  isinstance issubclass format open read write tensor size
+                  float32 float16 fp16 bfloat16 fp8 safetensors
+                  module import name has no attribute can't convert
+                  lfs get sha256 required keyword-only keyword argument
+                  of and in with a the or at on by as for""".split())
+                  words = re.findall(r"[A-Za-z_][A-Za-z_0-9]*", summary.lower())
+                  safe = ' '.join(w if w in allowed else '[redacted]' for w in words[:45])
+                  print('FREEVIDEO_ERROR_FIXED_VOCABULARY=' + safe)
+                  print('FREEVIDEO_ERROR_SUMMARY_PRESENT=' + ('YES' if summary else 'NO'))
               except (OSError,ValueError,UnicodeError):
                   print('FREEVIDEO_WORKER_RECEIPT_INVALID')
           print('FREEVIDEO_NO_NEW_GPU_NO_PUBLIC_MEDIA')
