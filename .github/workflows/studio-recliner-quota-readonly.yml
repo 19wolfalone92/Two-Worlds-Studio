@@ -1,0 +1,46 @@
+name: STUDIO Recliner — inspect Kaggle T4 active session quota READ ONLY
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_quota_probe.trigger"]
+permissions:
+  contents: read
+jobs:
+  exact_private_gpu_quota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip -q install "kaggle==2.2.4" "six>=1.16,<2"
+      - name: Read only owner kernel statuses, never submit GPU or user media
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python - <<'PY'
+          import json,re
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          api=KaggleApi()
+          api.authenticate()
+          try:
+              entries=api.kernels_list(mine=True,page_size=100)
+          except Exception as exc:
+              print("STUDIO_GPU_QUOTA_PROBE_ERROR_CLASS",type(exc).__name__)
+              raise SystemExit(1)
+          safe=[]
+          for x in entries:
+              slug=str(getattr(x,"ref",getattr(x,"slug",""))) or "")
+              if not re.fullmatch(r"[A-Za-z0-9_/-]{1,130}",slug): slug="REDACTED"
+              status=str(getattr(x,"status",getattr(x,"last_run_status","UNKNOWN")))
+              if not re.fullmatch(r"[A-Za-z0-9_. -]{1,80}",status): status="REDACTED"
+              if any(t in status.upper() for t in ("RUNNING","QUEUED","INITIALIZ","PENDING","STARTING")):
+                  safe.append({"owner_job":slug,"state":status})
+          print("STUDIO_GPU_QUOTA_ACTIVE_OWNER_JOBS",json.dumps(safe[:25],sort_keys=True))
+          print("STUDIO_GPU_QUOTA_TOTAL_LISTED",len(entries))
+          print("STUDIO_GPU_QUOTA_NO_SUBMISSION_NO_PRIVATE_MEDIA")
+          PY
