@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 85
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      STUDIO_SECOND_GPU_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
       PYTHONUNBUFFERED: "1"
       STUDIO_BRANCH: feature/studio-native-recliner-photo-20261124
       STUDIO_SOURCE_SHA: 9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3
@@ -110,7 +111,12 @@ jobs:
               code=code.replace(marker,value)
           compile(code,"<private_studio_recliner>", "exec")
           (folder/"kernel_main.py").write_text(code)
-          kernel="wolf19loner92/studio-recliner-native-"+os.environ["GITHUB_RUN_ID"]
+          from tools.eb01_kaggle2_auth_probe import query
+          second_token=os.environ.get("STUDIO_SECOND_GPU_TOKEN","")
+          state,handle=query(second_token)
+          if state!="AUTHENTICATED_READ_ONLY" or not handle:
+              raise RuntimeError("Studio authorized second T4 credential unavailable")
+          kernel=handle+"/studio-recliner-native-"+os.environ["GITHUB_RUN_ID"]
           metadata={"id":kernel,"title":kernel.split("/")[1],"code_file":"kernel_main.py",
                "language":"python","kernel_type":"script","is_private":"true",
                "enable_gpu":"true","enable_internet":"true",
@@ -118,9 +124,11 @@ jobs:
                "dataset_sources":[],"competition_sources":[],"kernel_sources":[],"model_sources":[]}
           (folder/"kernel-metadata.json").write_text(json.dumps(metadata))
           (root/"STUDIO_RECLINER_KERNEL_ID.txt").write_text(kernel)
-          print("STUDIO_RECLINER_REAL_NEURAL_KAGGLE_JOB_PREPARED",kernel)
+          print("STUDIO_RECLINER_SECOND_ACCOUNT_GPU_JOB_PREPARED_PRIVATE_ONLY")
           PY
       - name: Run one real private Kaggle T4 LTX neural generation, no mock or still-photo video
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
         run: |
           set -euo pipefail
           # Kaggle CLI may print "Kernel push error" while exiting zero.
@@ -137,6 +145,8 @@ jobs:
           fi
           echo "STUDIO_RECLINER_REAL_GPU_LTX_SUBMITTED_AND_KERNEL_VERIFIED"
       - name: Verify original 129 generated frames, all four clips and complete MP4 decode
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
         run: |
           set -euo pipefail
           kernel="$(cat "$RUNNER_TEMP/STUDIO_RECLINER_KERNEL_ID.txt")"
