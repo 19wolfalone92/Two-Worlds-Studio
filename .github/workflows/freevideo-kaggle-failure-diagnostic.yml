@@ -76,7 +76,7 @@ jobs:
                   summary = r.get('error_summary', '')
                   if not isinstance(summary, str): summary = ''
                   import re
-                  allowed = set("""typeerror got an unexpected keyword argument missing required positional arguments
+                  allowed = set("""typeerror type serializable int64 int32 int16 uint64 uint32 uint16 uint8 bool_ float64 float32 float16 posixpath windowspath ndarray torchdevice got an unexpected keyword argument missing required positional arguments
                   takes from to but were given multiple values for cannot unpack non iterable object
                   is not callable subscriptable iterable must be str int float bool list tuple dict
                   nonetype unsupported operand types expected bytes string pathlike tensor device
