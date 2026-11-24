@@ -1,0 +1,60 @@
+name: FREEVIDEO - private visual review handoff of existing take (NO GPU)
+on:
+  push:
+    branches: [research/freevideo-t4-adaptive-20261123]
+    paths: ['.github/workflows/freevideo-local-visual-review.yml']
+permissions:
+  contents: read
+jobs:
+  review-handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      REVIEW_PUBLIC_KEY: EWvHBgg4bUoemWHSQ9AxEeFfMqP0OvtpOzrvo1m8sjc=
+      ENCRYPTED_PHOTO: experiments/freevideo_t4/private_transport/night-awakens.encrypted.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Set up authenticated read-only retrieval
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'kaggle==2.2.4' 'six>=1.16,<2' 'cryptography>=43,<48' 'Pillow>=10,<12' -e .
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV" >/dev/null
+      - name: Retrieve existing private candidate and verify pinned hash
+        run: |
+          set -euo pipefail
+          mkdir -m 700 "$RUNNER_TEMP/visual_review"
+          kaggle kernels output "$KAGGLE_USERNAME/freevideo-hybrid-6def3f0503ef" -p "$RUNNER_TEMP/visual_review" --file-pattern '^FREEVIDEO_PRIVATE_CANDIDATE[.]zip$' --page-size 200 > "$RUNNER_TEMP/review_download.log" 2>&1
+          printf '%s  %s\n' '66c381dd051232b1b12ce1d8e30fd7c6b95906ed6d599e02577589748ff9efe4' "$RUNNER_TEMP/visual_review/FREEVIDEO_PRIVATE_CANDIDATE.zip" | sha256sum -c -
+      - name: Seal private review copy with separate local-session public key
+        run: |
+          set -euo pipefail
+          python -m experiments.freevideo_t4.secure_transport decrypt "$ENCRYPTED_PHOTO" "$RUNNER_TEMP/visual_review/source.jpg"
+          python - <<'PY'
+          import os, json, io, zipfile, hashlib
+          from pathlib import Path
+          from experiments.freevideo_t4.secure_transport import seal_result_zip
+          root=Path(os.environ['RUNNER_TEMP'])
+          review=root/'visual_review'
+          source=(review/'source.jpg').read_bytes()
+          assert hashlib.sha256(source).hexdigest()=='9957a9f198dad3cc0fb6ed367bc9efcb259c80738491202d23dc6552003ec657'
+          buf=io.BytesIO()
+          with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
+              z.write(review/'FREEVIDEO_PRIVATE_CANDIDATE.zip','candidate_package.zip')
+              z.writestr('source.jpg',source)
+          encrypted=seal_result_zip(buf.getvalue(),os.environ['REVIEW_PUBLIC_KEY'])
+          (root/'freevideo_visual_review.encrypted.json').write_text(json.dumps(encrypted,separators=(',',':')))
+          print('FREEVIDEO_EXISTING_TAKE_REVIEW_COPY_ENCRYPTED')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freevideo-local-visual-review-encrypted-only
+          path: ${{ runner.temp }}/freevideo_visual_review.encrypted.json
+          retention-days: 1
+          if-no-files-found: error
