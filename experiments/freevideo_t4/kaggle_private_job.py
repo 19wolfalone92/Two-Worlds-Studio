@@ -176,9 +176,10 @@ def verify_private_result(folder: str | Path, nonce: str, stage: str = "preview"
             raise KaggleBlocked("Native MP4/Studio/Freevideo provenance mismatch")
         measured_receipt = studio.get("video", {})
         expected_frames = 25 if stage == "preview" else 121
+        allowed = (((432, 576), (336, 448)) if stage == "preview" else ((528, 704), (384, 512))) if job.get("framing") == "native_3x4" else ((432, 768), (288, 512))
         if (not isinstance(measured_receipt, dict)
                 or measured_receipt.get("frames") != expected_frames
-                or (measured_receipt.get("width"), measured_receipt.get("height")) not in ((432, 768), (288, 512))
+                or (measured_receipt.get("width"), measured_receipt.get("height")) not in allowed
                 or measured_receipt.get("fps") != "24"):
             raise KaggleBlocked("Unexpected GPU preview frame-clock receipt")
     # Hashes and JSON are not video decoding. Actually decode every MP4 frame.

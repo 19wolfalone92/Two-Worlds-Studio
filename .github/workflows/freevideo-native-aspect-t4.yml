@@ -1,0 +1,181 @@
+name: FREEVIDEO - native aspect corrected private take
+on:
+  push:
+    branches:
+      - research/freevideo-t4-adaptive-20261123
+    paths:
+      - '.github/workflows/freevideo-native-aspect-t4.yml'
+permissions:
+  contents: read
+concurrency:
+  group: freevideo-single-private-t4-photo-job
+  cancel-in-progress: false
+
+jobs:
+  one-private-wan22-video:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      PYTHONUNBUFFERED: '1'
+      ENCRYPTED_PHOTO: experiments/freevideo_t4/private_transport/night-awakens.encrypted.json
+      JOB_NONCE: night-awakens-20261124-03
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install official Kaggle API client and local encryption dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${KAGGLE_API_TOKEN:-}" || { echo 'KAGGLE_API_TOKEN_MISSING'; exit 2; }
+          python -m pip install -q 'kaggle==2.2.4' 'six>=1.16,<2' 'cryptography>=43,<48' 'Pillow>=10,<12'
+          kaggle kernels push --help > "$RUNNER_TEMP/freevideo_push_help.txt"
+          grep -q -- '--accelerator' "$RUNNER_TEMP/freevideo_push_help.txt"
+          echo 'FREEVIDEO_OFFICIAL_KAGGLE_CLI_GPU_SUBMISSION_AVAILABLE'
+      - name: Mandatory CPU regression and encrypted transport preflight before spending GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install -e .
+          if ! command -v ffmpeg > /dev/null || ! command -v ffprobe > /dev/null; then
+            sudo apt-get update -qq
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg
+          fi
+          python -m compileall -q experiments/freevideo_t4
+          python -m unittest discover -s experiments/freevideo_t4 -p 'test_*.py' -v
+          python - <<'PY'
+          from experiments.freevideo_t4.secure_transport import seal_result_zip, unseal_result_zip
+          from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+          from cryptography.hazmat.primitives import serialization
+          import base64
+          private = X25519PrivateKey.generate()
+          raw = bytes(3 * 1024 * 1024)
+          pub = base64.b64encode(private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
+          key = private.private_bytes(serialization.Encoding.Raw, serialization.PrivateFormat.Raw, serialization.NoEncryption())
+          assert unseal_result_zip(seal_result_zip(raw, pub), key) == raw
+          PY
+      - name: Decrypt exact original photo only inside ephemeral GitHub runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m experiments.freevideo_t4.secure_transport decrypt \
+            "$ENCRYPTED_PHOTO" "$RUNNER_TEMP/freevideo_original.jpg"
+          test -s "$RUNNER_TEMP/freevideo_original.jpg"
+      - name: Resolve actual Kaggle username without printing account or secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+          echo 'FREEVIDEO_PRIVATE_UPLOAD_OWNER_RESOLVED'
+      - name: Construct one private T4-only Freevideo kernel (no public media)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiments/freevideo_t4/kaggle_private_job.py prepare \
+            --username "$KAGGLE_USERNAME" \
+            --nonce "$JOB_NONCE" \
+            --source "$RUNNER_TEMP/freevideo_original.jpg" \
+            --prompt 'A single locked-off realistic continuous shot of the original reclining man. Preserve the exact facial features, beard attached naturally to the jaw, plaid clothing, chair, shoes, lighting and original full-frame composition. His eyes gently open and blink, then his head turns slowly a few degrees toward camera and settles before the end. Relaxed breathing, both hands remain comfortably resting on his lap throughout. No raised hands, no sudden gesture, no camera movement, no reframing, no black bars, no flickering reflections, no cuts.' \
+            --destination "$RUNNER_TEMP/freevideo_kaggle_input" \
+            --revision "$GITHUB_SHA" \
+            --seed 42 \
+            --accept-model-license
+          echo 'FREEVIDEO_PRIVATE_SOURCE_NOT_COMMITTED_TO_GITHUB'
+      - name: Submit one private T4 job (technical preview then native 5-second candidate)
+        id: submit
+        shell: bash
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/freevideo_kaggle_input" --accelerator NvidiaTeslaT4
+          echo 'FREEVIDEO_KAGGLE_PRIVATE_GPU_SUBMISSION_REQUESTED'
+      - name: Monitor private GPU inference; never mistake queue for finished video
+        id: monitor
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, os
+          from studio.kaggle_api import poll_kernel
+          nonce = os.environ['JOB_NONCE']
+          kernel = os.environ['KAGGLE_USERNAME'] + '/freevideo-hybrid-' + hashlib.sha256(nonce.encode()).hexdigest()[:12]
+          for budget in (5400, 5400, 5400, 3600):
+              try:
+                  poll_kernel(kernel, timeout_seconds=budget, interval_seconds=30)
+                  break
+              except TimeoutError:
+                  print('FREEVIDEO_POLL_WINDOW_EXPIRED', flush=True)
+          else:
+              raise SystemExit('FREEVIDEO_POLL_DEADLINE_EXCEEDED')
+          PY
+      - name: Retrieve only private result packages and stage diagnostics
+        if: ${{ always() && steps.submit.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/freevideo_kaggle_result"
+          kaggle kernels output \
+            "$KAGGLE_USERNAME/freevideo-hybrid-$(printf %s "$JOB_NONCE" | sha256sum | cut -c1-12)" \
+            -p "$RUNNER_TEMP/freevideo_kaggle_result" \
+            --file-pattern '^(FREEVIDEO_PRIVATE_(PREVIEW|CANDIDATE)[.]zip|freevideo_(result|candidate_result|progress)[.]json)$' --page-size 200 \
+            > "$RUNNER_TEMP/freevideo_readback_stdout.txt" 2> "$RUNNER_TEMP/freevideo_readback_stderr.txt"
+      - name: Verify actual video and encrypt each verified private package
+        if: ${{ always() && steps.submit.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR="$RUNNER_TEMP/freevideo_kaggle_result"
+          for STAGE in preview candidate; do
+            ARCHIVE="$DIR/FREEVIDEO_PRIVATE_${STAGE^^}.zip"
+            if [[ ! -s "$ARCHIVE" ]]; then
+              echo "FREEVIDEO_ARCHIVE_MISSING=$STAGE"
+              continue
+            fi
+            python experiments/freevideo_t4/kaggle_private_job.py verify \
+              --path "$DIR" --nonce "$JOB_NONCE" --stage "$STAGE" \
+              > "$RUNNER_TEMP/freevideo_${STAGE}_verification.json"
+            python -m experiments.freevideo_t4.secure_transport seal-result \
+              "$ARCHIVE" "$ENCRYPTED_PHOTO" \
+              "$RUNNER_TEMP/freevideo_${STAGE}_result.encrypted.json"
+            echo "FREEVIDEO_DECODE_VERIFIED_ENCRYPTED=$STAGE"
+          done
+      - name: Upload only encrypted verified neural packages
+        if: ${{ always() && steps.submit.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: freevideo-native-aspect-encrypted-only
+          path: ${{ runner.temp }}/freevideo_*_result.encrypted.json
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Enforce candidate acceptance boundary and report safe failure stage
+        if: ${{ always() && steps.submit.outcome == 'success' }}
+        env:
+          MONITOR: ${{ steps.monitor.outcome }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          folder = root / 'freevideo_kaggle_result'
+          for name in ('freevideo_result.json', 'freevideo_candidate_result.json', 'freevideo_progress.json'):
+              p = folder / name
+              if p.is_file():
+                  try:
+                      data = json.loads(p.read_text())
+                      for k in ('stage', 'status', 'error_type'):
+                          v = data.get(k)
+                          if isinstance(v, str) and re.fullmatch(r'[A-Za-z_]{1,80}', v):
+                              print('FREEVIDEO_' + name.split('.')[0].upper() + '_' + k.upper() + '=' + v)
+                  except (ValueError, OSError):
+                      pass
+          candidate = root / 'freevideo_candidate_result.encrypted.json'
+          if os.environ['MONITOR'] != 'success' or not candidate.is_file():
+              raise SystemExit('FREEVIDEO_FULL_CANDIDATE_NOT_VERIFIED')
+          print('FREEVIDEO_NATIVE_CANDIDATE_DECODED_ENCRYPTED_VISUAL_REVIEW_REQUIRED')
+          PY

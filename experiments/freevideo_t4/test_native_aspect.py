@@ -1,0 +1,36 @@
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from PIL import Image
+from experiments.freevideo_t4.native_aspect_bridge import wan22_workflow, _reference
+from experiments.freevideo_t4.adaptive_pipeline import native_3x4_geometry
+from experiments.freevideo_t4.hybrid_engine import prepare
+
+class NativeAspectTests(unittest.TestCase):
+    def test_geometry_and_native_graph(self):
+        for stage in ("preview","candidate","final"):
+            for budget in (8,13):
+                w,h=native_3x4_geometry(stage,budget)
+                self.assertEqual(w*4,h*3)
+                graph=wan22_workflow("test.png","A seated man gently moves his head.",42,width=w,height=h,frames=121,steps=24)
+                self.assertEqual(graph["55"]["inputs"]["width"],w)
+                self.assertEqual(graph["55"]["inputs"]["height"],h)
+        with self.assertRaises(ValueError):
+            wan22_workflow("test.png","A seated man gently moves his head.",42,width=432,height=768)
+    def test_no_padding_and_full_original(self):
+        import json
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            source=root/"source.png"
+            Image.new("RGB",(600,800),(123,45,67)).save(source)
+            result=prepare(source,root/"job","native-aspect-test","A seated man gently moves his head.",size=(1152,1536))
+            job=json.loads(Path(result["job_file"]).read_text())
+            self.assertEqual(job["framing"],"native_3x4")
+            self.assertEqual(job["content_origin"],[0,0])
+            self.assertEqual(job["resized_content_size"],[1152,1536])
+            self.assertEqual(_reference(Path(job["reference_path"]))["orientation"],"3:4")
+            with Image.open(job["reference_path"]) as img:
+                self.assertEqual(img.getpixel((0,0)),(123,45,67))
+
+if __name__=="__main__":
+    unittest.main()

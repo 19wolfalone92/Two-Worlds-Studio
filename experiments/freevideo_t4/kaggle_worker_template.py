@@ -205,8 +205,13 @@ def run_job(data: dict) -> dict:
     from experiments.freevideo_t4.hybrid_engine import prepare, run_stage
     checkpoint("prepare_reference")
     private_work = ROOT.parent / ("freevideo_job_" + data["nonce"])
+    from PIL import Image, ImageOps
+    with Image.open(original) as photo:
+        photo = ImageOps.exif_transpose(photo)
+        native = photo.width * 4 == photo.height * 3
+    size = (1152, 1536) if native else (864, 1536)
     setup = prepare(original, private_work, data["nonce"], data["prompt"],
-                    seed=data["seed"])
+                    seed=data["seed"], size=size)
     backend = _install_backend(data)
     checkpoint("weight_manifest")
     weights = _weight_manifest()
@@ -253,7 +258,7 @@ def run_job(data: dict) -> dict:
             "source_sha256": data["reference_sha256"],
             "archive_sha256": sha256(archive), "clip_sha256": sha256(clip),
             "video_stage": stage, "gpu": gpu, "backend_revisions": backend,
-            "real_neural_backend": "studio.comfy_neural/wan22-5b",
+            "real_neural_backend": ("freevideo_native_aspect_bridge/wan22-5b" if native else "studio.comfy_neural/wan22-5b"),
             "status": "REAL_GPU_" + stage.upper() + "_REVIEW_REQUIRED",
             "human_approved": False, "published": False,
             "visual_quality": "NOT_VERIFIED",
@@ -269,7 +274,7 @@ def run_job(data: dict) -> dict:
     package("preview", ARCHIVE, OUT)
     # A fresh local server releases the previous take's GPU allocations.
     # This is a separate native 121-frame candidate, not an interpolated preview.
-    infer("candidate", 5400)
+    infer("candidate", 7200)
     record = package("candidate", CANDIDATE_ARCHIVE, CANDIDATE_OUT)
     checkpoint("complete_candidate")
     return record

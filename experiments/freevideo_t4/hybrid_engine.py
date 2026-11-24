@@ -111,8 +111,8 @@ def prepare(source: str | Path, workdir: str | Path, job_id: str, prompt: str,
         raise HybridBlocked("Motion prompt must have 12-1800 characters")
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise HybridBlocked("Invalid random seed")
-    if size != DEFAULT_SIZE:
-        raise HybridBlocked("Experimental hybrid uses fixed 864x1536 9:16 reference")
+    if size not in (DEFAULT_SIZE, (1152, 1536)):
+        raise HybridBlocked("Experimental hybrid permits fixed 9:16 or native 3:4 reference")
     root = Path(workdir).expanduser().absolute()
     if root.is_relative_to(ROOT) or root.is_symlink() or root.exists():
         raise HybridBlocked("Choose a NEW private job directory outside public repository")
@@ -129,6 +129,8 @@ def prepare(source: str | Path, workdir: str | Path, job_id: str, prompt: str,
             if orig.mode in ("RGBA", "LA") and orig.getchannel("A").getextrema()[0] != 255:
                 raise HybridBlocked("Transparent source has no reviewed scene background")
             rgb = orig.convert("RGB")
+            if size == (1152, 1536) and rgb.width * 4 != rgb.height * 3:
+                raise HybridBlocked("Native 3:4 mode must preserve the exact original aspect")
             # Preserve every original pixel region at the same scale; do NOT face-crop.
             scale = min(size[0] / rgb.width, size[1] / rgb.height)
             target = (max(1, round(rgb.width * scale)),
@@ -148,7 +150,10 @@ def prepare(source: str | Path, workdir: str | Path, job_id: str, prompt: str,
             raise
         raise HybridBlocked("Reference image could not be decoded") from exc
 
-    from studio.video_ai_plan import _reference
+    if size == (1152, 1536):
+        from experiments.freevideo_t4.native_aspect_bridge import _reference
+    else:
+        from studio.video_ai_plan import _reference
     root.mkdir(mode=0o700, parents=True)
     try:
         reference = root / "reference_9x16.png"
@@ -163,7 +168,7 @@ def prepare(source: str | Path, workdir: str | Path, job_id: str, prompt: str,
             "prompt": prompt.strip(), "seed": seed,
             "source_size": list(rgb.size), "reference_size": list(size),
             "resized_content_size": list(target), "content_origin": list(position),
-            "framing": "contain_without_cropping", "human_approved": False,
+            "framing": "native_3x4" if size == (1152, 1536) else "contain_without_cropping", "human_approved": False,
             "published": False, "privacy": "private_only"
         }
         _save_new_json(root / "job.json", manifest)
@@ -205,7 +210,10 @@ def _load_job(job_file: str | Path) -> tuple[Path, dict]:
         raise HybridBlocked("Invalid persisted SHA-256")
     if sha256(src) != doc["source_sha256"] or sha256(ref) != doc["reference_sha256"]:
         raise HybridBlocked("Source or staged reference changed after preparation")
-    from studio.video_ai_plan import _reference
+    if doc.get("framing") == "native_3x4":
+        from experiments.freevideo_t4.native_aspect_bridge import _reference
+    else:
+        from studio.video_ai_plan import _reference
     _reference(ref)
     return path, doc
 
@@ -235,6 +243,7 @@ def run_stage(job_file: str | Path, stage: str, *,
     # ComfyUI video bridge. No alternate cloud generator can be selected.
     args = argparse.Namespace(
         command=stage, execute=True, accept_model_license=True, device=device,
+        native_aspect=doc.get("framing") == "native_3x4",
         reference=doc["reference_path"], output=str(out), prompt=doc["prompt"],
         seed=doc["seed"], timeout=timeout, host=host,
         history=str(path.parent / "timings.jsonl"),
@@ -254,7 +263,7 @@ def run_stage(job_file: str | Path, stage: str, *,
                      "artistic_approval": False}
     output_doc = {
         "schema": 1, "engine": "freevideo_hybrid", "job_id": doc["job_id"],
-        "stage": stage, "backend": "wan22-5b", "model_path": "studio.comfy_neural",
+        "stage": stage, "backend": "wan22-5b", "model_path": "experiments.freevideo_t4.native_aspect_bridge" if doc.get("framing") == "native_3x4" else "studio.comfy_neural",
         "reference_sha256": doc["reference_sha256"],
         "clip_sha256": result["clip_sha256"],
         "source_sha256": doc["source_sha256"],

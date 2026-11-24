@@ -68,6 +68,15 @@ def simulate_t4() -> Hardware:
     return Hardware("Tesla T4 (SIMULATED)", "7.5", 16.0, 14.0, "simulated_not_executable")
 
 
+def native_3x4_geometry(stage: str, budget: float) -> tuple[int, int]:
+    """Preserve full 3:4 source; bounded T4 workload close to proven candidate."""
+    if stage not in ("preview", "candidate", "final"):
+        raise Blocked("Unknown native aspect stage")
+    if budget >= 12:
+        return (432,576) if stage == "preview" else (528,704)
+    return (336,448) if stage == "preview" else (384,512)
+
+
 def _is_t4(hardware: Hardware) -> bool:
     return bool(re.search(r"\bT4\b", hardware.name, re.I)) and hardware.compute_capability == "7.5"
 
@@ -494,11 +503,17 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
         raise Blocked(f"Private Wan weight integrity preflight failed: {exc}") from exc
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
         raise Blocked("Full-frame video validation requires ffmpeg and ffprobe before GPU execution")
-    stage = plan[args.command]
+    stage = dict(plan[args.command])
+    native_aspect = getattr(args, "native_aspect", False)
+    if native_aspect:
+        from experiments.freevideo_t4.native_aspect_bridge import _reference
+        _reference(reference)
+        dims = native_3x4_geometry(args.command, plan["usable_vram_gib"])
+        stage.update(width=dims[0], height=dims[1])
     # The local PyTorch probe does NOT prove ComfyUI is using the same device.
     # Deny when backend cannot corroborate GPU identity/index and total VRAM.
     attestation = attest_backend(args.host, hardware)
-    command = [sys.executable, "-m", "studio.comfy_neural", "--model", MODEL,
+    command = [sys.executable, "-m", "experiments.freevideo_t4.native_aspect_bridge" if native_aspect else "studio.comfy_neural", "--model", MODEL,
                "--reference", str(reference), "--output", str(output),
                "--prompt", args.prompt, "--seed", str(args.seed),
                "--width", str(stage["width"]), "--height", str(stage["height"]),
