@@ -59,6 +59,16 @@ def main():
                     summary["stream"]=streams[0] if streams else None
                 except ValueError:
                     summary["probe_parse_failed"]=True
+            if result["ffprobe_available"]:
+                try:
+                    from tools.eb01_true_gpu_clip_numbers import gray_motion
+                    from studio.eb01_motion_artifact_gate import inspect_clip
+                    summary["real_motion"]=gray_motion(movie)
+                    color=inspect_clip(movie)
+                    summary["color_gate"]={k:color.get(k) for k in
+                        ("status","decoded_frames","safe_frame_count","flagged_frames")}
+                except (OSError,RuntimeError,ValueError,ImportError,subprocess.SubprocessError) as exc:
+                    summary["quality_check_error_class"]=type(exc).__name__
             safe_video.append(summary)
         result["native_candidates"]=safe_video
         result["native_subdirectory_present"]=(target/"STUDIO_WAVE_NATIVE_PRIVATE_GENERATION").is_dir()
