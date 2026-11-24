@@ -12,11 +12,29 @@ class NativeAspectTests(unittest.TestCase):
             for budget in (8,13):
                 w,h=native_3x4_geometry(stage,budget)
                 self.assertEqual(w*4,h*3)
+                self.assertEqual((w%32,h%32),(0,0))
                 graph=wan22_workflow("test.png","A seated man gently moves his head.",42,width=w,height=h,frames=121,steps=24)
                 self.assertEqual(graph["55"]["inputs"]["width"],w)
                 self.assertEqual(graph["55"]["inputs"]["height"],h)
         with self.assertRaises(ValueError):
             wan22_workflow("test.png","A seated man gently moves his head.",42,width=432,height=768)
+    def test_real_cli_dry_run_all_profiles(self):
+        import json, subprocess, sys
+        from experiments.freevideo_t4.adaptive_pipeline import choose_plan, simulate_t4
+        with TemporaryDirectory() as tmp:
+            source=Path(tmp)/"source.png"
+            Image.new("RGB",(600,800),(123,45,67)).save(source)
+            plan=choose_plan(simulate_t4())
+            for stage in ("preview","candidate"):
+                for budget in (8,13):
+                    w,h=native_3x4_geometry(stage,budget)
+                    cmd=[sys.executable,"-m","experiments.freevideo_t4.native_aspect_bridge","--model","wan22-5b",
+                         "--reference",str(source),"--output",str(Path(tmp)/"take.mp4"),"--prompt","A seated man gently moves his head.",
+                         "--seed","42","--width",str(w),"--height",str(h),"--frames",str(plan[stage]["frames"]),
+                         "--steps",str(plan[stage]["steps"]),"--accept-model-license"]
+                    p=subprocess.run(cmd,capture_output=True,text=True,timeout=30)
+                    self.assertEqual(p.returncode,0,p.stdout+p.stderr)
+                    self.assertEqual(json.loads(p.stdout)["status"],"PLANNED_NO_GPU")
     def test_no_padding_and_full_original(self):
         import json
         with TemporaryDirectory() as tmp:

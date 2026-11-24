@@ -198,23 +198,28 @@ class ComfyLocal:
             raise
 
 
-def wan22_workflow(image_name: str, prompt: str, seed: int, *, width: int = 576,
-                   height: int = 1024, frames: int = 121, steps: int = 50) -> dict:
+def wan22_workflow(image_name: str, prompt: str, seed: int, *, width: int = 480,
+                   height: int = 640, frames: int = 121, steps: int = 50) -> dict:
     """Native ComfyUI API-format graph derived from Comfy-Org Wan2.2 5B template.
 
     Official UI template:
     https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_5B_ti2v.json
     The dormant LoadImage branch is enabled as a real 3:4 I2V first frame.
     """
-    if (not re.fullmatch(r"[A-Za-z0-9_.-]{1,200}", image_name) or ".." in image_name
-            or not isinstance(prompt, str) or not 12 <= len(prompt.strip()) <= 1800
-            or type(seed) is not int or not 0 <= seed < 2**32
-            or type(width) is not int or type(height) is not int
-            or width < 256 or height < 448 or width % 16 or height % 16
-            or width * 4 != height * 3
-            or type(frames) is not int or not 9 <= frames <= 241 or (frames - 1) % 4
-            or type(steps) is not int or not 12 <= steps <= 50):
-        raise ValueError("Invalid native Wan2.2-5B I2V parameters")
+    if not isinstance(image_name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,200}", image_name) or ".." in image_name:
+        raise ValueError("Invalid native image filename")
+    if not isinstance(prompt, str) or not 12 <= len(prompt.strip()) <= 1800:
+        raise ValueError("Invalid native prompt length")
+    if type(seed) is not int or not 0 <= seed < 2**32:
+        raise ValueError("Invalid native seed")
+    if type(width) is not int or type(height) is not int:
+        raise ValueError("Invalid native geometry types")
+    if width < 256 or height < 448 or width % 32 or height % 32 or width * 4 != height * 3:
+        raise ValueError(f"Invalid native 3x4 geometry width={width} height={height}; require multiples of 32")
+    if type(frames) is not int or not 9 <= frames <= 241 or (frames - 1) % 4:
+        raise ValueError("Invalid native frame count")
+    if type(steps) is not int or not 12 <= steps <= 50:
+        raise ValueError("Invalid native step count")
     return {
         "37": {"class_type": "UNETLoader", "inputs": {
             "unet_name": MODEL_FILES["wan22-5b"][0], "weight_dtype": "default"}},
@@ -420,8 +425,8 @@ def main(argv=None) -> int:
     p.add_argument("--prompt", required=True)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--host", default="http://127.0.0.1:8188")
-    p.add_argument("--width", type=int, default=528)
-    p.add_argument("--height", type=int, default=704)
+    p.add_argument("--width", type=int, default=480)
+    p.add_argument("--height", type=int, default=640)
     p.add_argument("--frames", type=int, default=121)
     p.add_argument("--steps", type=int, default=50)
     p.add_argument("--timeout", type=int, default=3600)

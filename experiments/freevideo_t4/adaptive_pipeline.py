@@ -73,8 +73,8 @@ def native_3x4_geometry(stage: str, budget: float) -> tuple[int, int]:
     if stage not in ("preview", "candidate", "final"):
         raise Blocked("Unknown native aspect stage")
     if budget >= 12:
-        return (432,576) if stage == "preview" else (528,704)
-    return (336,448) if stage == "preview" else (384,512)
+        return (384,512) if stage == "preview" else (480,640)
+    return (384,512)
 
 
 def _is_t4(hardware: Hardware) -> bool:
@@ -520,6 +520,16 @@ def _run_unlocked(args: argparse.Namespace) -> dict:
                "--frames", str(stage["frames"]), "--steps", str(stage["steps"]),
                "--host", args.host, "--timeout", str(args.timeout),
                "--accept-model-license", "--execute-local-gpu"]
+    # Run the exact same CLI and arguments without the execution switch.
+    # This detects interface/validation incompatibilities before submitting GPU work.
+    if native_aspect:
+        dry = subprocess.run(command[:-1], cwd=REPO_ROOT, capture_output=True, text=True, timeout=60, check=False)
+        try:
+            check = json.loads(dry.stdout)
+        except (ValueError, UnicodeError) as exc:
+            raise Blocked("Native bridge dry run returned invalid JSON") from exc
+        if dry.returncode != 0 or check.get("status") != "PLANNED_NO_GPU":
+            raise Blocked("Native bridge pre-submission validation failed: " + str(check.get("reason", "unknown"))[:300])
     start = time.monotonic()
     try:
         process = subprocess.run(command, cwd=REPO_ROOT, capture_output=True, text=True,

@@ -212,6 +212,12 @@ def run_job(data: dict) -> dict:
     size = (1152, 1536) if native else (864, 1536)
     setup = prepare(original, private_work, data["nonce"], data["prompt"],
                     seed=data["seed"], size=size)
+    if native:
+        from experiments.freevideo_t4.native_aspect_bridge import wan22_workflow
+        from experiments.freevideo_t4.adaptive_pipeline import native_3x4_geometry
+        for stage, frames, steps in (("preview",25,20),("candidate",121,24)):
+            width,height=native_3x4_geometry(stage, gpu["free_gib"] * .95)
+            wan22_workflow("pending.png",data["prompt"],data["seed"],width=width,height=height,frames=frames,steps=steps)
     backend = _install_backend(data)
     checkpoint("weight_manifest")
     weights = _weight_manifest()
