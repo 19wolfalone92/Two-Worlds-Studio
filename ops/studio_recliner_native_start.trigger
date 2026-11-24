@@ -12,3 +12,6 @@ no_merge=true
 
 retry_after_original_25_min_photo_wait_timeout=2026-11-24
 new_private_input_sha256=9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3
+
+retry_proved_aesgcm_transport_one_byte_corruption_fixed=2026-11-24T23:07+03:00
+retry_source_sha256=9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3
