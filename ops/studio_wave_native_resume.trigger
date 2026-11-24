@@ -9,3 +9,4 @@ one_resubmission_only=true
 do_not_merge_main=true
 do_not_publish_raw_media=true
 trigger_date=2026-11-24
+resubmit_after_cpu_test_expected_error_fixed=2026-11-24
