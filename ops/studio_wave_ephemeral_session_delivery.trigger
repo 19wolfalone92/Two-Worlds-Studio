@@ -4,3 +4,4 @@ read_only=true
 select_real_verified_33_or_65_frames=true
 never_upload_raw_user_media=true
 requested_at=2026-11-24T07:40+03:00
+retry_after_exact_missing_pillow_dependency_fixed=2026-11-24
