@@ -1,4 +1,4 @@
-name: FREEVIDEO - recover encrypted private T4 outputs (no GPU)
+name: FREEVIDEO - rate-limit-safe private output recovery (no GPU)
 on:
   push:
     branches:
@@ -9,38 +9,20 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
-# Recovery is read-only against existing private Kaggle kernels. It has a
-# separate concurrency group and never submits or restarts a GPU kernel.
+# Readback only. This workflow never pushes, clones, or launches a Kaggle kernel.
 concurrency:
   group: freevideo-private-output-recovery
   cancel-in-progress: false
 
 jobs:
   recover:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - nonce: night-awakens-20261124-04
-            label: run-45475653441
-            expected_revision: 9b90bc3a7ec5a0982069ba9d06f3f8c68a15df69
-            workflow_run_id: 45475653441
-          - nonce: night-awakens-20261124-05
-            label: run-45475935059
-            expected_revision: 107bed852f5961dcb2da5c92fafc0fbb3aaf5e25
-            workflow_run_id: 45475935059
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
       KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
       KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
-      JOB_NONCE: ${{ matrix.nonce }}
-      JOB_LABEL: ${{ matrix.label }}
-      EXPECTED_SOURCE_REVISION: ${{ matrix.expected_revision }}
-      TARGET_GITHUB_RUN_ID: ${{ matrix.workflow_run_id }}
-      GH_TOKEN: ${{ github.token }}
+      ACTIVE_KERNELS: experiments/freevideo_t4/private_transport/active_kernels.json
       ENCRYPTED_PHOTO: experiments/freevideo_t4/private_transport/night-awakens.encrypted.json
       OUTPUT_PUBLIC_KEY: experiments/freevideo_t4/private_transport/freevideo_temporary_output_public_key.txt
       PYTHONUNBUFFERED: '1'
@@ -75,7 +57,6 @@ jobs:
           from experiments.freevideo_t4.secure_transport import seal_result_zip, unseal_result_zip
           public = base64.b64decode(Path("experiments/freevideo_t4/private_transport/freevideo_temporary_output_public_key.txt").read_text().strip(), validate=True)
           assert len(public) == 32
-          # Exercise the actual result-envelope implementation with an isolated test key.
           test_private = X25519PrivateKey.generate()
           test_public = base64.b64encode(test_private.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode()
           sample = b"FREEVIDEO_RECOVERY_ENCRYPTION_PREFLIGHT" * 100
@@ -93,13 +74,14 @@ jobs:
           python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
           echo 'FREEVIDEO_PRIVATE_KAGGLE_ACCOUNT_RESOLVED'
 
-      - name: Retrieve and encrypt existing private outputs (no kernel submission)
+      - name: Recover existing kernels with one low-frequency status stream
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/freevideo_recovery"
           python - <<'PY'
           from __future__ import annotations
+          import base64
           import hashlib
           import json
           import os
@@ -107,205 +89,171 @@ jobs:
           import subprocess
           import time
           import zipfile
-          from urllib.error import HTTPError, URLError
-          from urllib.request import Request, urlopen
 
           from studio.kaggle_api import parse_status
           from studio.kaggle_api_limits import _classify_cli_error
           from experiments.freevideo_t4.kaggle_private_job import verify_private_result
           from experiments.freevideo_t4.secure_transport import seal_result_zip
 
-          nonce = os.environ["JOB_NONCE"]
-          label = os.environ["JOB_LABEL"]
-          username = os.environ["KAGGLE_USERNAME"]
-          expected_revision = os.environ["EXPECTED_SOURCE_REVISION"]
-          folder = Path(os.environ["RUNNER_TEMP"]) / "freevideo_kaggle_result"
-          folder.mkdir(mode=0o700, exist_ok=True)
           out_dir = Path(os.environ["RUNNER_TEMP"]) / "freevideo_recovery"
+          out_dir.mkdir(mode=0o700, exist_ok=True)
+          username = os.environ["KAGGLE_USERNAME"]
           public = Path(os.environ["OUTPUT_PUBLIC_KEY"]).read_text(encoding="ascii").strip()
           source = json.loads(Path(os.environ["ENCRYPTED_PHOTO"]).read_text(encoding="utf-8"))
           expected_source_sha = source.get("source_sha256")
           if not isinstance(expected_source_sha, str) or len(expected_source_sha) != 64:
               raise SystemExit("FREEVIDEO_SOURCE_HASH_MANIFEST_INVALID")
-          if not public:
-              raise SystemExit("FREEVIDEO_OUTPUT_PUBLIC_KEY_MISSING")
+          if len(base64.b64decode(public, validate=True)) != 32:
+              raise SystemExit("FREEVIDEO_OUTPUT_PUBLIC_KEY_INVALID")
 
-          kernel = username + "/freevideo-hybrid-" + hashlib.sha256(nonce.encode()).hexdigest()[:12]
-          deadline = time.monotonic() + 350 * 60
-          status = "NOT_FOUND"
-          last_status = None
-          print("FREEVIDEO_RECOVERY_KERNEL_TARGET=" + label, flush=True)
+          lock = json.loads(Path(os.environ["ACTIVE_KERNELS"]).read_text(encoding="utf-8"))
+          targets = lock.get("submitted_jobs", [])
+          if len(targets) != 2:
+              raise SystemExit("FREEVIDEO_ACTIVE_KERNEL_LOCK_INVALID")
+          for target in targets:
+              target["kernel"] = target["kernel"].strip()
+              target["state"] = "WAITING"
+              target["not_found_count"] = 0
+              target["expected_source_revision"] = target["source_revision"]
 
-          # Confirm that the corresponding GitHub workflow has actually submitted
-          # this private kernel before asking Kaggle for a status (prevents a
-          # false failure while the newer run is still queued behind the older run).
-          target_run_id = os.environ["TARGET_GITHUB_RUN_ID"]
-          github_deadline = time.monotonic() + 350 * 60
-          submitted = False
-          while time.monotonic() < github_deadline:
-              headers = {
-                  "Authorization": "Bearer " + os.environ["GH_TOKEN"],
-                  "Accept": "application/vnd.github+json",
-                  "X-GitHub-Api-Version": "2022-11-28",
-              }
-              try:
-                  with urlopen(Request(
-                      "https://api.github.com/repos/19wolfalone92/Two-Worlds-Studio/actions/runs/" + target_run_id,
-                      headers=headers), timeout=30) as response:
-                      target_run = json.loads(response.read(262145))
-                  with urlopen(Request(
-                      "https://api.github.com/repos/19wolfalone92/Two-Worlds-Studio/actions/runs/" + target_run_id + "/jobs?per_page=100",
-                      headers=headers), timeout=30) as response:
-                      target_jobs = json.loads(response.read(1048577))
-              except (HTTPError, URLError, TimeoutError, ValueError):
-                  raise SystemExit("FREEVIDEO_GITHUB_RUN_STATUS_UNAVAILABLE") from None
-              submit_step = None
-              for job in target_jobs.get("jobs", []):
-                  for step in job.get("steps", []):
-                      if step.get("name", "").startswith("Submit one private T4 job"):
-                          submit_step = step
-                          break
-                  if submit_step is not None:
-                      break
-              if submit_step and submit_step.get("conclusion") == "success":
-                  submitted = True
-                  break
-              if submit_step and submit_step.get("conclusion") in {"failure", "cancelled", "skipped"}:
-                  raise SystemExit("FREEVIDEO_GITHUB_KERNEL_SUBMISSION_NOT_SUCCESSFUL")
-              if target_run.get("status") == "completed":
-                  raise SystemExit("FREEVIDEO_GITHUB_RUN_COMPLETED_WITHOUT_KERNEL_SUBMISSION")
-              time.sleep(60)
-          if not submitted:
-              raise SystemExit("FREEVIDEO_GITHUB_SUBMISSION_WAIT_TIMEOUT")
-          print("FREEVIDEO_GITHUB_KERNEL_SUBMISSION_CONFIRMED", flush=True)
+          # Cool down after the observed HTTP 429. No Kaggle API calls occur here.
+          print("FREEVIDEO_KAGGLE_RATE_LIMIT_COOLDOWN_SECONDS=900", flush=True)
+          time.sleep(900)
 
-          # This polls only. It never calls 'kaggle kernels push' and never starts GPU work.
-          while time.monotonic() < deadline:
+          pending = list(targets)
+          calls = 0
+          max_calls = 36  # one request every 300 seconds; shared across both kernels
+          rate_limited = False
+          candidate_successes = []
+          stage_successes = []
+          errors = []
+
+          while pending and calls < max_calls:
+              target = pending.pop(0)
+              label = "run-" + str(target["workflow_run_id"])
+              kernel = target["kernel"]
               proc = subprocess.run(
                   ["kaggle", "kernels", "status", kernel],
                   check=False, capture_output=True, text=True, timeout=60
               )
+              calls += 1
               if proc.returncode != 0:
-                  combined = (proc.stdout + "\n" + proc.stderr).lower()
                   error_code, _safe_detail = _classify_cli_error(proc.stderr or "", proc.stdout or "")
-                  missing_kernel = any(token in combined for token in (
-                      "not found", "404", "does not exist", "not exist",
-                      "could not find", "cannot find", "no such kernel",
-                      "unknown kernel", "kernel unavailable", "no kernel"
-                  ))
-                  if error_code == "not_found" or missing_kernel:
-                      if last_status != "WAITING_FOR_KERNEL":
-                          print("FREEVIDEO_RECOVERY_WAITING_FOR_EXISTING_KERNEL", flush=True)
-                          last_status = "WAITING_FOR_KERNEL"
-                      time.sleep(60)
-                      continue
-                  print("FREEVIDEO_KAGGLE_STATUS_ERROR_CLASS=" + error_code.upper(), flush=True)
-                  raise SystemExit("FREEVIDEO_KAGGLE_STATUS_QUERY_FAILED")
+                  print("FREEVIDEO_STATUS_QUERY_CLASS=" + error_code.upper(), flush=True)
+                  if error_code == "rate_limited":
+                      target["state"] = "RATE_LIMITED"
+                      errors.append({"label": label, "state": "RATE_LIMITED"})
+                      pending.insert(0, target)
+                      rate_limited = True
+                      break
+                  if error_code == "not_found" and target["not_found_count"] < 2:
+                      target["not_found_count"] += 1
+                      target["state"] = "NOT_FOUND_RETRY"
+                      pending.append(target)
+                  else:
+                      target["state"] = "STATUS_QUERY_" + error_code.upper()
+                      errors.append({"label": label, "state": target["state"]})
+                  if pending:
+                      time.sleep(300)
+                  continue
+
               try:
                   status = parse_status(proc.stdout)
               except ValueError:
-                  raise SystemExit("FREEVIDEO_KAGGLE_STATUS_UNRECOGNIZED") from None
-              if status != last_status:
-                  print("FREEVIDEO_EXISTING_KERNEL_STATUS=" + status, flush=True)
-                  last_status = status
-              if status in {"COMPLETE", "ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED"}:
-                  break
-              if status not in {"QUEUED", "RUNNING", "NEW_SCRIPT"}:
-                  raise SystemExit("FREEVIDEO_KAGGLE_STATUS_UNSUPPORTED")
-              time.sleep(60)
-          else:
-              status = "STATUS_TIMEOUT"
-              print("FREEVIDEO_KAGGLE_STATUS_TIMEOUT", flush=True)
-
-          readback = subprocess.run(
-              ["kaggle", "kernels", "output", kernel, "-p", str(folder),
-               "--file-pattern",
-               "^(FREEVIDEO_PRIVATE_(PREVIEW|CANDIDATE)[.]zip|freevideo_(result|candidate_result|progress)[.]json)$",
-               "--page-size", "200"],
-              check=False, capture_output=True, text=True, timeout=900
-          )
-          print("FREEVIDEO_KAGGLE_READBACK_EXIT=" + str(readback.returncode), flush=True)
-
-          successes = []
-          errors = []
-          for stage in ("candidate", "preview"):
-              archive = folder / ("FREEVIDEO_PRIVATE_" + stage.upper() + ".zip")
-              manifest_path = folder / ("freevideo_candidate_result.json" if stage == "candidate" else "freevideo_result.json")
-              if not archive.is_file() or archive.is_symlink() or not manifest_path.is_file() or manifest_path.is_symlink():
-                  errors.append({"stage": stage, "error_type": "missing_stage_files"})
+                  target["state"] = "UNKNOWN_STATUS"
+                  errors.append({"label": label, "state": target["state"]})
                   continue
-              try:
-                  record = json.loads(manifest_path.read_text(encoding="utf-8"))
-                  if record.get("source_revision") != expected_revision:
-                      raise ValueError("source_revision_mismatch")
-                  if record.get("source_sha256") != expected_source_sha:
-                      raise ValueError("source_sha256_mismatch")
-                  verification = verify_private_result(folder, nonce, stage)
-                  with zipfile.ZipFile(archive) as package:
-                      if package.testzip() is not None:
-                          raise ValueError("zip_integrity_failure")
-                      job = json.loads(package.read("job.json"))
-                  if job.get("source_sha256") != expected_source_sha:
-                      raise ValueError("job_source_sha256_mismatch")
-                  envelope = seal_result_zip(archive.read_bytes(), public)
-                  destination = out_dir / (label + "_" + stage + "_result.encrypted.json")
-                  with destination.open("x", encoding="utf-8") as handle:
-                      json.dump(envelope, handle, separators=(",", ":"))
-                  successes.append(stage)
-                  print("FREEVIDEO_VERIFIED_DECODED_ENCRYPTED_STAGE=" + stage.upper(), flush=True)
-              except Exception as exc:
-                  errors.append({"stage": stage, "error_type": type(exc).__name__,
-                                 "reason": str(exc)[:180]})
-                  print("FREEVIDEO_STAGE_NOT_ACCEPTED=" + stage.upper() + ":" + type(exc).__name__, flush=True)
 
-          if not successes:
-              # Return only bounded, sanitized JSON diagnostics; never include a photo or video.
-              diagnostic = {
-                  "schema": 1, "label": label, "nonce": nonce, "kernel_status": status,
-                  "readback_exit_code": readback.returncode,
-                  "expected_source_revision": expected_revision,
-                  "expected_source_sha256": expected_source_sha,
-                  "verification_errors": errors,
-                  "candidate_visual_quality": "NOT_VERIFIED",
-                  "published": False
-              }
-              for filename in ("freevideo_result.json", "freevideo_candidate_result.json", "freevideo_progress.json"):
-                  path = folder / filename
-                  if not path.is_file() or path.is_symlink() or path.stat().st_size > 128 * 1024:
-                      continue
-                  try:
-                      data = json.loads(path.read_text(encoding="utf-8"))
-                  except (ValueError, OSError):
-                      continue
-                  allowed = ("schema", "nonce", "status", "stage", "error_type",
-                             "video_stage", "source_revision", "source_sha256",
-                             "archive_sha256", "clip_sha256", "visual_quality",
-                             "human_approved", "published", "gpu",
-                             "backend_revisions", "disk_free_bytes", "rss_peak_kib",
-                             "gpu_free_bytes", "gpu_total_bytes", "timestamp")
-                  diagnostic[filename] = {k: data[k] for k in allowed if k in data}
-              diag_zip = out_dir / (label + "_diagnostics.zip")
-              with zipfile.ZipFile(diag_zip, "x", compression=zipfile.ZIP_DEFLATED) as package:
-                  package.writestr("recovery_status.json", json.dumps(diagnostic, sort_keys=True))
-                  # Ensure the encrypted-envelope minimum size without adding media.
-                  package.writestr("minimum_size_padding.bin", os.urandom(2048))
-              envelope = seal_result_zip(diag_zip.read_bytes(), public)
-              destination = out_dir / (label + "_diagnostics.encrypted.json")
-              with destination.open("x", encoding="utf-8") as handle:
-                  json.dump(envelope, handle, separators=(",", ":"))
-              print("FREEVIDEO_ENCRYPTED_DIAGNOSTICS_ONLY", flush=True)
-              raise SystemExit(2)
+              target["state"] = status
+              print("FREEVIDEO_EXISTING_KERNEL_STATUS=" + label + ":" + status, flush=True)
+              if status in {"QUEUED", "RUNNING", "NEW_SCRIPT"}:
+                  pending.append(target)
+              elif status in {"COMPLETE", "ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED"}:
+                  folder = out_dir / ("work_" + label)
+                  folder.mkdir(mode=0o700, exist_ok=True)
+                  readback = subprocess.run(
+                      ["kaggle", "kernels", "output", kernel, "-p", str(folder),
+                       "--file-pattern",
+                       "^(FREEVIDEO_PRIVATE_(PREVIEW|CANDIDATE)[.]zip|freevideo_(result|candidate_result|progress)[.]json)$",
+                       "--page-size", "200"],
+                      check=False, capture_output=True, text=True, timeout=900
+                  )
+                  print("FREEVIDEO_READBACK_EXIT=" + label + ":" + str(readback.returncode), flush=True)
+                  if readback.returncode != 0:
+                      readback_code, _safe_detail = _classify_cli_error(readback.stderr or "", readback.stdout or "")
+                      errors.append({"label": label, "state": "READBACK_" + readback_code.upper()})
+                      if readback_code == "rate_limited":
+                          rate_limited = True
+                          break
+                  else:
+                      for stage in ("candidate", "preview"):
+                          archive = folder / ("FREEVIDEO_PRIVATE_" + stage.upper() + ".zip")
+                          manifest_path = folder / ("freevideo_candidate_result.json" if stage == "candidate" else "freevideo_result.json")
+                          if not archive.is_file() or archive.is_symlink() or not manifest_path.is_file() or manifest_path.is_symlink():
+                              continue
+                          try:
+                              record = json.loads(manifest_path.read_text(encoding="utf-8"))
+                              if record.get("source_revision") != target["expected_source_revision"]:
+                                  raise ValueError("source_revision_mismatch")
+                              if record.get("source_sha256") != expected_source_sha:
+                                  raise ValueError("source_sha256_mismatch")
+                              verify_private_result(folder, target["nonce"], stage)
+                              with zipfile.ZipFile(archive) as package:
+                                  if package.testzip() is not None:
+                                      raise ValueError("zip_integrity_failure")
+                                  job = json.loads(package.read("job.json"))
+                              if job.get("source_sha256") != expected_source_sha:
+                                  raise ValueError("job_source_sha256_mismatch")
+                              envelope = seal_result_zip(archive.read_bytes(), public)
+                              destination = out_dir / (label + "_" + stage + "_result.encrypted.json")
+                              with destination.open("x", encoding="utf-8") as handle:
+                                  json.dump(envelope, handle, separators=(",", ":"))
+                              stage_successes.append(label + ":" + stage)
+                              if stage == "candidate":
+                                  candidate_successes.append(label)
+                              print("FREEVIDEO_VERIFIED_DECODED_ENCRYPTED=" + label + ":" + stage.upper(), flush=True)
+                          except Exception as exc:
+                              errors.append({"label": label, "stage": stage, "error_type": type(exc).__name__})
+                              print("FREEVIDEO_STAGE_NOT_ACCEPTED=" + label + ":" + stage.upper() + ":" + type(exc).__name__, flush=True)
+              else:
+                  target["state"] = "UNSUPPORTED_STATUS"
+                  errors.append({"label": label, "state": target["state"]})
 
-          print("FREEVIDEO_RECOVERY_SUCCESS_STAGES=" + ",".join(successes), flush=True)
-          if "candidate" not in successes:
+              if pending and not rate_limited:
+                  time.sleep(300)
+
+          # Always preserve a small encrypted status receipt. It contains no media.
+          status_summary = {
+              "schema": 1,
+              "status": "CANDIDATE_RECOVERED" if candidate_successes else ("RATE_LIMITED" if rate_limited else "NO_VERIFIED_CANDIDATE"),
+              "calls_made": calls,
+              "candidate_successes": candidate_successes,
+              "stage_successes": stage_successes,
+              "targets": [{"label": "run-" + str(t["workflow_run_id"]), "kernel_state": t["state"],
+                           "source_revision": t["source_revision"], "nonce": t["nonce"]} for t in targets],
+              "errors": errors,
+              "visual_quality": "NOT_YET_VISUALLY_REVIEWED",
+              "published": False
+          }
+          diag_zip = out_dir / "freevideo_recovery_status.zip"
+          with zipfile.ZipFile(diag_zip, "w", compression=zipfile.ZIP_DEFLATED) as package:
+              package.writestr("recovery_status.json", json.dumps(status_summary, sort_keys=True))
+              package.writestr("minimum_size_padding.bin", os.urandom(2048))
+          envelope = seal_result_zip(diag_zip.read_bytes(), public)
+          with (out_dir / "freevideo_recovery_status.encrypted.json").open("x", encoding="utf-8") as handle:
+              json.dump(envelope, handle, separators=(",", ":"))
+
+          if not candidate_successes:
+              print("FREEVIDEO_NO_VERIFIED_CANDIDATE_YET", flush=True)
               raise SystemExit(2)
+          print("FREEVIDEO_CANDIDATE_RECOVERY_COMPLETE; VISUAL_REVIEW_REQUIRED", flush=True)
           PY
 
       - name: Upload only encrypted private results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: freevideo-${{ matrix.label }}-encrypted-recovery
+          name: freevideo-encrypted-private-recovery
           path: ${{ runner.temp }}/freevideo_recovery/*.encrypted.json
           retention-days: 3
           if-no-files-found: ignore
