@@ -11,7 +11,13 @@ import subprocess
 import time
 from pathlib import Path
 
-_STAGE = re.compile(r"(?m)^EB01_STAGE_([A-Z0-9_]{2,64})(?:\s|$)")
+_SUPPORTED_STAGE_PREFIXES = frozenset({"EB01", "WAVE"})
+def _stage_regex(stage_prefix: str) -> re.Pattern[str]:
+    # Reject arbitrary prefixes before invoking any GPU process.
+    if stage_prefix not in _SUPPORTED_STAGE_PREFIXES:
+        raise ValueError("Unsupported native inference stage prefix")
+    return re.compile(r"(?m)^" + re.escape(stage_prefix) +
+                      r"_STAGE_([A-Z0-9_]{2,64})(?:\s|$)")
 _STAGE_ALLOWED = frozenset({
     "BEGIN_MODEL_LOAD","END_MODEL_LOAD","BEGIN_PROMPT_ENCODE",
     "END_PROMPT_ENCODE","BEGIN_CONDITIONING_VAE",
@@ -29,14 +35,15 @@ class InferenceTimeBudgetExpired(RuntimeError):
         self.elapsed_seconds=elapsed_seconds
         self.last_stage=last_stage
 
-def latest_stage(path: Path) -> str:
+def latest_stage(path: Path, *, stage_prefix: str = "EB01") -> str:
+    matcher = _stage_regex(stage_prefix)
     if not path.is_file():
         return "NO_NATIVE_STAGE_MARKER"
     with path.open("rb") as fp:
         fp.seek(0,2)
         fp.seek(max(0,fp.tell()-65536))
         tail=fp.read().decode("utf-8",errors="replace")
-    matches=[m.group(1) for m in _STAGE.finditer(tail)
+    matches=[m.group(1) for m in matcher.finditer(tail)
              if m.group(1) in _STAGE_ALLOWED]
     return matches[-1] if matches else "NO_NATIVE_STAGE_MARKER"
 
@@ -64,11 +71,13 @@ def run_native_bounded(
     deadline_seconds: float = 1400,
     heartbeat_seconds: float = 20,
     monotonic=time.monotonic,
+    stage_prefix: str = "EB01",
 ) -> dict:
     if (not isinstance(argv,list) or not argv or
         not 10 <= deadline_seconds <= 3600 or
         not 1 <= heartbeat_seconds <= 120):
         raise ValueError("Only bounded, non-shell original model invocation allowed")
+    _stage_regex(stage_prefix)  # Validate before starting child.
     if not Path(cwd).is_dir():
         raise ValueError("Model source working directory absent")
     log_path.parent.mkdir(parents=True,exist_ok=True)
@@ -83,13 +92,13 @@ def run_native_bounded(
             while process.poll() is None:
                 remaining=deadline_seconds-(monotonic()-start)
                 if remaining <= 0:
-                    stage=latest_stage(log_path)
+                    stage=latest_stage(log_path,stage_prefix=stage_prefix)
                     raise InferenceTimeBudgetExpired(
                         round(monotonic()-start,1),stage)
                 try:
                     process.wait(timeout=min(heartbeat_seconds,remaining))
                 except subprocess.TimeoutExpired:
-                    stage=latest_stage(log_path)
+                    stage=latest_stage(log_path,stage_prefix=stage_prefix)
                     if stage != last:
                         print("EB01_GPU_STAGE_HEARTBEAT",
                               "stage="+stage,
@@ -97,7 +106,7 @@ def run_native_bounded(
                               flush=True)
                         last=stage
             elapsed=round(monotonic()-start,2)
-            stage=latest_stage(log_path)
+            stage=latest_stage(log_path,stage_prefix=stage_prefix)
             if process.returncode:
                 raise RuntimeError(
                     "Authentic neural pipeline subprocess failed"
