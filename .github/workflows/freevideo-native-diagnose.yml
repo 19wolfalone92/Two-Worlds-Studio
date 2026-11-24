@@ -41,6 +41,15 @@ jobs:
           if log.is_file(): sources.append(log.read_text(errors='replace')[-200000:])
           terms=['Invalid native Wan2.2-5B I2V parameters','Reference must be opaque','Freevideo native reference must be 3:4','Generated video differs from planned geometry','ComfyUI did not produce requested native Wan2.2 frame clock','Studio bridge refused this run','ModuleNotFoundError','ImportError','NameError','TypeError','ValueError','RuntimeError','CUDA out of memory','out of memory','size mismatch','must be divisible','invalid shape','shape','dimension','No module named','GPU_QUARANTINED','timeout','No such file','Permission denied','mat1 and mat2 shapes cannot be multiplied','invalid prompt','prompt execution failed','execution_error','not enough values to unpack','not divisible','assertionerror','432','576','416','560','704','528','512','384']
           for i,s in enumerate(sources):
+              for m in re.finditer(r"(?:No module named|ModuleNotFoundError: No module named) ['\"]([A-Za-z0-9_.]{1,100})['\"]",s):
+                  print('MISSING_MODULE='+m[1])
+              for m in re.finditer(r'"reason"\s*:\s*"([^"\n]{1,300})"',s):
+                  # The known bridge emits fixed exception messages; never print paths or arbitrary text.
+                  reason=m[1]
+                  for marker in ('Expected a private reference image','Freevideo native reference must be 3:4','Local ComfyUI request failed','ComfyUI did not produce','ComfyUI workflow failed','ComfyUI rejected','ComfyUI timed out','ComfyUI inference','No video','output','Invalid native','GPU','HTTPError','URLError','TimeoutError','FileExistsError','No module named'):
+                      if marker.lower() in reason.lower(): print('BRIDGE_REASON='+marker)
+              for marker in ('ComfyUI did not finish','ComfyUI job failed','ComfyUI execution','ComfyUI returned','ComfyUI request','ComfyUI rejected','ComfyUI workflow','ComfyUI output','ComfyUI response','ComfyUI produced','ComfyUI error','ComfyUI inference','No video','Unknown','ModuleNotFoundError','Cannot import','ImportError','invalid','Error occurred','HTTPError','URLError','TimeoutError','FileNotFoundError','PermissionError','AttributeError','KeyError','AssertionError','subprocess','ffmpeg','ffprobe','vae','tensor','numpy','torch','triton','comfy','native_aspect_bridge','release_gate'):
+                  if marker.lower() in s.lower(): print('DETAIL_MATCH='+marker)
               print('DIAGNOSTIC_SOURCE='+str(i))
               for t in terms:
                   if t.lower() in s.lower(): print('MATCH='+t)
