@@ -34,7 +34,7 @@ jobs:
               raise SystemExit(1)
           safe=[]
           for x in entries:
-              slug=str(getattr(x,"ref",getattr(x,"slug",""))) or "")
+              slug=str(getattr(x,"ref",getattr(x,"slug","")) or "")
               if not re.fullmatch(r"[A-Za-z0-9_/-]{1,130}",slug): slug="REDACTED"
               status=str(getattr(x,"status",getattr(x,"last_run_status","UNKNOWN")))
               if not re.fullmatch(r"[A-Za-z0-9_. -]{1,80}",status): status="REDACTED"
