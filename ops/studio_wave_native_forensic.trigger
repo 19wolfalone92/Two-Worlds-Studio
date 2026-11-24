@@ -10,3 +10,4 @@ read_only_kaggle_current_status_20261123_1705=true
 
 2026-11-24_0725_terminal_error_forensic=true
 2026-11-24T07:35:00+03:00: read-only recursively verify model segment MP4 and genuine stage markers; zero GPU launches.
+2026-11-24T07:38:00+03:00: independent ffprobe and motion/color QA of original recovered 33-frame native MP4; read-only.
