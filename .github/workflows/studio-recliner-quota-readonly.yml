@@ -49,5 +49,24 @@ jobs:
           print("STUDIO_GPU_QUOTA_TOTAL_LISTED",len(entries))
           print("STUDIO_GPU_QUOTA_STATUS_DISTRIBUTION",json.dumps(counts,sort_keys=True))
           print("STUDIO_GPU_QUOTA_RECENT_EXEMPLARS",json.dumps(exemplars,sort_keys=True))
+          found=[]
+          checked=0
+          errors={}
+          # Private status reads, bounded to current most-recent 30 jobs.
+          for item in entries[:30]:
+              slug=str(getattr(item,"ref","") or "")
+              if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+",slug): continue
+              checked+=1
+              try:
+                  details=api.kernels_status(slug)
+                  st=str(getattr(details,"status",getattr(details,"worker_status","UNKNOWN")))
+                  status_text=st if re.fullmatch(r"[A-Za-z0-9_. ]{1,80}",st) else "REDACTED"
+                  found.append({"owner_kernel":slug,"state":status_text})
+              except Exception as exc:
+                  kind=type(exc).__name__
+                  errors[kind]=errors.get(kind,0)+1
+          print("STUDIO_GPU_QUOTA_OWNER_STATUS_CHECKED",checked)
+          print("STUDIO_GPU_QUOTA_OWNER_KERNEL_STATUSES",json.dumps(found,sort_keys=True))
+          print("STUDIO_GPU_QUOTA_OWNER_READ_ERRORS",json.dumps(errors,sort_keys=True))
           print("STUDIO_GPU_QUOTA_NO_SUBMISSION_NO_PRIVATE_MEDIA")
           PY
