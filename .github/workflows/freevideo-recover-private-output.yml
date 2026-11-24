@@ -5,6 +5,8 @@ on:
       - research/freevideo-t4-adaptive-20261123
     paths:
       - '.github/workflows/freevideo-recover-private-output.yml'
+      - 'experiments/freevideo_t4/kaggle_private_job.py'
+      - 'experiments/freevideo_t4/test_active_kernel_guard.py'
   workflow_dispatch:
 
 permissions:
