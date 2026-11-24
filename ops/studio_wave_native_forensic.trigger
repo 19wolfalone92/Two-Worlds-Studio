@@ -7,3 +7,5 @@ verify_hotfix_live_native_model_no_resubmit=true
 read_queue_progress_snapshot_20261123_1106=true
 
 read_only_kaggle_current_status_20261123_1705=true
+
+2026-11-24_0725_terminal_error_forensic=true
