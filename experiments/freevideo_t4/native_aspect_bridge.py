@@ -311,8 +311,8 @@ def _probe(path: Path) -> dict:
             seconds = float(n / fps)
     except (KeyError, ValueError, ZeroDivisionError) as exc:
         raise NeuralBlocked("Cannot measure the decoded neural frame clock") from exc
-    if n < 9 or not 8 <= fps <= 60 or w < 256 or h < 448 or abs(w / h - 9 / 16) > .035 or abs(seconds - float(n / fps)) > .12:
-        raise NeuralBlocked("Neural take has invalid native video geometry or frame clock")
+    if n < 9 or not 8 <= fps <= 60 or w < 256 or h < 448 or w * 4 != h * 3 or abs(seconds - float(n / fps)) > .12:
+        raise NeuralBlocked(f"Invalid native decoded geometry or clock: width={w} height={h} frames={n} fps={fps} seconds={seconds:.3f}")
     return {"width": w, "height": h, "fps": str(fps), "frames": n, "seconds": round(seconds, 5)}
 
 
@@ -362,8 +362,8 @@ def generate(model: str, *, reference: Path, output: Path, prompt: str,
     else:
         if template is None or bindings is None:
             raise ValueError("LTX-2.5 DFR requires a locally exported ComfyUI API workflow and binding map")
-        if type(width) is not int or type(height) is not int or width % 16 or height % 16 or abs(width / height - 9 / 16) > .025:
-            raise ValueError("Use a valid 9:16 resolution")
+        if type(width) is not int or type(height) is not int or width % 16 or height % 16 or width * 4 != height * 3:
+            raise ValueError("Use a valid 3:4 resolution")
         if type(frames) is not int or not 9 <= frames <= 241:
             raise ValueError("Invalid frame count")
         workflow = template_workflow(template, bindings, image_name="pending.png", prompt=prompt,

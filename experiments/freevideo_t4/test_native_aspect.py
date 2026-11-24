@@ -35,6 +35,23 @@ class NativeAspectTests(unittest.TestCase):
                     p=subprocess.run(cmd,capture_output=True,text=True,timeout=30)
                     self.assertEqual(p.returncode,0,p.stdout+p.stderr)
                     self.assertEqual(json.loads(p.stdout)["status"],"PLANNED_NO_GPU")
+    def test_native_decode_contract_real_mp4(self):
+        import shutil, subprocess
+        from experiments.freevideo_t4.native_aspect_bridge import _probe, NeuralBlocked
+        self.assertTrue(shutil.which("ffmpeg"))
+        self.assertTrue(shutil.which("ffprobe"))
+        with TemporaryDirectory() as tmp:
+            for w,h in ((384,512),(480,640),(432,576),(432,768)):
+                path=Path(tmp)/f"fixture-{w}-{h}.mp4"
+                subprocess.run(["ffmpeg","-hide_banner","-loglevel","error","-f","lavfi","-i",
+                                f"color=c=gray:s={w}x{h}:r=24","-frames:v","25","-c:v","libx264",
+                                "-pix_fmt","yuv420p","-threads","1",str(path)],check=True,timeout=30)
+                if w*4==h*3:
+                    info=_probe(path)
+                    self.assertEqual((info["width"],info["height"],info["frames"],info["fps"]),(w,h,25,"24"))
+                else:
+                    with self.assertRaises(NeuralBlocked):
+                        _probe(path)
     def test_no_padding_and_full_original(self):
         import json
         with TemporaryDirectory() as tmp:

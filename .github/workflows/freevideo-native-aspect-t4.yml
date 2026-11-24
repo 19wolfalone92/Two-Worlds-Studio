@@ -1,4 +1,4 @@
-name: FREEVIDEO - aligned native geometry and exact bridge preflight
+name: FREEVIDEO - fix decoded 3x4 acceptance and verify real MP4
 on:
   push:
     branches:
@@ -20,7 +20,7 @@ jobs:
       KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
       PYTHONUNBUFFERED: '1'
       ENCRYPTED_PHOTO: experiments/freevideo_t4/private_transport/night-awakens.encrypted.json
-      JOB_NONCE: night-awakens-20261124-04
+      JOB_NONCE: night-awakens-20261124-05
     steps:
       - uses: actions/checkout@v4
         with:
@@ -148,7 +148,7 @@ jobs:
         if: ${{ always() && steps.submit.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: freevideo-native-aspect-v2-encrypted-only
+          name: freevideo-native-aspect-v3-encrypted-only
           path: ${{ runner.temp }}/freevideo_*_result.encrypted.json
           retention-days: 3
           if-no-files-found: ignore
