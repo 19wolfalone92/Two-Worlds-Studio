@@ -27,7 +27,7 @@ class RecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"TIMING_NOT_PROVEN"):
             stage_elapsed_seconds(json.dumps(rows))
     def test_missing_owner_photo_is_fail_closed(self):
-        with self.assertRaisesRegex(RuntimeError,"AMBIGUOUS"):
+        with self.assertRaisesRegex(RuntimeError,"REFERENCE_HASH_MISMATCH"):
             private_source_reference('IMAGE_B64="ZGF0YQ=="')
     def test_private_model_template_contains_no_real_source_media(self):
         source=Path("tools/kaggle_studio_man_wave_native.py").read_text()
