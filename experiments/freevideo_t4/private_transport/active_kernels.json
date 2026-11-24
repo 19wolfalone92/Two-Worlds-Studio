@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "project": "FREEVIDEO",
+  "status": "ACTIVE_OR_STATUS_UNKNOWN",
+  "do_not_submit_new_gpu_job": true,
+  "reason": "Both private Kaggle kernel submissions succeeded; GitHub status polling then hit HTTP 429. Kernel terminal state is unverified.",
+  "submitted_jobs": [
+    {
+      "workflow_run_id": 45475653441,
+      "source_revision": "9b90bc3a7ec5a0982069ba9d06f3f8c68a15df69",
+      "nonce": "night-awakens-20261124-04",
+      "kernel": "wolf19loner92/freevideo-hybrid-f399e0b3e7b3",
+      "submitted_at": "2026-11-24T19:58:11Z",
+      "last_confirmed_status": "QUEUED",
+      "last_confirmed_status_at": "2026-11-24T19:58:12Z"
+    },
+    {
+      "workflow_run_id": 45475935059,
+      "source_revision": "107bed852f5961dcb2da5c92fafc0fbb3aaf5e25",
+      "nonce": "night-awakens-20261124-05",
+      "kernel": "wolf19loner92/freevideo-hybrid-7559aea3ceee",
+      "submitted_at": "2026-11-24T20:19:05Z",
+      "last_confirmed_status": "NOT_CONFIRMED",
+      "last_confirmed_status_at": null
+    }
+  ],
+  "last_api_failure": "HTTP 429 — dynamic Kaggle API rate limit",
+  "recovery_policy": "Read-only status/readback only; stop immediately on 429; do not push or rerun kernels until both entries are confirmed terminal."
+}
