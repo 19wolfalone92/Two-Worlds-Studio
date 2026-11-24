@@ -15,7 +15,7 @@ permissions:
 # Readback only. This workflow never pushes, clones, or launches a Kaggle kernel.
 concurrency:
   group: freevideo-private-output-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   recover:
