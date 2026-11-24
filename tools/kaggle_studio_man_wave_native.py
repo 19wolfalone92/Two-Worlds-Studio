@@ -224,8 +224,10 @@ infer(settings)
                     hashlib.sha256(original).hexdigest()!=expected):
                 raise RuntimeError("Private original neural checkpoint hash mismatch")
             elapsed=cfg.get("checkpoint_0_model_seconds")
-            if not isinstance(elapsed,(float,int)) or not 0<elapsed<3600:
-                raise RuntimeError("Original model segment duration provenance missing")
+            if elapsed is not None and (not isinstance(elapsed,(float,int)) or not 0<elapsed<3600):
+                raise RuntimeError("Invalid original model timing metadata")
+            if cfg.get("checkpoint_0_native_stage_attested") is not True:
+                raise RuntimeError("No original LTX actual GPU output stage attestation")
             recovered=OUT/"STUDIO_WAVE_REAL_SEGMENT_0.mp4"
             recovered.write_bytes(original)
             del original
@@ -245,7 +247,8 @@ infer(settings)
                             "frames":33,"fps":24,"width":576,"height":1024,
                             "model_seconds":elapsed,"color_qa":q0,
                             "numerical_motion":motion0,
-                            "recovered_from_prior_private_kernel":True})
+                            "recovered_from_prior_private_kernel":True,
+                            "native_output_stage_attested":True})
             conditioner=OUT/"STUDIO_WAVE_PRIVATE_LASTFRAME.png"
             run(["ffmpeg","-v","error","-xerror","-i",recovered,
                  "-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
