@@ -1,5 +1,6 @@
 """REAL synthetic FFmpeg fixtures; no GPU or generative model is involved."""
 import importlib.util
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -30,6 +31,9 @@ class QualityMetricsTests(unittest.TestCase):
             self.assertEqual(report["artistic_quality"], "NOT_VERIFIED")
             self.assertEqual(report["neural_inference"], "NOT_VERIFIED")
             self.assertEqual(report["near_duplicate_pairs"], 24)
+            self.assertIs(type(report["near_duplicate_pairs"]), int)
+            self.assertIs(type(report["abrupt_pixel_change_pairs"]), int)
+            self.assertEqual(json.loads(json.dumps(report, allow_nan=False)), report)
             self.assertIn("POSSIBLE_FROZEN_OR_REPEATED_FRAMES", report["flags"])
 
     def test_pixel_change_does_not_prove_character_animation(self):
@@ -38,6 +42,7 @@ class QualityMetricsTests(unittest.TestCase):
             self.make_movie(path, "testsrc=s=192x320:r=24")
             report = module.audit_video(path)
             self.assertGreater(report["adjacent_mean_absolute_difference_p95"], 0)
+            self.assertEqual(json.loads(json.dumps(report, allow_nan=False)), report)
             self.assertEqual(report["artistic_quality"], "NOT_VERIFIED")
 
     def test_corrupt_video_rejected(self):
