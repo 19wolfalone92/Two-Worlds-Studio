@@ -104,6 +104,7 @@ jobs:
           import zipfile
 
           from studio.kaggle_api import parse_status
+          from studio.kaggle_api_limits import _classify_cli_error
           from experiments.freevideo_t4.kaggle_private_job import verify_private_result
           from experiments.freevideo_t4.secure_transport import seal_result_zip
 
@@ -136,12 +137,19 @@ jobs:
               )
               if proc.returncode != 0:
                   combined = (proc.stdout + "\n" + proc.stderr).lower()
-                  if any(token in combined for token in ("not found", "404", "does not exist", "not exist")):
+                  error_code, _safe_detail = _classify_cli_error(proc.stderr or "", proc.stdout or "")
+                  missing_kernel = any(token in combined for token in (
+                      "not found", "404", "does not exist", "not exist",
+                      "could not find", "cannot find", "no such kernel",
+                      "unknown kernel", "kernel unavailable", "no kernel"
+                  ))
+                  if error_code == "not_found" or missing_kernel:
                       if last_status != "WAITING_FOR_KERNEL":
                           print("FREEVIDEO_RECOVERY_WAITING_FOR_EXISTING_KERNEL", flush=True)
                           last_status = "WAITING_FOR_KERNEL"
                       time.sleep(60)
                       continue
+                  print("FREEVIDEO_KAGGLE_STATUS_ERROR_CLASS=" + error_code.upper(), flush=True)
                   raise SystemExit("FREEVIDEO_KAGGLE_STATUS_QUERY_FAILED")
               try:
                   status = parse_status(proc.stdout)
