@@ -1,0 +1,37 @@
+name: STUDIO Recliner original PHOTO — native LTX no-GPU proof
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths:
+      - "tools/kaggle_studio_recliner_native.py"
+      - "tests/test_studio_recliner_native.py"
+      - ".github/workflows/studio-recliner-native-cpu.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  no_fake_video_syntax_source_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate isolated source without spending any GPU or publishing the portrait
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/kaggle_studio_recliner_native.py
+          python -m unittest tests.test_studio_recliner_native tests.test_eb01_bounded_inference -v
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          s=Path("tools/kaggle_studio_recliner_native.py").read_text()
+          ast.parse(s)
+          assert s.count('__STUDIO_RECLINER_CONFIG_B64__') == 1
+          assert s.count('__STUDIO_RECLINER_IMAGE_B64__') == 1
+          assert s.count('__STUDIO_RECLINER_CHECKPOINT_B64__') == 1
+          assert 'STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4' in s
+          print("STUDIO_RECLINER_129_FRAMES_GPU_SOURCE_CPU_VERIFIED_NO_GPU_RUN")
+          PY
