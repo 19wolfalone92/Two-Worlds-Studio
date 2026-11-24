@@ -229,6 +229,8 @@ jobs:
               diag_zip = out_dir / (label + "_diagnostics.zip")
               with zipfile.ZipFile(diag_zip, "x", compression=zipfile.ZIP_DEFLATED) as package:
                   package.writestr("recovery_status.json", json.dumps(diagnostic, sort_keys=True))
+                  # Ensure the encrypted-envelope minimum size without adding media.
+                  package.writestr("minimum_size_padding.bin", os.urandom(2048))
               envelope = seal_result_zip(diag_zip.read_bytes(), public)
               destination = out_dir / (label + "_diagnostics.encrypted.json")
               with destination.open("x", encoding="utf-8") as handle:
