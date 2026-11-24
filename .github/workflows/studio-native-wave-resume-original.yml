@@ -34,7 +34,7 @@ jobs:
           python -m py_compile tools/eb01_bounded_inference.py tools/kaggle_studio_man_wave_native.py tools/studio_wave_resume_original.py
           python -m unittest tests.test_eb01_bounded_inference tests.test_studio_wave_status_gate tests.test_studio_wave_resume_original -v
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'numpy>=1.26,<3' 'cryptography>=42,<47'
+          python -m pip -q install 'kaggle>=2.2.4' 'six>=1.16,<2' 'numpy>=1.26,<3' 'Pillow>=10,<12' 'cryptography>=42,<47'
       - name: Validate and recover true original 33-frame native output without any new GPU
         shell: bash
         run: |
