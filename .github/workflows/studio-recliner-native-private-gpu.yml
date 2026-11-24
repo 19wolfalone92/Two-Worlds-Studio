@@ -35,38 +35,41 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2' 'numpy>=1.26,<3'
           test -s ops/studio_recliner_owner_recovery_public.pem
-      - name: Publish temporary RSA public input key only, keep private key on this runner
+      - name: Recover stable RSA photo ingress key wrapped by private GitHub secret
         run: |
           set -euo pipefail
+          test -s ops/studio_recliner_ingress_persistent_public.pem
+          test -s ops/studio_recliner_ingress_private_wrapped.json
+          test -n "$KAGGLE_API_TOKEN"
           python - <<'PY'
-          import os
+          import base64,json,os
           from pathlib import Path
-          from studio.sealed_artifacts import generate_keys
-          root=Path(os.environ["RUNNER_TEMP"])
-          generate_keys(root/"STUDIO_RECLINER_INPUT_PRIVATE.pem",
-                        Path("ops")/("studio_recliner_input_public_"+os.environ["GITHUB_RUN_ID"]+".pem"))
-          print("STUDIO_RECLINER_PRIVATE_SOURCE_HANDSHAKE_PUBLIC_KEY_READY")
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          src=Path("ops/studio_recliner_ingress_private_wrapped.json")
+          data=json.loads(src.read_text())
+          if data["schema"]!=1 or data["purpose"]!="studio-recliner-rsa-private-key-wrap":
+              raise RuntimeError("Persisted owner ingress policy mismatch")
+          key=HKDF(algorithm=hashes.SHA256(),length=32,
+            salt=base64.b64decode(data["salt"],validate=True),
+            info=b"TW_STUDIO_RECLINER_PRIVATE_KEY_WRAP_V1").derive(os.environ["KAGGLE_API_TOKEN"].encode())
+          original=AESGCM(key).decrypt(base64.b64decode(data["nonce"],validate=True),
+            base64.b64decode(data["sealed_private_key"],validate=True),b"TW_STUDIO_RECLINER_KEY_WRAP_V1")
+          dest=Path(os.environ["RUNNER_TEMP"])/"STUDIO_RECLINER_INPUT_PRIVATE.pem"
+          dest.write_bytes(original)
+          dest.chmod(0o600)
+          print("STUDIO_RECLINER_PERSISTENT_PRIVATE_RSA_KEY_RESTORED_IN_RUNNER_ONLY")
           PY
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "ops/studio_recliner_input_public_$GITHUB_RUN_ID.pem"
-          git commit -m "Studio recliner: one-time encrypted-photo ingress public key only"
-          git push origin "HEAD:refs/heads/$STUDIO_BRANCH"
-      - name: Read encrypted user photo from this same branch without publishing photo
+      - name: Decrypt authenticated original photo from persistent sealed chunks
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 100); do
-            git fetch origin "$STUDIO_BRANCH" -q
-            if git cat-file -e "origin/$STUDIO_BRANCH:ops/studio_recliner_input_$GITHUB_RUN_ID.chunk6" 2>/dev/null; then
-              for i in 0 1 2 3 4 5 6; do
-                git show "origin/$STUDIO_BRANCH:ops/studio_recliner_input_$GITHUB_RUN_ID.chunk$i"
-              done | base64 -d > "$RUNNER_TEMP/studio-recliner-private-input.twenc"
-              break
-            fi
-            echo "STUDIO_RECLINER_WAIT_FOR_PRIVATE_ENCRYPTED_REFERENCE" "$attempt"
-            sleep 15
+          for i in 0 1 2 3 4 5 6; do
+            test -s "ops/studio_recliner_persistent_input.chunk$i"
           done
-          test -s "$RUNNER_TEMP/studio-recliner-private-input.twenc"
+          for i in 0 1 2 3 4 5 6; do
+            cat "ops/studio_recliner_persistent_input.chunk$i"
+          done | base64 -d > "$RUNNER_TEMP/studio-recliner-private-input.twenc"
           python - <<'PY'
           import hashlib,os
           from pathlib import Path
@@ -82,7 +85,7 @@ jobs:
           with Image.open(photo) as im:
               assert im.format=="WEBP" and im.size==(576,768)
               im.verify()
-          print("STUDIO_RECLINER_PRIVATE_REFERENCE_VERIFIED_576x768")
+          print("STUDIO_RECLINER_PERSISTENT_INPUT_DECRYPTED_AND_SHA_VERIFIED")
           PY
       - name: Build one private real LTX2B Kaggle notebook using encrypted owner image
         run: |
