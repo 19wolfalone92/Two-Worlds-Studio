@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # Recovery is read-only against existing private Kaggle kernels. It has a
 # separate concurrency group and never submits or restarts a GPU kernel.
@@ -25,9 +26,11 @@ jobs:
           - nonce: night-awakens-20261124-04
             label: run-45475653441
             expected_revision: 9b90bc3a7ec5a0982069ba9d06f3f8c68a15df69
+            workflow_run_id: 45475653441
           - nonce: night-awakens-20261124-05
             label: run-45475935059
             expected_revision: 107bed852f5961dcb2da5c92fafc0fbb3aaf5e25
+            workflow_run_id: 45475935059
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -36,6 +39,8 @@ jobs:
       JOB_NONCE: ${{ matrix.nonce }}
       JOB_LABEL: ${{ matrix.label }}
       EXPECTED_SOURCE_REVISION: ${{ matrix.expected_revision }}
+      TARGET_GITHUB_RUN_ID: ${{ matrix.workflow_run_id }}
+      GH_TOKEN: ${{ github.token }}
       ENCRYPTED_PHOTO: experiments/freevideo_t4/private_transport/night-awakens.encrypted.json
       OUTPUT_PUBLIC_KEY: experiments/freevideo_t4/private_transport/freevideo_temporary_output_public_key.txt
       PYTHONUNBUFFERED: '1'
@@ -102,6 +107,8 @@ jobs:
           import subprocess
           import time
           import zipfile
+          from urllib.error import HTTPError, URLError
+          from urllib.request import Request, urlopen
 
           from studio.kaggle_api import parse_status
           from studio.kaggle_api_limits import _classify_cli_error
@@ -128,6 +135,49 @@ jobs:
           status = "NOT_FOUND"
           last_status = None
           print("FREEVIDEO_RECOVERY_KERNEL_TARGET=" + label, flush=True)
+
+          # Confirm that the corresponding GitHub workflow has actually submitted
+          # this private kernel before asking Kaggle for a status (prevents a
+          # false failure while the newer run is still queued behind the older run).
+          target_run_id = os.environ["TARGET_GITHUB_RUN_ID"]
+          github_deadline = time.monotonic() + 350 * 60
+          submitted = False
+          while time.monotonic() < github_deadline:
+              headers = {
+                  "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              }
+              try:
+                  with urlopen(Request(
+                      "https://api.github.com/repos/19wolfalone92/Two-Worlds-Studio/actions/runs/" + target_run_id,
+                      headers=headers), timeout=30) as response:
+                      target_run = json.loads(response.read(262145))
+                  with urlopen(Request(
+                      "https://api.github.com/repos/19wolfalone92/Two-Worlds-Studio/actions/runs/" + target_run_id + "/jobs?per_page=100",
+                      headers=headers), timeout=30) as response:
+                      target_jobs = json.loads(response.read(1048577))
+              except (HTTPError, URLError, TimeoutError, ValueError):
+                  raise SystemExit("FREEVIDEO_GITHUB_RUN_STATUS_UNAVAILABLE") from None
+              submit_step = None
+              for job in target_jobs.get("jobs", []):
+                  for step in job.get("steps", []):
+                      if step.get("name", "").startswith("Submit one private T4 job"):
+                          submit_step = step
+                          break
+                  if submit_step is not None:
+                      break
+              if submit_step and submit_step.get("conclusion") == "success":
+                  submitted = True
+                  break
+              if submit_step and submit_step.get("conclusion") in {"failure", "cancelled", "skipped"}:
+                  raise SystemExit("FREEVIDEO_GITHUB_KERNEL_SUBMISSION_NOT_SUCCESSFUL")
+              if target_run.get("status") == "completed":
+                  raise SystemExit("FREEVIDEO_GITHUB_RUN_COMPLETED_WITHOUT_KERNEL_SUBMISSION")
+              time.sleep(60)
+          if not submitted:
+              raise SystemExit("FREEVIDEO_GITHUB_SUBMISSION_WAIT_TIMEOUT")
+          print("FREEVIDEO_GITHUB_KERNEL_SUBMISSION_CONFIRMED", flush=True)
 
           # This polls only. It never calls 'kaggle kernels push' and never starts GPU work.
           while time.monotonic() < deadline:
