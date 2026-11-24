@@ -27,7 +27,7 @@ def main():
     if (cfg.get("schema")!=1 or cfg.get("mode")!="studio-native-wave" or
         cfg.get("private") is not True or cfg.get("no_paid_services") is not True or
         cfg.get("allow_social_publish") is not False or cfg.get("human_artistic_approved") is not False or
-        cfg.get("source_sha256")!="b2a235c7493df7d7d2cb98572d5baa27836511572172abb4a911784ae93a2e21"):
+        cfg.get("source_sha256")!="9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3"):
         raise ValueError("Unsafe native Studio reference or privacy policy")
     import torch
     from PIL import Image
