@@ -1,0 +1,192 @@
+name: STUDIO Recliner — real LTX GPU original photo private MP4
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_native_start.trigger"]
+permissions:
+  contents: write
+concurrency:
+  group: studio-native-recliner-owner-20261124
+  cancel-in-progress: false
+jobs:
+  native_ltx_gpu:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      PYTHONUNBUFFERED: "1"
+      STUDIO_BRANCH: feature/studio-native-recliner-photo-20261124
+      STUDIO_SOURCE_SHA: b2a235c7493df7d7d2cb98572d5baa27836511572172abb4a911784ae93a2e21
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: CPU validate studio native LTX source and install necessary tools
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m py_compile tools/kaggle_studio_recliner_native.py
+          python -m unittest tests.test_studio_recliner_native tests.test_eb01_bounded_inference -v
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2' 'numpy>=1.26,<3'
+          test -s ops/studio_recliner_owner_delivery_public.pem
+      - name: Publish temporary RSA public input key only, keep private key on this runner
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from studio.sealed_artifacts import generate_keys
+          root=Path(os.environ["RUNNER_TEMP"])
+          generate_keys(root/"STUDIO_RECLINER_INPUT_PRIVATE.pem",
+                        Path("ops")/("studio_recliner_input_public_"+os.environ["GITHUB_RUN_ID"]+".pem"))
+          print("STUDIO_RECLINER_PRIVATE_SOURCE_HANDSHAKE_PUBLIC_KEY_READY")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "ops/studio_recliner_input_public_$GITHUB_RUN_ID.pem"
+          git commit -m "Studio recliner: one-time encrypted-photo ingress public key only"
+          git push origin "HEAD:refs/heads/$STUDIO_BRANCH"
+      - name: Read encrypted user photo from this same branch without publishing photo
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 100); do
+            git fetch origin "$STUDIO_BRANCH" -q
+            if git cat-file -e "origin/$STUDIO_BRANCH:ops/studio_recliner_input_$GITHUB_RUN_ID.twenc.b64" 2>/dev/null; then
+              git show "origin/$STUDIO_BRANCH:ops/studio_recliner_input_$GITHUB_RUN_ID.twenc.b64" | base64 -d > "$RUNNER_TEMP/studio-recliner-private-input.twenc"
+              break
+            fi
+            echo "STUDIO_RECLINER_WAIT_FOR_PRIVATE_ENCRYPTED_REFERENCE" "$attempt"
+            sleep 15
+          done
+          test -s "$RUNNER_TEMP/studio-recliner-private-input.twenc"
+          python - <<'PY'
+          import hashlib,os
+          from pathlib import Path
+          from PIL import Image
+          from studio.sealed_artifacts import unseal
+          root=Path(os.environ["RUNNER_TEMP"])
+          photo=root/"STUDIO_RECLINER_OWNER_REFERENCE.webp"
+          unseal(root/"studio-recliner-private-input.twenc",
+                 root/"STUDIO_RECLINER_INPUT_PRIVATE.pem",photo,
+                 {"purpose":"studio-recliner-input","schema":1,
+                  "source_sha256":os.environ["STUDIO_SOURCE_SHA"]})
+          assert hashlib.sha256(photo.read_bytes()).hexdigest()==os.environ["STUDIO_SOURCE_SHA"]
+          with Image.open(photo) as im:
+              assert im.format=="WEBP" and im.size==(576,768)
+              im.verify()
+          print("STUDIO_RECLINER_PRIVATE_REFERENCE_VERIFIED_576x768")
+          PY
+      - name: Build one private real LTX2B Kaggle notebook using encrypted owner image
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          folder=root/"studio-recliner-private-kernel"
+          folder.mkdir(mode=0o700)
+          code=Path("tools/kaggle_studio_recliner_native.py").read_text()
+          source=(root/"STUDIO_RECLINER_OWNER_REFERENCE.webp").read_bytes()
+          cfg={"schema":1,"mode":"studio-native-wave",
+               "private":True,"no_paid_services":True,"allow_social_publish":False,
+               "human_artistic_approved":False,"branch":os.environ["STUDIO_BRANCH"],
+               "revision":os.environ["GITHUB_SHA"],
+               "source_sha256":os.environ["STUDIO_SOURCE_SHA"]}
+          for marker,value in (
+           ("__STUDIO_RECLINER_CONFIG_B64__",base64.b64encode(json.dumps(cfg,sort_keys=True).encode()).decode()),
+           ("__STUDIO_RECLINER_IMAGE_B64__",base64.b64encode(source).decode())):
+              assert code.count(marker)==1
+              code=code.replace(marker,value)
+          compile(code,"<private_studio_recliner>", "exec")
+          (folder/"kernel_main.py").write_text(code)
+          kernel="wolf19loner92/studio-recliner-native-"+os.environ["GITHUB_RUN_ID"]
+          metadata={"id":kernel,"title":kernel.split("/")[1],"code_file":"kernel_main.py",
+               "language":"python","kernel_type":"script","is_private":"true",
+               "enable_gpu":"true","enable_internet":"true",
+               "machine_shape":"NvidiaTeslaT4",
+               "dataset_sources":[],"competition_sources":[],"kernel_sources":[],"model_sources":[]}
+          (folder/"kernel-metadata.json").write_text(json.dumps(metadata))
+          (root/"STUDIO_RECLINER_KERNEL_ID.txt").write_text(kernel)
+          print("STUDIO_RECLINER_REAL_NEURAL_KAGGLE_JOB_PREPARED",kernel)
+          PY
+      - name: Run one real private Kaggle T4 LTX neural generation, no mock or still-photo video
+        run: |
+          set -euo pipefail
+          kaggle kernels push -p "$RUNNER_TEMP/studio-recliner-private-kernel" --timeout 3600 --accelerator NvidiaTeslaT4
+          echo "STUDIO_RECLINER_REAL_GPU_LTX_SUBMITTED"
+      - name: Verify original 129 generated frames, all four clips and complete MP4 decode
+        run: |
+          set -euo pipefail
+          kernel="$(cat "$RUNNER_TEMP/STUDIO_RECLINER_KERNEL_ID.txt")"
+          complete=false
+          for attempt in $(seq 1 70); do
+            state="$(kaggle kernels status "$kernel")"
+            echo "STUDIO_RECLINER_PRIVATE_GPU_STATE" "$state"
+            if [[ "$state" == *'KernelWorkerStatus.COMPLETE'* ]]; then
+              mkdir -p "$RUNNER_TEMP/studio-recliner-private-output"
+              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/studio-recliner-private-output" --force > "$RUNNER_TEMP/studio-recliner-private-output.log" 2>&1
+              complete=true
+              break
+            fi
+            if [[ "$state" == *'KernelWorkerStatus.ERROR'* || "$state" == *'KernelWorkerStatus.CANCEL'* ]]; then
+              echo "::error::LTX model failed; no fake video accepted and no automatic GPU rerun."
+              exit 1
+            fi
+            sleep 55
+          done
+          [[ "$complete" == true ]] || { echo "::error::Original GPU job incomplete; do not fabricate result."; exit 1; }
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          from studio.comfy_neural import _probe
+          root=Path(os.environ["RUNNER_TEMP"])/"studio-recliner-private-output"
+          movie=root/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4"
+          data=json.loads((root/"STUDIO_RECLINER_TRUE_NATIVE_RECEIPT.json").read_text())
+          assert data["actual_native_gpu_inference"] is True
+          assert data["source_reference_sha256"]==os.environ["STUDIO_SOURCE_SHA"]
+          assert data["output_frames"]==129
+          assert data["output_sha256"]==hashlib.sha256(movie.read_bytes()).hexdigest()
+          assert len(data["original_neural_segments"])==4
+          assert data["qa_color_all_segments"] is True
+          for i,record in enumerate(data["original_neural_segments"]):
+              assert record["index"]==i and record["frames"]==33
+              assert record["color_qa"]=="NO_NEON_ARTIFACT_FOUND"
+              assert record["numerical_motion"]["nonidentical_motion_frames"]>=4
+              clip=root/("STUDIO_RECLINER_REAL_SEGMENT_"+str(i)+".mp4")
+              assert clip.is_file()
+              assert hashlib.sha256(clip.read_bytes()).hexdigest()==record["sha256"]
+          meta=_probe(movie)
+          assert (meta.get("frames"),meta.get("fps"),meta.get("width"),meta.get("height"))==(129,"24",576,768)
+          subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(movie),"-f","null","-"],
+                         capture_output=True,check=True,timeout=120)
+          print("STUDIO_RECLINER_ORIGINAL_GPU_NEURAL_MP4_VERIFIED",data["output_sha256"])
+          PY
+      - name: Authenticated encrypt actual MP4 for user; never publish raw video
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from studio.sealed_artifacts import seal
+          root=Path(os.environ["RUNNER_TEMP"])
+          seal(root/"studio-recliner-private-output"/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4",
+               Path("ops/studio_recliner_owner_delivery_public.pem"),
+               root/"STUDIO_RECLINER_REAL_129F_USER_ONLY.twenc",
+               {"purpose":"studio-recliner-native-output","schema":1,
+                "source_sha256":os.environ["STUDIO_SOURCE_SHA"],
+                "verified_frames":129})
+          print("STUDIO_RECLINER_PRIVATE_ORIGINAL_MP4_OWNER_ENCRYPTED")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-real-ltx-neural-mp4-owner-encrypted
+          path: ${{ runner.temp }}/STUDIO_RECLINER_REAL_129F_USER_ONLY.twenc
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
