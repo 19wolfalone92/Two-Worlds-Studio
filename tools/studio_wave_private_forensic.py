@@ -1,6 +1,6 @@
 """Read-only Kaggle Studio-wave forensic; no GPU, no requeue, no user media returned."""
 from __future__ import annotations
-import json,re,subprocess,tempfile,hashlib
+import json,re,subprocess,tempfile,hashlib,shutil
 from pathlib import Path
 
 KERNEL="wolf19loner92/studio-native-man-wave-81a7215251acc6b"
@@ -36,7 +36,37 @@ def main():
         result["stages"]=list(dict.fromkeys(all_stages))[-30:]
         result["last_stage"]=all_stages[-1] if all_stages else "NONE"
         result["exception_classes"]=list(dict.fromkeys(TYPES.findall(combined)))[-20:]
-        result["gpu_report_found"]=any(x.suffix==".mp4" for x in target.iterdir())
+        # Recursive read-only numerical audit: no raw user frames returned.
+        candidates=list(target.rglob("*.mp4"))
+        result["gpu_report_found"]=bool(candidates)
+        result["original_neural_candidate_count"]=len(candidates)
+        result["ffprobe_available"]=shutil.which("ffprobe") is not None
+        safe_video=[]
+        for movie in candidates[:12]:
+            name=movie.relative_to(target).as_posix()
+            if not (name.startswith("STUDIO_WAVE_") or
+                    name.startswith("STUDIO_WAVE_NATIVE_PRIVATE_GENERATION/")):
+                continue
+            summary={"relative_path":name,"bytes":movie.stat().st_size,
+                     "sha256":hashlib.sha256(movie.read_bytes()).hexdigest()}
+            if result["ffprobe_available"]:
+                code,stdout,_=call(["ffprobe","-v","error","-count_frames",
+                     "-select_streams","v:0","-show_entries",
+                     "stream=codec_name,width,height,avg_frame_rate,nb_read_frames,duration",
+                     "-of","json",str(movie)],timeout=60)
+                try:
+                    streams=json.loads(stdout).get("streams",[]) if code==0 else []
+                    summary["stream"]=streams[0] if streams else None
+                except ValueError:
+                    summary["probe_parse_failed"]=True
+            safe_video.append(summary)
+        result["native_candidates"]=safe_video
+        result["native_subdirectory_present"]=(target/"STUDIO_WAVE_NATIVE_PRIVATE_GENERATION").is_dir()
+        result["native_segment_directories"]=[
+            (target/"STUDIO_WAVE_NATIVE_PRIVATE_GENERATION"/("segment_"+str(i))).is_dir()
+            for i in (0,1)]
+        result["native_receipt_present"]=(target/"STUDIO_WAVE_TRUE_NATIVE_RECEIPT.json").is_file()
+        result["public_private_photo_exposed"]=False
         result["error_markers"]={
             k:k.lower() in combined.lower() for k in (
                 "No module named","SyntaxError","ModuleNotFoundError","NameError",
