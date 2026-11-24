@@ -25,6 +25,33 @@ ROOT = Path("/kaggle/temp/freevideo_public_source")
 COMFY = Path("/kaggle/temp/freevideo_comfy")
 OUT = WORK / "freevideo_result.json"
 ARCHIVE = WORK / "FREEVIDEO_PRIVATE_PREVIEW.zip"
+DIAGNOSTIC = WORK / "freevideo_progress.json"
+STAGE = "bootstrap"
+
+
+def checkpoint(stage: str) -> None:
+    """Persist last entered stage before expensive or crash-prone work."""
+    global STAGE
+    STAGE = stage
+    record = {"schema": 1, "stage": stage, "timestamp": time.time()}
+    try:
+        import shutil
+        record["disk_free_bytes"] = shutil.disk_usage(WORK).free
+        import resource
+        record["rss_peak_kib"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        torch = sys.modules.get("torch")
+        if torch is not None and torch.cuda.is_initialized():
+            free, total = torch.cuda.mem_get_info(0)
+            record.update(gpu_free_bytes=free, gpu_total_bytes=total)
+    except Exception:
+        pass  # Diagnostics must not cause a GPU job to fail.
+    tmp = DIAGNOSTIC.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(record, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, DIAGNOSTIC)
+    print("FREEVIDEO_STAGE=" + stage, flush=True)
 
 
 def run(command: list[str], *, timeout: int = 900, cwd: Path | None = None):
@@ -45,7 +72,7 @@ def _load_private_source(config: dict) -> Path:
     if fmt not in ("png", "jpeg"):
         raise ValueError("Expected inspected PNG or JPEG format in private config")
     suffix = ".png" if fmt == "png" else ".jpg"
-    work = WORK / ("freevideo_source_input" + suffix)
+    work = ROOT.parent / ("freevideo_source_input" + suffix)
     if work.exists():
         raise ValueError("Output collision; do not overwrite a private reference")
     data = base64.b64decode(IMAGE_B64, validate=True)
@@ -64,9 +91,12 @@ def _load_private_source(config: dict) -> Path:
 def _checkout_source(config: dict) -> None:
     if ROOT.exists():
         raise ValueError("Unexpected public source checkout preexists")
-    branch = "research/freevideo-t4-adaptive-20261123"
-    run(["git", "clone", "--depth", "1", "--single-branch", "--branch", branch,
-         "https://github.com/19wolfalone92/Two-Worlds-Studio.git", str(ROOT)], timeout=360)
+    ROOT.mkdir(parents=True)
+    run(["git", "init", str(ROOT)], timeout=30)
+    run(["git", "remote", "add", "origin",
+         "https://github.com/19wolfalone92/Two-Worlds-Studio.git"], cwd=ROOT, timeout=30)
+    run(["git", "fetch", "--depth", "1", "origin", config["source_revision"]], cwd=ROOT, timeout=360)
+    run(["git", "checkout", "--detach", "FETCH_HEAD"], cwd=ROOT, timeout=60)
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"],
                                        text=True, cwd=ROOT, timeout=20).strip()
     if revision != config["source_revision"]:
@@ -78,13 +108,16 @@ def _checkout_source(config: dict) -> None:
 def _install_backend(config: dict) -> dict:
     if COMFY.exists():
         raise ValueError("Unexpected existing ComfyUI; cannot validate provenance")
+    checkpoint("clone_comfy")
     run(["git", "clone", "--depth", "1", "https://github.com/Comfy-Org/ComfyUI.git",
          str(COMFY)], timeout=420)
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"],
                                        text=True, cwd=COMFY, timeout=20).strip()
+    checkpoint("install_dependencies")
     run([sys.executable, "-m", "pip", "install", "-q", "-r",
          str(COMFY / "requirements.txt"), "huggingface_hub>=0.29", "Pillow>=10,<12"],
         timeout=1200)
+    checkpoint("install_weights")
     from studio.model_install import install
     details = install("wan22-5b", COMFY, accept_license=config["license_reviewed"],
                       execute=True)
@@ -161,18 +194,25 @@ def run_job(data: dict) -> dict:
             not isinstance(data.get("reference_sha256"), str) or
             not isinstance(data.get("nonce"), str)):
         raise ValueError("Private Freevideo configuration missing licensed model fields")
+    checkpoint("cuda_preflight")
     gpu = _gpu()
+    checkpoint("checkout_source")
     _checkout_source(data)
+    checkpoint("decode_reference")
     original = _load_private_source(data)
     from experiments.freevideo_t4.hybrid_engine import prepare, run_stage
-    private_work = WORK / ("freevideo_job_" + data["nonce"])
+    checkpoint("prepare_reference")
+    private_work = ROOT.parent / ("freevideo_job_" + data["nonce"])
     setup = prepare(original, private_work, data["nonce"], data["prompt"],
                     seed=data["seed"])
     backend = _install_backend(data)
+    checkpoint("weight_manifest")
     weights = _weight_manifest()
     process = log = None
     try:
+        checkpoint("start_comfy")
         process, log = _start_comfy()
+        checkpoint("native_preview_inference")
         result = run_stage(setup["job_file"], "preview",
                            execute=True, accept_model_license=True,
                            weights_manifest=str(weights), device=0,
@@ -189,6 +229,7 @@ def run_job(data: dict) -> dict:
         if log is not None:
             log.close()
 
+    checkpoint("package_verified_preview")
     clip = private_work / "preview.mp4"
     files = [
         "preview.mp4", "preview.receipt.json", "preview.freevideo.json",
@@ -213,19 +254,23 @@ def run_job(data: dict) -> dict:
     }
     with OUT.open("x", encoding="utf-8") as f:
         json.dump(record, f, indent=2)
+    checkpoint("complete_preview")
     return record
 
 
 def main():
-    data = json.loads(base64.b64decode(CONFIG_B64, validate=True))
+    data = {}
     try:
+        checkpoint("parse_configuration")
+        data = json.loads(base64.b64decode(CONFIG_B64, validate=True))
         result = run_job(data)
         print(json.dumps({"status": result["status"],
                           "nonce": result["nonce"], "published": False}), flush=True)
     except BaseException as exc:
         record = {"schema": 1, "nonce": data.get("nonce"),
                   "status": "BLOCKED_GPU_NOT_VERIFIED", "error_type": type(exc).__name__,
-                  "error_summary": str(exc)[:220], "published": False}
+                  "error_summary": str(exc)[:220], "stage": STAGE,
+                  "traceback_private": traceback.format_exc()[-16000:], "published": False}
         with OUT.open("w", encoding="utf-8") as f:
             json.dump(record, f, indent=2)
         traceback.print_exc()
