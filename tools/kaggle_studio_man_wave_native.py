@@ -7,6 +7,8 @@ import base64,hashlib,json,os,subprocess,sys,shutil,time,traceback
 from pathlib import Path
 CONFIG_B64="__STUDIO_WAVE_CONFIG_B64__"
 IMAGE_B64="__STUDIO_WAVE_IMAGE_B64__"
+# Optional real segment-0 bytes, passed ONLY into a private Kaggle script.
+CHECKPOINT_B64="__STUDIO_WAVE_CHECKPOINT_B64__"
 ROOT=Path("/kaggle/temp/two-worlds-wave-repo")
 LTX=Path("/kaggle/temp/studio-wave-ltx")
 OUT=Path("/kaggle/working")
@@ -211,7 +213,46 @@ infer(settings)
 """
     videos=[];records=[];conditioner=reference
     try:
-        for segment in (0,1):
+        # Restore exactly the previous real T4 model output when a telemetry
+        # bug prevented the controller from accepting an already completed
+        # neural segment. Never regenerate/replace previously verified frames.
+        resume_native=CHECKPOINT_B64!="__STUDIO_WAVE_CHECKPOINT_B64__"
+        if resume_native:
+            original=base64.b64decode(CHECKPOINT_B64,validate=True)
+            expected=cfg.get("checkpoint_0_sha256")
+            if (not isinstance(expected,str) or len(expected)!=64 or
+                    hashlib.sha256(original).hexdigest()!=expected):
+                raise RuntimeError("Private original neural checkpoint hash mismatch")
+            elapsed=cfg.get("checkpoint_0_model_seconds")
+            if not isinstance(elapsed,(float,int)) or not 0<elapsed<3600:
+                raise RuntimeError("Original model segment duration provenance missing")
+            recovered=OUT/"STUDIO_WAVE_REAL_SEGMENT_0.mp4"
+            recovered.write_bytes(original)
+            del original
+            m0=_probe(recovered)
+            run(["ffmpeg","-v","error","-xerror","-i",recovered,"-f","null","-"],timeout=120)
+            if (m0.get("frames")!=33 or m0.get("fps")!="24" or
+                    m0.get("width")!=576 or m0.get("height")!=1024):
+                raise RuntimeError("Recovered first neural MP4 geometry mismatched")
+            q0=inspect_clip(recovered)["status"]
+            motion0=gray_motion(recovered)
+            if (q0!="NO_NEON_ARTIFACT_FOUND" or
+                    motion0["mean_frame_luma_delta"]<=0.18 or
+                    motion0["nonidentical_motion_frames"]<4):
+                raise RuntimeError("Recovered first neural MP4 failed independent pixel QA")
+            videos.append(recovered)
+            records.append({"index":0,"sha256":sha(recovered),
+                            "frames":33,"fps":24,"width":576,"height":1024,
+                            "model_seconds":elapsed,"color_qa":q0,
+                            "numerical_motion":motion0,
+                            "recovered_from_prior_private_kernel":True})
+            conditioner=OUT/"STUDIO_WAVE_PRIVATE_LASTFRAME.png"
+            run(["ffmpeg","-v","error","-xerror","-i",recovered,
+                 "-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
+            if not conditioner.is_file():
+                raise RuntimeError("Recovered native first-segment conditioning frame missing")
+            print("STUDIO_WAVE_REAL_GPU_SEGMENT_0_RESTORED_SHA_VERIFIED",flush=True)
+        for segment in ((1,) if resume_native else (0,1)):
             target=generated/("segment_"+str(segment));target.mkdir()
             env=os.environ.copy()
             env.update(LTX_CONFIG=str(c),LTX_PROMPT=prompts[segment],
