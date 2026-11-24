@@ -34,7 +34,7 @@ jobs:
           python -m unittest tests.test_studio_recliner_native tests.test_eb01_bounded_inference -v
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2' 'numpy>=1.26,<3'
-          test -s ops/studio_recliner_owner_delivery_public.pem
+          test -s ops/studio_recliner_owner_recovery_public.pem
       - name: Publish temporary RSA public input key only, keep private key on this runner
         run: |
           set -euo pipefail
@@ -120,8 +120,19 @@ jobs:
       - name: Run one real private Kaggle T4 LTX neural generation, no mock or still-photo video
         run: |
           set -euo pipefail
-          kaggle kernels push -p "$RUNNER_TEMP/studio-recliner-private-kernel" --timeout 3600 --accelerator NvidiaTeslaT4
-          echo "STUDIO_RECLINER_REAL_GPU_LTX_SUBMITTED"
+          # Kaggle CLI may print "Kernel push error" while exiting zero.
+          # Inspect the response AND independently verify the created kernel.
+          response="$(kaggle kernels push -p "$RUNNER_TEMP/studio-recliner-private-kernel" --timeout 3600 --accelerator NvidiaTeslaT4 2>&1)"
+          if printf "%s\n" "$response" | grep -Eiq "Kernel push error|Maximum batch GPU session|quota|429|403|404|Traceback"; then
+            echo "::error::Kaggle rejected the GPU submission; no real inference launched."
+            exit 1
+          fi
+          kernel="$(cat "$RUNNER_TEMP/STUDIO_RECLINER_KERNEL_ID.txt")"
+          if ! kaggle kernels status "$kernel" >/dev/null 2>&1; then
+            echo "::error::Kaggle kernel not confirmed after submission. No false PASS."
+            exit 1
+          fi
+          echo "STUDIO_RECLINER_REAL_GPU_LTX_SUBMITTED_AND_KERNEL_VERIFIED"
       - name: Verify original 129 generated frames, all four clips and complete MP4 decode
         run: |
           set -euo pipefail
@@ -178,7 +189,7 @@ jobs:
           from studio.sealed_artifacts import seal
           root=Path(os.environ["RUNNER_TEMP"])
           seal(root/"studio-recliner-private-output"/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4",
-               Path("ops/studio_recliner_owner_delivery_public.pem"),
+               Path("ops/studio_recliner_owner_recovery_public.pem"),
                root/"STUDIO_RECLINER_REAL_129F_USER_ONLY.twenc",
                {"purpose":"studio-recliner-native-output","schema":1,
                 "source_sha256":os.environ["STUDIO_SOURCE_SHA"],
