@@ -7,7 +7,7 @@ from __future__ import annotations
 import hashlib, json, os, re, subprocess, tempfile, zipfile
 from pathlib import Path
 
-KERNEL = "pavelbloody/studio-recliner-native-45480625216"
+KERNEL = os.environ.get("STUDIO_FORENSIC_KERNEL", "pavelbloody/studio-recliner-native-45480625216")
 SOURCE_SHA256 = "9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3"
 STAGE_RE = re.compile(
     r"\b(WAVE_STAGE_(?:BEGIN_MODEL_LOAD|END_MODEL_LOAD|BEGIN_PROMPT_ENCODE|"
