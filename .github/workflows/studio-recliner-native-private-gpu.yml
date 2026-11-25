@@ -319,6 +319,7 @@ jobs:
           import hashlib,json,os,subprocess
           from pathlib import Path
           from tools.kaggle_studio_recliner_native import _probe_recliner
+          kernel=(Path(os.environ["RUNNER_TEMP"])/"STUDIO_RECLINER_KERNEL_ID.txt").read_text().strip()
           root=Path(os.environ["RUNNER_TEMP"])/"studio-recliner-private-output"
           movie=root/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4"
           data=json.loads((root/"STUDIO_RECLINER_TRUE_NATIVE_RECEIPT.json").read_text())
@@ -418,5 +419,29 @@ jobs:
           name: studio-recliner-real-ltx-neural-mp4-owner-encrypted
           path: ${{ runner.temp }}/STUDIO_RECLINER_REAL_129F_USER_ONLY.twenc
           compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - name: Seal final MP4 and reference for the active local verification session
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,hashlib,zipfile
+          from pathlib import Path
+          from studio.sealed_artifacts import seal
+          root=Path(os.environ["RUNNER_TEMP"])
+          src=root/"studio-recliner-private-output"
+          reference=src/"STUDIO_RECLINER_PRIVATE_REFERENCE.webp"
+          assert hashlib.sha256(reference.read_bytes()).hexdigest()==os.environ["STUDIO_SOURCE_SHA"]
+          package=root/"studio-session-final.zip"
+          with zipfile.ZipFile(package,"w",compression=zipfile.ZIP_STORED) as z:
+              for name in ("STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4","STUDIO_RECLINER_TRUE_NATIVE_RECEIPT.json","STUDIO_RECLINER_PRIVATE_REFERENCE.webp"):
+                  z.write(src/name,name)
+          seal(package,Path("ops/studio_recliner_session_review_20261125_public.pem"),root/"studio-session-final.twenc",{"purpose":"studio-recliner-local-final-review","schema":1,"source_sha256":os.environ["STUDIO_SOURCE_SHA"],"verified_frames":129})
+          package.unlink()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-session-encrypted-final
+          path: ${{ runner.temp }}/studio-session-final.twenc
           retention-days: 3
           if-no-files-found: error

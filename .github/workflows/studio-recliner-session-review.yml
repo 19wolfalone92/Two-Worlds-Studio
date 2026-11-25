@@ -1,0 +1,54 @@
+name: STUDIO Recliner — encrypted session visual QA pickup NO GPU
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_session_review.trigger"]
+permissions:
+  contents: read
+jobs:
+  retrieve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Retrieve and seal already generated media for local visual verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m pip -q install "kaggle==2.2.4" "six>=1.16,<2" "cryptography>=42,<47"
+          mkdir -m 700 "$RUNNER_TEMP/private_recliner_review"
+          kaggle kernels output pavelbloody/studio-recliner-native-45569339001 -p "$RUNNER_TEMP/private_recliner_review" --force > "$RUNNER_TEMP/review_download.log" 2>&1
+          python - <<'PY'
+          import hashlib,os,zipfile
+          from pathlib import Path
+          from studio.sealed_artifacts import seal
+          root=Path(os.environ["RUNNER_TEMP"])
+          src=root/"private_recliner_review"
+          expected={
+             "STUDIO_RECLINER_PRIVATE_REFERENCE.webp":"9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3",
+             "STUDIO_RECLINER_REAL_SEGMENT_0.mp4":"124f259749f6fdbe8f2113f5d850d7a520b6ddf3413ba3cefb6bf11006c9461c",
+             "STUDIO_RECLINER_REAL_SEGMENT_1.mp4":"4dd24d46a446add5005d3ff01cdd42e460032261b717fc05c372724d23a0f49b"}
+          package=root/"review-private.zip"
+          with zipfile.ZipFile(package,"w",compression=zipfile.ZIP_STORED) as z:
+              for name,digest in expected.items():
+                  p=src/name
+                  assert hashlib.sha256(p.read_bytes()).hexdigest()==digest
+                  z.write(p,name)
+          result=seal(package,Path("ops/studio_recliner_session_review_20261125_public.pem"),root/"review-session.twenc",{"purpose":"studio-recliner-local-visual-review","schema":1,"kernel":"pavelbloody/studio-recliner-native-45569339001"})
+          print("STUDIO_PRIVATE_REVIEW_MEDIA_SEALED",result)
+          package.unlink()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-session-encrypted-review
+          path: ${{ runner.temp }}/review-session.twenc
+          retention-days: 3
+          if-no-files-found: error
