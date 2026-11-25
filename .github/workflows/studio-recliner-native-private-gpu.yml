@@ -124,22 +124,33 @@ jobs:
           api=KaggleApi()
           api.authenticate()
           kernels=[]
-          for page in (1,2,3):
+          for page in range(1,11):
               current=api.kernels_list(mine=True,page_size=100,page=page)
               kernels.extend(current)
               if len(current)<100: break
+          else:
+              raise RuntimeError("Kaggle kernel inventory exceeded 1000 entries; active-job check incomplete")
+          if not kernels:
+              raise RuntimeError("Kaggle kernel inventory returned no rows; active-job check unverified")
           terminal={"KernelWorkerStatus.COMPLETE","KernelWorkerStatus.ERROR",
                     "KernelWorkerStatus.CANCELLED","KernelWorkerStatus.CANCELED"}
           active=[]
+          refs=[]
           for item in kernels:
-              slug=str(getattr(item,"ref","") or "")
+              slug=str(item.get("ref","") if isinstance(item,dict) else (getattr(item,"ref","") or ""))
               if not slug: continue
-              state=str(getattr(api.kernels_status(slug),"status","UNKNOWN"))
+              refs.append(slug)
+              status_obj=api.kernels_status(slug)
+              state=str(status_obj.get("status","UNKNOWN") if isinstance(status_obj,dict)
+                        else getattr(status_obj,"status","UNKNOWN"))
               if state not in terminal:
                   active.append(slug)
+          if os.environ["STUDIO_PREVIOUS_KERNEL"] not in refs:
+              raise RuntimeError("Previous private kernel missing from authenticated account inventory")
           if active:
               raise RuntimeError("Second Kaggle account still has active kernels; no GPU submission allowed")
-          print("STUDIO_RECLINER_SECOND_ACCOUNT_AUTHENTICATED_ACTIVE_KERNEL_COUNT",len(active))
+          print("STUDIO_RECLINER_SECOND_ACCOUNT_AUTHENTICATED_KERNELS_CHECKED",len(refs),
+                "ACTIVE_KERNELS",len(active))
           PY
           mkdir -p "$RUNNER_TEMP/studio-recliner-prior-output"
           kaggle kernels output "$prior" -p "$RUNNER_TEMP/studio-recliner-prior-output" --force > "$RUNNER_TEMP/studio-recliner-prior-output-download.log" 2>&1
