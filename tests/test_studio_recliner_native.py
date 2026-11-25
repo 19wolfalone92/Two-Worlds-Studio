@@ -3,7 +3,7 @@ import ast
 import hashlib
 import unittest
 
-from tools.kaggle_studio_recliner_native import _validate_recliner_video_stream, _classify_recliner_color_qa
+from tools.kaggle_studio_recliner_native import _validate_recliner_video_stream, _classify_recliner_color_qa, _continuation_attempts
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "tools/kaggle_studio_recliner_native.py"
@@ -82,7 +82,15 @@ class ReclinerNativeStudioTests(unittest.TestCase):
     def test_continuation_uses_higher_noise_for_visible_motion_and_keeps_motion_gate(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("LTX_IMAGE_COND_NOISE_SCALE", source)
-        self.assertIn("{1:0.35,2:0.30,3:0.25}", source)
+        self.assertEqual(_continuation_attempts(1), ((0.25,2026112302),(0.28,2026113311)))
+        self.assertEqual(len(_continuation_attempts(0)),1)
+        self.assertEqual(len(_continuation_attempts(3)),2)
+        with self.assertRaises(ValueError):
+            _continuation_attempts(4)
+        self.assertIn('if rejection is not None:',source)
+        self.assertLess(source.index('if rejection is not None:'),source.index('shutil.copy2(clip,safe)'))
+        self.assertIn('_ACCEPTED.json',source)
+        self.assertIn('"successful_native_segments":len(records)',source)
         self.assertIn("New native neural segment failed independent motion QA", source)
         self.assertIn('mean_frame_luma_delta"]<=0.18', source)
 

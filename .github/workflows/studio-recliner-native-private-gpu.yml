@@ -335,7 +335,12 @@ jobs:
           assert data["qa_color_no_structural_artifacts"]==all(not any(r["color_qa_structural_flags"].values()) for r in data["original_neural_segments"])
           for i,record in enumerate(data["original_neural_segments"]):
               assert record["index"]==i and record["frames"]==33
-              assert record["image_cond_noise_scale"]==({0:0.15,1:0.35,2:0.30,3:0.25}[i])
+              if i==0:
+                  assert record["image_cond_noise_scale"]==0.15
+              else:
+                  from tools.kaggle_studio_recliner_native import _continuation_attempts
+                  assert (record["image_cond_noise_scale"],record["seed"])==_continuation_attempts(i)[record["attempt"]]
+                  assert record["native_output_stage_attested"] is True
               assert record["color_qa"] in allowed
               assert record["color_qa_review_required"]==(record["color_qa"]!="NO_NEON_ARTIFACT_FOUND")
               assert not any(record["color_qa_structural_flags"].values())

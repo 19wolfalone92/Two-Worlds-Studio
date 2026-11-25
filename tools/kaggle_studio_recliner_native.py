@@ -81,6 +81,16 @@ def _classify_recliner_color_qa(qa: dict) -> dict:
     raise RuntimeError("Recliner color QA found a structural artifact or unsupported review state")
 
 
+def _continuation_attempts(segment: int):
+    """Two bounded, distinct native trials; no relaxed motion or color gate."""
+    if segment not in (0, 1, 2, 3):
+        raise ValueError("Unexpected segment index")
+    seed = 2026112301 + segment
+    if segment == 0:
+        return ((0.15, seed),)
+    return ((0.25, seed), (0.28, seed + 1009))
+
+
 def main():
     cfg=json.loads(base64.b64decode(CONFIG_B64,validate=True))
     if (cfg.get("schema")!=1 or cfg.get("mode")!="studio-native-wave" or
@@ -317,58 +327,74 @@ infer(settings)
                             "numerical_motion":motion0,
                             "recovered_from_prior_private_kernel":True,
                             "native_output_stage_attested":True})
-            conditioner=OUT/"STUDIO_RECLINER_PRIVATE_LASTFRAME.png"
+            (OUT/"STUDIO_RECLINER_REAL_SEGMENT_0_ACCEPTED.json").write_text(json.dumps(records[0],indent=2))
+            conditioner=OUT/"STUDIO_RECLINER_PRIVATE_LASTFRAME_0.png"
             run(["ffmpeg","-v","error","-xerror","-i",recovered,
                  "-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
             if not conditioner.is_file():
                 raise RuntimeError("Recovered native first-segment conditioning frame missing")
             print("STUDIO_RECLINER_REAL_GPU_SEGMENT_0_RESTORED_SHA_VERIFIED",flush=True)
         for segment in ((1,2,3) if resume_native else (0,1,2,3)):
-            target=generated/("segment_"+str(segment));target.mkdir()
-            env=os.environ.copy()
-            noise_scale={1:0.35,2:0.30,3:0.25}.get(segment,0.15)
-            env.update(LTX_CONFIG=str(c),LTX_PROMPT=prompts[segment],
-                LTX_INPUT=str(conditioner),LTX_OUTPUT=str(target),
-                LTX_IMAGE_COND_NOISE_SCALE=str(noise_scale),
-                STUDIO_SEED=str(2026112301+segment),
-                PYTHONPATH=str(ROOT)+os.pathsep+env.get("PYTHONPATH",""))
-            # Four bounded real 33-frame original neural segments.
-            observed=run_native_bounded([sys.executable,"-u","-c",script],
-                cwd=LTX,env=env,
-                log_path=OUT/("STUDIO_RECLINER_PRIVATE_GPU_"+str(segment)+".log"),
-                deadline_seconds=1400,heartbeat_seconds=20,
-                stage_prefix="WAVE")
-            clips=list(target.rglob("*.mp4"))
-            if len(clips)!=1:raise RuntimeError("Genuine neural MP4 missing or ambiguous")
-            clip=clips[0]
-            meta=_probe_recliner(clip)
-            run(["ffmpeg","-v","error","-xerror","-i",clip,"-f","null","-"],timeout=90)
-            if meta.get("frames")!=33 or meta.get("fps")!="24" or meta.get("width")!=576 or meta.get("height")!=768:
-                raise RuntimeError("Native model geometry/frame verification failed")
-            # Preserve full raw model output, even if scene-specific artistic QC later blocks approval.
-            safe=OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+".mp4")
-            shutil.copy2(clip,safe)
-            videos.append(safe)
-            color_qa=_classify_recliner_color_qa(inspect_clip(safe))
-            motion=gray_motion(safe)
-            if (motion["mean_frame_luma_delta"]<=0.18 or
-                    motion["nonidentical_motion_frames"]<4):
-                raise RuntimeError("New native neural segment failed independent motion QA")
-            records.append({"index":segment,"sha256":sha(safe),
-                            "frames":33,"fps":24,"width":576,"height":768,
-                            "model_seconds":observed["elapsed_seconds"],
-                            "image_cond_noise_scale":noise_scale,
-                            "color_qa":color_qa["status"],
-                            "color_qa_review_required":color_qa["review_required"],
-                            "color_qa_structural_flags":color_qa["structural_flags"],
-                            "source_git_sha":cfg["revision"],
-                            "source_kernel":cfg.get("kernel_id"),
-                            "numerical_motion":motion})
-            # Condition segment 2 on the actual LAST RGB frame of segment 1.
-            if segment<3:
-                conditioner=OUT/"STUDIO_RECLINER_PRIVATE_LASTFRAME.png"
-                run(["ffmpeg","-v","error","-xerror","-i",safe,"-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
-                if not conditioner.exists():raise RuntimeError("No continuity image from first native segment")
+            accepted = False
+            for attempt, (noise_scale, seed) in enumerate(_continuation_attempts(segment)):
+                target=generated/("segment_"+str(segment))/("attempt_"+str(attempt))
+                target.mkdir(parents=True)
+                env=os.environ.copy()
+                env.update(LTX_CONFIG=str(c),LTX_PROMPT=prompts[segment],
+                    LTX_INPUT=str(conditioner),LTX_OUTPUT=str(target),
+                    LTX_IMAGE_COND_NOISE_SCALE=str(noise_scale),STUDIO_SEED=str(seed),
+                    PYTHONPATH=str(ROOT)+os.pathsep+env.get("PYTHONPATH",""))
+                observed=run_native_bounded([sys.executable,"-u","-c",script],
+                    cwd=LTX,env=env,
+                    log_path=OUT/("STUDIO_RECLINER_PRIVATE_GPU_"+str(segment)+"_attempt_"+str(attempt)+".log"),
+                    deadline_seconds=1400,heartbeat_seconds=20,stage_prefix="WAVE")
+                clips=list(target.rglob("*.mp4"))
+                if len(clips)!=1:raise RuntimeError("Genuine neural MP4 missing or ambiguous")
+                clip=clips[0]
+                meta=_probe_recliner(clip)
+                run(["ffmpeg","-v","error","-xerror","-i",clip,"-f","null","-"],timeout=90)
+                if meta.get("frames")!=33 or meta.get("fps")!="24" or meta.get("width")!=576 or meta.get("height")!=768:
+                    raise RuntimeError("Native model geometry/frame verification failed")
+                qa=inspect_clip(clip)
+                motion=gray_motion(clip)
+                rejection=None
+                try:
+                    color_qa=_classify_recliner_color_qa(qa)
+                except RuntimeError:
+                    rejection="COLOR_QA_REJECTED"
+                if (motion["mean_frame_luma_delta"]<=0.18 or
+                        motion["nonidentical_motion_frames"]<4):
+                    rejection="MOTION_QA_REJECTED" if rejection is None else "COLOR_AND_MOTION_QA_REJECTED"
+                trial={"index":segment,"attempt":attempt,"seed":seed,"sha256":sha(clip),
+                       "image_cond_noise_scale":noise_scale,"color_qa":qa["status"],
+                       "numerical_motion":motion,"rejection":rejection,"model_seconds":observed["elapsed_seconds"]}
+                (OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+"_ATTEMPT_"+str(attempt)+".json")).write_text(json.dumps(trial,indent=2))
+                print("STUDIO_RECLINER_NATIVE_TRIAL_QA",json.dumps(trial,sort_keys=True),flush=True)
+                if rejection is not None:
+                    continue
+                safe=OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+".mp4")
+                shutil.copy2(clip,safe)
+                record={"index":segment,"sha256":sha(safe),
+                        "frames":33,"fps":24,"width":576,"height":768,
+                        "model_seconds":observed["elapsed_seconds"],
+                        "image_cond_noise_scale":noise_scale,"attempt":attempt,"seed":seed,
+                        "color_qa":color_qa["status"],
+                        "color_qa_review_required":color_qa["review_required"],
+                        "color_qa_structural_flags":color_qa["structural_flags"],
+                        "source_git_sha":cfg["revision"],
+                        "source_kernel":cfg.get("kernel_id"),"numerical_motion":motion,
+                        "native_output_stage_attested":True}
+                records.append(record)
+                videos.append(safe)
+                (OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+"_ACCEPTED.json")).write_text(json.dumps(record,indent=2))
+                if segment<3:
+                    conditioner=OUT/("STUDIO_RECLINER_PRIVATE_LASTFRAME_"+str(segment)+".png")
+                    run(["ffmpeg","-v","error","-xerror","-i",safe,"-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
+                    if not conditioner.is_file():raise RuntimeError("No continuity image from accepted native segment")
+                accepted=True
+                break
+            if not accepted:
+                raise RuntimeError("New native neural segment failed independent motion QA or color QA after bounded trials")
         # Drop duplicated conditioning frame from next segment, preserve all true model frames.
         merged=OUT/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4"
         # Four independently denoised 33-frame LTX segments, overlapping
@@ -410,8 +436,8 @@ infer(settings)
     except BaseException as exc:
         (OUT/"STUDIO_RECLINER_TRUE_NATIVE_FAILURE_SAFE.json").write_text(json.dumps({
          "stage":"NATIVE_GPU_PIPELINE","error_type":type(exc).__name__,
-         "successful_native_segments":len(videos),
+         "successful_native_segments":len(records),
          "public_private_source_leak":False,"human_artistic_approved":False,"published":False}))
-        print("STUDIO_RECLINER_NATIVE_MODEL_BLOCKED",type(exc).__name__,"partial_segments",len(videos),flush=True)
+        print("STUDIO_RECLINER_NATIVE_MODEL_BLOCKED",type(exc).__name__,"partial_segments",len(records),flush=True)
         raise
 if __name__=="__main__":main()
