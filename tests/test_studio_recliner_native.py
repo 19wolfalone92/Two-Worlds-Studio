@@ -78,6 +78,14 @@ class ReclinerNativeStudioTests(unittest.TestCase):
         self.assertIn('concat=n=4:v=1:a=0[out]',source)
 
 
+
+    def test_continuation_uses_higher_noise_for_visible_motion_and_keeps_motion_gate(self):
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("LTX_IMAGE_COND_NOISE_SCALE", source)
+        self.assertIn("{1:0.35,2:0.30,3:0.25}", source)
+        self.assertIn("New native neural segment failed independent motion QA", source)
+        self.assertIn('mean_frame_luma_delta"]<=0.18', source)
+
     def test_private_gpu_workflow_recovers_checkpoint_before_any_new_gpu_submission(self):
         workflow = (SOURCE.parents[1] / ".github" / "workflows" /
                     "studio-recliner-native-private-gpu.yml").read_text(encoding="utf-8")

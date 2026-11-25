@@ -254,9 +254,9 @@ def main():
     generated=OUT/"STUDIO_RECLINER_NATIVE_PRIVATE_GENERATION";generated.mkdir(exist_ok=False)
     prompts=[
         "Photorealistic continuous original camera shot of the same dark-haired bearded man resting in the wooden recliner of the exact same moody blue-and-gold modern lounge. He is wearing the same brown and beige checked flannel overshirt, black trousers, and light sneakers with dark details; arms and hands relaxed on lap. Starts eyes closed, natural gentle chest breathing, then slowly opens eyes. Subtle genuine neck, eyelid, and jaw motion. Locked camera, fixed plants, metal curtain, wooden chairs and tables, warm reflections. Real intact face, hairline, beard, hands, ring, clothing and geometry; absolutely no background drift, no text.",
-        "Exact continuous same wide portrait shot. Same seated man now awake with gentle calm gaze, moves his head just a little and glances toward the camera, a soft natural smile forming. His hand makes a very small natural resting adjustment. Realtime photorealistic coherent muscle and fabric motion, five fingers, unchanged face and beard, no floating shadows, no camera travel, no flickering curtain or lights.",
-        "Continuous same fixed camera shot. The man naturally breathes, blinks, smiles very subtly while relaxing comfortably in the wooden deck chair, tiny shoulder posture shift, coherent beard following head movement, hands remain structurally intact resting on lap. Unchanged brown plaid shirt, black pants and light sneakers; background, tables, other wooden chair, dark flooring, cool metallic wall and warm reflections perfectly stationary.",
-        "Exact same film shot; he slowly relaxes back into the chair, slightly lowers chin, softly blinks and settles with a faint contented expression and natural breathing. Hands rest near lap, steady body proportions, correct all five fingers, stable face and beard, absolutely fixed camera and background, no sudden ending or jump, natural photographic continuity."
+        "Continue exactly from the supplied final frame of the same bearded man in the same wooden recliner and unchanged blue-and-gold lounge. His eyes stay open. He clearly but gently raises his chin and turns his head a few degrees toward the camera; his gaze travels from slightly off-camera to the lens. His chest rises and falls with visible calm breathing and one shoulder adjusts naturally. Restrained real-time movement, same face, hairline, beard, checked shirt and body proportions; locked camera, stationary background, no morphing or flicker.",
+        "Continue from the exact supplied frame. A relaxed genuine smile gradually appears and changes the cheeks and mouth naturally. The man's right hand slides a few centimeters across his lap and settles again, with natural small finger articulation; his shoulder relaxes into the chair while breathing remains visible. Keep the same face and beard, five fingers, same clothing and body geometry; no camera motion or background drift.",
+        "Continue the same shot and identity. He performs one slow natural blink, gently exhales, lowers his chin slightly and settles back into the recliner; his shoulders relax and his chest continues a visible calm breathing cycle. The final pose is comfortable and stable, with the same hands, beard, clothes and fixed room; no sudden movement, no camera movement, no background animation."
     ]
     script="""from ltx_video.inference import infer,InferenceConfig
 import os
@@ -267,7 +267,7 @@ settings=InferenceConfig(
  offload_to_cpu=True,
  conditioning_media_paths=[os.environ['LTX_INPUT']],
  conditioning_strengths=[1.0],conditioning_start_frames=[0],
- image_cond_noise_scale=0.15,output_path=os.environ['LTX_OUTPUT'])
+ image_cond_noise_scale=float(os.environ.get('LTX_IMAGE_COND_NOISE_SCALE','0.15')),output_path=os.environ['LTX_OUTPUT'])
 print("STUDIO_RECLINER_NATIVE_LTX_SAMPLE_START",flush=True)
 infer(settings)
 """
@@ -309,7 +309,7 @@ infer(settings)
             videos.append(recovered)
             records.append({"index":0,"sha256":sha(recovered),
                             "frames":33,"fps":24,"width":576,"height":768,
-                            "model_seconds":elapsed,"color_qa":q0,
+                            "model_seconds":elapsed,"image_cond_noise_scale":cfg.get("checkpoint_0_image_cond_noise_scale",0.15),"color_qa":q0,
                             "color_qa_review_required":qa0["review_required"],
                             "color_qa_structural_flags":qa0["structural_flags"],
                             "source_git_sha":cfg["checkpoint_0_source_git_sha"],
@@ -326,8 +326,10 @@ infer(settings)
         for segment in ((1,2,3) if resume_native else (0,1,2,3)):
             target=generated/("segment_"+str(segment));target.mkdir()
             env=os.environ.copy()
+            noise_scale={1:0.35,2:0.30,3:0.25}.get(segment,0.15)
             env.update(LTX_CONFIG=str(c),LTX_PROMPT=prompts[segment],
                 LTX_INPUT=str(conditioner),LTX_OUTPUT=str(target),
+                LTX_IMAGE_COND_NOISE_SCALE=str(noise_scale),
                 STUDIO_SEED=str(2026112301+segment),
                 PYTHONPATH=str(ROOT)+os.pathsep+env.get("PYTHONPATH",""))
             # Four bounded real 33-frame original neural segments.
@@ -355,6 +357,7 @@ infer(settings)
             records.append({"index":segment,"sha256":sha(safe),
                             "frames":33,"fps":24,"width":576,"height":768,
                             "model_seconds":observed["elapsed_seconds"],
+                            "image_cond_noise_scale":noise_scale,
                             "color_qa":color_qa["status"],
                             "color_qa_review_required":color_qa["review_required"],
                             "color_qa_structural_flags":color_qa["structural_flags"],

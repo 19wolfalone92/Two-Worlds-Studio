@@ -35,3 +35,9 @@ do_not_regenerate_segment0=true
 resume_attempt=2
 preflight_previous_workflow_run=45567474535
 active_session_404_means_no_active_kernel_session=true
+
+retry_reason=segment1_native_LTX_output_was_static_at_image_cond_noise_scale_0.15
+retry_image_cond_noise_scale_segment1=0.35
+retry_image_cond_noise_scale_segment2=0.30
+retry_image_cond_noise_scale_segment3=0.25
+motion_gate_remains_enabled=true
