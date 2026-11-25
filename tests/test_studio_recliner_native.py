@@ -77,6 +77,21 @@ class ReclinerNativeStudioTests(unittest.TestCase):
         self.assertIn('if len(videos)!=4',source)
         self.assertIn('concat=n=4:v=1:a=0[out]',source)
 
+
+    def test_private_gpu_workflow_recovers_checkpoint_before_any_new_gpu_submission(self):
+        workflow = (SOURCE.parents[1] / ".github" / "workflows" /
+                    "studio-recliner-native-private-gpu.yml").read_text(encoding="utf-8")
+        self.assertLess(workflow.index("CPU validate studio native LTX source"),
+                        workflow.index("Recover and qualify original real segment 0"))
+        self.assertLess(workflow.index("Recover and qualify original real segment 0"),
+                        workflow.index("Resume from recovered segment 0 and generate only segments 1–3"))
+        self.assertIn("STUDIO_PREVIOUS_KERNEL", workflow)
+        self.assertIn("__STUDIO_RECLINER_CHECKPOINT_B64__", workflow)
+        self.assertIn("STUDIO_RECLINER_PRIVATE_GPU_0.log", workflow)
+        self.assertIn("qa_color_no_structural_artifacts", workflow)
+        self.assertIn("if: failure()", workflow)
+        self.assertIn("studio-recliner-native-encrypted-recovery", workflow)
+
     def test_no_static_photo_video_substitutions(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("original_neural_segments",source)
