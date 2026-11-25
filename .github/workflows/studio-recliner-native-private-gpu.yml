@@ -318,7 +318,7 @@ jobs:
           python - <<'PY'
           import hashlib,json,os,subprocess
           from pathlib import Path
-          from tools.kaggle_studio_recliner_native import _probe_recliner
+          from tools.kaggle_studio_recliner_native import _probe_recliner,_recliner_region_motion,_recliner_region_motion_pass
           kernel=(Path(os.environ["RUNNER_TEMP"])/"STUDIO_RECLINER_KERNEL_ID.txt").read_text().strip()
           root=Path(os.environ["RUNNER_TEMP"])/"studio-recliner-private-output"
           movie=root/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4"
@@ -350,6 +350,9 @@ jobs:
               clip=root/("STUDIO_RECLINER_REAL_SEGMENT_"+str(i)+".mp4")
               assert clip.is_file()
               assert hashlib.sha256(clip.read_bytes()).hexdigest()==record["sha256"]
+              measured=_recliner_region_motion(clip)
+              assert _recliner_region_motion_pass(measured,i)
+              assert all(abs(measured[k]-record["region_motion"][k])<0.001 for k in measured)
               if i==0:
                   assert record["recovered_from_prior_private_kernel"] is True
                   assert record["native_output_stage_attested"] is True

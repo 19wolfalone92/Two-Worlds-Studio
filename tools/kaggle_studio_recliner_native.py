@@ -81,6 +81,40 @@ def _classify_recliner_color_qa(qa: dict) -> dict:
     raise RuntimeError("Recliner color QA found a structural artifact or unsupported review state")
 
 
+def _recliner_region_motion(path: Path) -> dict:
+    """Scene-specific RGB movement check: distinguish actor from wall flicker.
+    The regions are anchored to the authenticated 576x768 reference.
+    These measurements cannot prove facial acting or anatomical quality.
+    """
+    import numpy as np
+    raw=subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(path),
+                        "-map","0:v:0","-f","rawvideo","-pix_fmt","rgb24","-"],
+                        capture_output=True,check=True,timeout=120).stdout
+    if len(raw)!=33*768*576*3:
+        raise RuntimeError("Region QA requires 33 complete native RGB frames")
+    frames=np.frombuffer(raw,dtype=np.uint8).reshape(33,768,576,3)
+    accum={name:0.0 for name in ("head","torso","wall")}
+    regions={"head":(300,318,390,398),"torso":(210,390,390,510),
+             "wall":(0,0,576,270)}
+    for i in range(1,33):
+        for name,(x0,y0,x1,y1) in regions.items():
+            a=frames[i,y0:y1,x0:x1].astype(np.int16)
+            b=frames[i-1,y0:y1,x0:x1].astype(np.int16)
+            accum[name]+=float(np.abs(a-b).mean())
+    return {name:round(value/32,6) for name,value in accum.items()}
+
+
+def _recliner_region_motion_pass(metrics: dict, segment: int) -> bool:
+    if segment not in (0,1,2,3):
+        raise ValueError("Unexpected segment")
+    head,torso,wall=(metrics.get(name) for name in ("head","torso","wall"))
+    if not all(isinstance(v,(int,float)) and math.isfinite(v) and v>=0
+               for v in (head,torso,wall)):
+        return False
+    actor=head if segment in (1,3) else max(head,torso)
+    return actor>=0.5 and wall<=1.0 and actor>=1.2*wall
+
+
 def _continuation_attempts(segment: int):
     """Two bounded, distinct native trials; no relaxed motion or color gate."""
     if segment not in (0, 1, 2, 3):
@@ -264,7 +298,7 @@ def main():
     generated=OUT/"STUDIO_RECLINER_NATIVE_PRIVATE_GENERATION";generated.mkdir(exist_ok=False)
     prompts=[
         "Photorealistic continuous original camera shot of the same dark-haired bearded man resting in the wooden recliner of the exact same moody blue-and-gold modern lounge. He is wearing the same brown and beige checked flannel overshirt, black trousers, and light sneakers with dark details; arms and hands relaxed on lap. Starts eyes closed, natural gentle chest breathing, then slowly opens eyes. Subtle genuine neck, eyelid, and jaw motion. Locked camera, fixed plants, metal curtain, wooden chairs and tables, warm reflections. Real intact face, hairline, beard, hands, ring, clothing and geometry; absolutely no background drift, no text.",
-        "Continue exactly from the supplied final frame of the same bearded man in the same wooden recliner and unchanged blue-and-gold lounge. His eyes stay open. He clearly but gently raises his chin and turns his head a few degrees toward the camera; his gaze travels from slightly off-camera to the lens. His chest rises and falls with visible calm breathing and one shoulder adjusts naturally. Restrained real-time movement, same face, hairline, beard, checked shirt and body proportions; locked camera, stationary background, no morphing or flicker.",
+        "Continue exactly from the supplied final frame of the same bearded man in the same wooden recliner and unchanged blue-and-gold lounge. His eyes are closed at the beginning. His eyelids visibly open, he lifts his head a little off the chair and turns it toward the camera, with a clear but relaxed change in facial expression and gaze. His chest rises and falls with visible calm breathing and one shoulder adjusts naturally. Restrained real-time movement, same face, hairline, beard, checked shirt and body proportions; locked camera, stationary background, no morphing or flicker.",
         "Continue from the exact supplied frame. A relaxed genuine smile gradually appears and changes the cheeks and mouth naturally. The man's right hand slides a few centimeters across his lap and settles again, with natural small finger articulation; his shoulder relaxes into the chair while breathing remains visible. Keep the same face and beard, five fingers, same clothing and body geometry; no camera motion or background drift.",
         "Continue the same shot and identity. He performs one slow natural blink, gently exhales, lowers his chin slightly and settles back into the recliner; his shoulders relax and his chest continues a visible calm breathing cycle. The final pose is comfortable and stable, with the same hands, beard, clothes and fixed room; no sudden movement, no camera movement, no background animation."
     ]
@@ -309,6 +343,9 @@ infer(settings)
             qa0=_classify_recliner_color_qa(inspect_clip(recovered))
             q0=qa0["status"]
             motion0=gray_motion(recovered)
+            region0=_recliner_region_motion(recovered)
+            if not _recliner_region_motion_pass(region0,0):
+                raise RuntimeError("Recovered checkpoint actor-region motion failed")
             if (motion0["mean_frame_luma_delta"]<=0.18 or
                     motion0["nonidentical_motion_frames"]<4):
                 raise RuntimeError("Recovered first neural MP4 failed independent motion QA")
@@ -324,7 +361,7 @@ infer(settings)
                             "color_qa_structural_flags":qa0["structural_flags"],
                             "source_git_sha":cfg["checkpoint_0_source_git_sha"],
                             "source_kernel":cfg["checkpoint_0_kernel"],
-                            "numerical_motion":motion0,
+                            "numerical_motion":motion0,"region_motion":region0,
                             "recovered_from_prior_private_kernel":True,
                             "native_output_stage_attested":True})
             (OUT/"STUDIO_RECLINER_REAL_SEGMENT_0_ACCEPTED.json").write_text(json.dumps(records[0],indent=2))
@@ -357,6 +394,7 @@ infer(settings)
                     raise RuntimeError("Native model geometry/frame verification failed")
                 qa=inspect_clip(clip)
                 motion=gray_motion(clip)
+                region_motion=_recliner_region_motion(clip)
                 rejection=None
                 try:
                     color_qa=_classify_recliner_color_qa(qa)
@@ -365,9 +403,11 @@ infer(settings)
                 if (motion["mean_frame_luma_delta"]<=0.18 or
                         motion["nonidentical_motion_frames"]<4):
                     rejection="MOTION_QA_REJECTED" if rejection is None else "COLOR_AND_MOTION_QA_REJECTED"
+                if not _recliner_region_motion_pass(region_motion,segment):
+                    rejection="ACTOR_REGION_QA_REJECTED" if rejection is None else rejection+"+ACTOR_REGION_QA_REJECTED"
                 trial={"index":segment,"attempt":attempt,"seed":seed,"sha256":sha(clip),
                        "image_cond_noise_scale":noise_scale,"color_qa":qa["status"],
-                       "numerical_motion":motion,"rejection":rejection,"model_seconds":observed["elapsed_seconds"]}
+                       "numerical_motion":motion,"region_motion":region_motion,"rejection":rejection,"model_seconds":observed["elapsed_seconds"]}
                 (OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+"_ATTEMPT_"+str(attempt)+".json")).write_text(json.dumps(trial,indent=2))
                 print("STUDIO_RECLINER_NATIVE_TRIAL_QA",json.dumps(trial,sort_keys=True),flush=True)
                 if rejection is not None:
@@ -382,7 +422,7 @@ infer(settings)
                         "color_qa_review_required":color_qa["review_required"],
                         "color_qa_structural_flags":color_qa["structural_flags"],
                         "source_git_sha":cfg["revision"],
-                        "source_kernel":cfg.get("kernel_id"),"numerical_motion":motion,
+                        "source_kernel":cfg.get("kernel_id"),"numerical_motion":motion,"region_motion":region_motion,
                         "native_output_stage_attested":True}
                 records.append(record)
                 videos.append(safe)

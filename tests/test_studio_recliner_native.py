@@ -3,7 +3,7 @@ import ast
 import hashlib
 import unittest
 
-from tools.kaggle_studio_recliner_native import _validate_recliner_video_stream, _classify_recliner_color_qa, _continuation_attempts
+from tools.kaggle_studio_recliner_native import _validate_recliner_video_stream, _classify_recliner_color_qa, _continuation_attempts, _recliner_region_motion_pass
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "tools/kaggle_studio_recliner_native.py"
@@ -40,6 +40,15 @@ class ReclinerNativeStudioTests(unittest.TestCase):
                 "neon_line_geometry_flagged_frames": [4, 5],
             })
 
+
+    def test_real_checkpoint_actor_motion_and_wall_only_failure(self):
+        # Measured independently from the authenticated original and two native outputs.
+        self.assertTrue(_recliner_region_motion_pass({"head":1.134,"torso":1.567,"wall":0.522},0))
+        self.assertFalse(_recliner_region_motion_pass({"head":0.201,"torso":0.118,"wall":1.416},1))
+        self.assertFalse(_recliner_region_motion_pass({"head":0.01,"torso":0.02,"wall":0.01},2))
+        self.assertFalse(_recliner_region_motion_pass({"head":float("nan"),"torso":1.0,"wall":0.1},0))
+        self.assertFalse(_recliner_region_motion_pass({"head":0.1,"torso":1.0,"wall":0.1},1))
+        self.assertTrue(_recliner_region_motion_pass({"head":0.7,"torso":0.4,"wall":0.3},1))
 
     def test_recliner_native_probe_accepts_locked_three_by_four_frame_clock(self):
         result = _validate_recliner_video_stream({
