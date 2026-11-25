@@ -103,7 +103,7 @@ class ReclinerNativeStudioTests(unittest.TestCase):
     def test_no_static_photo_video_substitutions(self):
         source = SOURCE.read_text(encoding="utf-8")
         self.assertIn("original_neural_segments",source)
-        self.assertIn("image_cond_noise_scale=0.15",source)
+        self.assertIn("LTX_IMAGE_COND_NOISE_SCALE",source)
         self.assertIn("conditioning_media_paths=",source)
         self.assertIn('"extra_interpolated_frames":0',source)
         self.assertIn('human_artistic_approved":False',source)
