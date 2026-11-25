@@ -28,7 +28,7 @@ SAFE_ERROR_RE = re.compile(
     r"PermissionError|TimeoutExpired|timed out|SIGKILL|SIGTERM|Killed|"
     r"No such file or directory|invalid device|expected scalar type|"
     r"shape mismatch|size mismatch|not enough memory|failed to load|"
-    r"cannot allocate|download failed|ConnectionError|NVIDIA-SMI has failed)"
+    r"cannot allocate|download failed|ConnectionError|NeuralBlocked|STUDIO_RECLINER_NATIVE_MODEL_BLOCKED|NVIDIA-SMI has failed)"
 )
 PRIVATE_LINE_RE = re.compile(
     r"(?i)(prompt|photorealistic|reference|STUDIO_RECLINER_PRIVATE_REFERENCE|"
@@ -120,6 +120,23 @@ def _probe_video(path: Path) -> dict:
             result["stream"] = None
     decode = _call(["ffmpeg", "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-"], timeout=120)
     result["full_decode_ok"] = decode[0] == 0
+    if result["full_decode_ok"]:
+        try:
+            from tools.eb01_true_gpu_clip_numbers import gray_motion
+            from studio.eb01_motion_artifact_gate import inspect_clip
+            result["motion"] = gray_motion(path)
+            qa = inspect_clip(path)
+            result["color_gate"] = {
+                "status": qa.get("status"),
+                "decoded_frames": qa.get("decoded_frames"),
+                "safe_frame_count": qa.get("safe_frame_count"),
+                "flagged_frames": qa.get("flagged_frames", [])[:40],
+                "spectral_intrusion_flagged_frames": qa.get("spectral_intrusion_flagged_frames", [])[:40],
+                "horizontal_neon_band_flagged_frames": qa.get("horizontal_neon_band_flagged_frames", [])[:40],
+                "neon_line_geometry_flagged_frames": qa.get("neon_line_geometry_flagged_frames", [])[:40],
+            }
+        except Exception as exc:
+            result["quality_check_error_class"] = type(exc).__name__
     return result
 
 

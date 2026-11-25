@@ -9,3 +9,5 @@ preserve_partial_native_segments_encrypted=true
 diagnostic_attempt=2
 
 diagnostic_attempt=3
+
+diagnostic_attempt=4
