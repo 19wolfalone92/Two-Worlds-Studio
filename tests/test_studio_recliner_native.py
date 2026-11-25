@@ -2,12 +2,30 @@
 import ast
 import hashlib
 import unittest
+
+from tools.kaggle_studio_recliner_native import _validate_recliner_video_stream
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "tools/kaggle_studio_recliner_native.py"
 USER_IMAGE_SHA = "9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3"
 
 class ReclinerNativeStudioTests(unittest.TestCase):
+
+    def test_recliner_native_probe_accepts_locked_three_by_four_frame_clock(self):
+        result = _validate_recliner_video_stream({
+            "width": "576", "height": "768", "avg_frame_rate": "24/1",
+            "nb_read_frames": "33", "duration": "1.375000",
+        })
+        self.assertEqual((result["width"], result["height"], result["fps"], result["frames"]),
+                         (576, 768, "24", 33))
+
+    def test_recliner_native_probe_rejects_generic_vertical_nine_by_sixteen(self):
+        with self.assertRaises(RuntimeError):
+            _validate_recliner_video_stream({
+                "width": "576", "height": "1024", "avg_frame_rate": "24/1",
+                "nb_read_frames": "33", "duration": "1.375000",
+            })
+
     def test_source_compiles_without_coupling_to_freevideo(self):
         source = SOURCE.read_text(encoding="utf-8")
         ast.parse(source)

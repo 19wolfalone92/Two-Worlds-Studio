@@ -22,6 +22,44 @@ def sha(p):
     with Path(p).open('rb') as f:
         for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
     return h.hexdigest()
+
+def _validate_recliner_video_stream(stream):
+    """Validate this job's locked 3:4 portrait clock, not the studio's 9:16 default."""
+    from fractions import Fraction
+    try:
+        fps = Fraction(str(stream["avg_frame_rate"]))
+        frames = int(stream["nb_read_frames"])
+        width = int(stream["width"])
+        height = int(stream["height"])
+        seconds_value = stream.get("duration")
+        seconds = float(seconds_value) if seconds_value not in (None, "", "N/A") else float(frames / fps)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+        raise RuntimeError("Recliner native video clock metadata is incomplete") from exc
+    expected_seconds = float(frames / fps)
+    if (frames < 1 or fps != 24 or (width, height) != (576, 768)
+            or abs(width / height - 0.75) > 0.005
+            or abs(seconds - expected_seconds) > 0.12):
+        raise RuntimeError("Recliner native video must be 576x768, 24 FPS, 3:4 with a valid frame clock")
+    return {
+        "width": width, "height": height, "fps": str(fps),
+        "frames": frames, "seconds": round(seconds, 5),
+    }
+
+
+def _probe_recliner(path: Path) -> dict:
+    if not Path(path).is_file() or not shutil.which("ffprobe"):
+        raise RuntimeError("Recliner native MP4 or ffprobe is unavailable")
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+        "-show_entries", "stream=width,height,avg_frame_rate,duration,nb_read_frames",
+        "-of", "json", str(path),
+    ], capture_output=True, text=True, timeout=120, check=True)
+    streams = json.loads(result.stdout).get("streams", [])
+    if len(streams) != 1:
+        raise RuntimeError("Recliner MP4 must contain exactly one video stream")
+    return _validate_recliner_video_stream(streams[0])
+
+
 def main():
     cfg=json.loads(base64.b64decode(CONFIG_B64,validate=True))
     if (cfg.get("schema")!=1 or cfg.get("mode")!="studio-native-wave" or
@@ -48,7 +86,6 @@ def main():
     sys.path.insert(0,str(ROOT))
     from studio.eb01_native_t4_profile import patch_native_sources
     from tools.eb01_bounded_inference import run_native_bounded,InferenceTimeBudgetExpired
-    from studio.comfy_neural import _probe
     from studio.eb01_motion_artifact_gate import inspect_clip
     from tools.eb01_true_gpu_clip_numbers import gray_motion
     native_profile=True
@@ -233,7 +270,7 @@ infer(settings)
             recovered=OUT/"STUDIO_RECLINER_REAL_SEGMENT_0.mp4"
             recovered.write_bytes(original)
             del original
-            m0=_probe(recovered)
+            m0=_probe_recliner(recovered)
             run(["ffmpeg","-v","error","-xerror","-i",recovered,"-f","null","-"],timeout=120)
             if (m0.get("frames")!=33 or m0.get("fps")!="24" or
                     m0.get("width")!=576 or m0.get("height")!=768):
@@ -264,7 +301,7 @@ infer(settings)
                 LTX_INPUT=str(conditioner),LTX_OUTPUT=str(target),
                 STUDIO_SEED=str(2026112301+segment),
                 PYTHONPATH=str(ROOT)+os.pathsep+env.get("PYTHONPATH",""))
-            # Precisely two bounded real 33-frame original neural segments.
+            # Four bounded real 33-frame original neural segments.
             observed=run_native_bounded([sys.executable,"-u","-c",script],
                 cwd=LTX,env=env,
                 log_path=OUT/("STUDIO_RECLINER_PRIVATE_GPU_"+str(segment)+".log"),
@@ -273,7 +310,7 @@ infer(settings)
             clips=list(target.rglob("*.mp4"))
             if len(clips)!=1:raise RuntimeError("Genuine neural MP4 missing or ambiguous")
             clip=clips[0]
-            meta=_probe(clip)
+            meta=_probe_recliner(clip)
             run(["ffmpeg","-v","error","-xerror","-i",clip,"-f","null","-"],timeout=90)
             if meta.get("frames")!=33 or meta.get("fps")!="24" or meta.get("width")!=576 or meta.get("height")!=768:
                 raise RuntimeError("Native model geometry/frame verification failed")
@@ -305,7 +342,7 @@ infer(settings)
             ["-filter_complex",filters,"-map","[out]","-an","-r","24",
              "-c:v","libx264","-preset","medium","-crf","17",
              "-pix_fmt","yuv420p",str(merged)],timeout=240)
-        m=_probe(merged)
+        m=_probe_recliner(merged)
         run(["ffmpeg","-v","error","-xerror","-i",merged,"-f","null","-"],timeout=120)
         if m.get("frames")!=129 or m.get("fps")!="24" or m.get("width")!=576 or m.get("height")!=768:
             raise RuntimeError("Full assembled native Studio clip failed format/frame check")
