@@ -3,7 +3,7 @@ import ast
 import hashlib
 import unittest
 
-from tools.kaggle_studio_recliner_native import _validate_recliner_video_stream
+from tools.kaggle_studio_recliner_native import _validate_recliner_video_stream, _classify_recliner_color_qa
 from pathlib import Path
 
 SOURCE = Path(__file__).resolve().parents[1] / "tools/kaggle_studio_recliner_native.py"
@@ -11,9 +11,29 @@ USER_IMAGE_SHA = "9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895
 
 class ReclinerNativeStudioTests(unittest.TestCase):
 
+    def test_cool_lounge_palette_is_review_not_false_green(self):
+        result = _classify_recliner_color_qa({
+            "status": "REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF",
+            "horizontal_neon_band_flagged_frames": [],
+            "spectral_intrusion_flagged_frames": [],
+            "neon_line_geometry_flagged_frames": [],
+        })
+        self.assertTrue(result["review_required"])
+        self.assertEqual(result["structural_flags"]["neon_line_geometry"], 0)
+
+    def test_recliner_color_qa_still_blocks_structural_rgb_streaks(self):
+        with self.assertRaises(RuntimeError):
+            _classify_recliner_color_qa({
+                "status": "REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF",
+                "horizontal_neon_band_flagged_frames": [],
+                "spectral_intrusion_flagged_frames": [],
+                "neon_line_geometry_flagged_frames": [4, 5],
+            })
+
+
     def test_recliner_native_probe_accepts_locked_three_by_four_frame_clock(self):
         result = _validate_recliner_video_stream({
-            "width": "576", "height": "768", "avg_frame_rate": "24/1",
+            "codec_name": "h264", "width": "576", "height": "768", "avg_frame_rate": "24/1",
             "nb_read_frames": "33", "duration": "1.375000",
         })
         self.assertEqual((result["width"], result["height"], result["fps"], result["frames"]),
@@ -22,7 +42,7 @@ class ReclinerNativeStudioTests(unittest.TestCase):
     def test_recliner_native_probe_rejects_generic_vertical_nine_by_sixteen(self):
         with self.assertRaises(RuntimeError):
             _validate_recliner_video_stream({
-                "width": "576", "height": "1024", "avg_frame_rate": "24/1",
+                "codec_name": "h264", "width": "576", "height": "1024", "avg_frame_rate": "24/1",
                 "nb_read_frames": "33", "duration": "1.375000",
             })
 

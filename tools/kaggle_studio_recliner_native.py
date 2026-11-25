@@ -3,7 +3,7 @@ Real LTX2B neural denoising only, pinned upstream, zero public portrait media.
 Source JPEG is provided in private kernel script only; never checked into GitHub.
 """
 from __future__ import annotations
-import base64,hashlib,json,os,subprocess,sys,shutil,time,traceback
+import base64,hashlib,json,os,subprocess,sys,shutil,time,traceback,math
 from pathlib import Path
 CONFIG_B64="__STUDIO_RECLINER_CONFIG_B64__"
 IMAGE_B64="__STUDIO_RECLINER_IMAGE_B64__"
@@ -31,17 +31,18 @@ def _validate_recliner_video_stream(stream):
         frames = int(stream["nb_read_frames"])
         width = int(stream["width"])
         height = int(stream["height"])
+        codec = str(stream["codec_name"]).lower()
         seconds_value = stream.get("duration")
         seconds = float(seconds_value) if seconds_value not in (None, "", "N/A") else float(frames / fps)
     except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
         raise RuntimeError("Recliner native video clock metadata is incomplete") from exc
     expected_seconds = float(frames / fps)
-    if (frames < 1 or fps != 24 or (width, height) != (576, 768)
+    if (frames < 1 or fps != 24 or codec != "h264" or (width, height) != (576, 768)
             or abs(width / height - 0.75) > 0.005
-            or abs(seconds - expected_seconds) > 0.12):
+            or not math.isfinite(seconds) or abs(seconds - expected_seconds) > 0.12):
         raise RuntimeError("Recliner native video must be 576x768, 24 FPS, 3:4 with a valid frame clock")
     return {
-        "width": width, "height": height, "fps": str(fps),
+        "codec": codec, "width": width, "height": height, "fps": str(fps),
         "frames": frames, "seconds": round(seconds, 5),
     }
 
@@ -51,13 +52,33 @@ def _probe_recliner(path: Path) -> dict:
         raise RuntimeError("Recliner native MP4 or ffprobe is unavailable")
     result = subprocess.run([
         "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
-        "-show_entries", "stream=width,height,avg_frame_rate,duration,nb_read_frames",
+        "-show_entries", "stream=codec_name,width,height,avg_frame_rate,duration,nb_read_frames",
         "-of", "json", str(path),
     ], capture_output=True, text=True, timeout=120, check=True)
     streams = json.loads(result.stdout).get("streams", [])
     if len(streams) != 1:
         raise RuntimeError("Recliner MP4 must contain exactly one video stream")
     return _validate_recliner_video_stream(streams[0])
+
+
+
+def _classify_recliner_color_qa(qa: dict) -> dict:
+    """Allow the cool lounge palette only as explicit human-review status.
+
+    Structural RGB lines, broad neon bands and spectral intrusions remain blockers.
+    Persistent cool chroma alone is never an artistic PASS.
+    """
+    status = qa.get("status")
+    structural = {
+        "horizontal_neon_bands": len(qa.get("horizontal_neon_band_flagged_frames", [])),
+        "spectral_intrusions": len(qa.get("spectral_intrusion_flagged_frames", [])),
+        "neon_line_geometry": len(qa.get("neon_line_geometry_flagged_frames", [])),
+    }
+    if status == "NO_NEON_ARTIFACT_FOUND":
+        return {"status": status, "review_required": False, "structural_flags": structural}
+    if status == "REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF" and not any(structural.values()):
+        return {"status": status, "review_required": True, "structural_flags": structural}
+    raise RuntimeError("Recliner color QA found a structural artifact or unsupported review state")
 
 
 def main():
@@ -275,16 +296,24 @@ infer(settings)
             if (m0.get("frames")!=33 or m0.get("fps")!="24" or
                     m0.get("width")!=576 or m0.get("height")!=768):
                 raise RuntimeError("Recovered first neural MP4 geometry mismatched")
-            q0=inspect_clip(recovered)["status"]
+            qa0=_classify_recliner_color_qa(inspect_clip(recovered))
+            q0=qa0["status"]
             motion0=gray_motion(recovered)
-            if (q0!="NO_NEON_ARTIFACT_FOUND" or
-                    motion0["mean_frame_luma_delta"]<=0.18 or
+            if (motion0["mean_frame_luma_delta"]<=0.18 or
                     motion0["nonidentical_motion_frames"]<4):
-                raise RuntimeError("Recovered first neural MP4 failed independent pixel QA")
+                raise RuntimeError("Recovered first neural MP4 failed independent motion QA")
+            if (cfg.get("checkpoint_0_kernel")!="pavelbloody/studio-recliner-native-45480625216" or
+                    cfg.get("checkpoint_0_source_git_sha")!="718524ed5629bd5749c282a86f2ee053180b2f03" or
+                    cfg.get("checkpoint_0_color_qa")!=q0):
+                raise RuntimeError("Recovered first neural MP4 provenance or color-review receipt mismatch")
             videos.append(recovered)
             records.append({"index":0,"sha256":sha(recovered),
                             "frames":33,"fps":24,"width":576,"height":768,
                             "model_seconds":elapsed,"color_qa":q0,
+                            "color_qa_review_required":qa0["review_required"],
+                            "color_qa_structural_flags":qa0["structural_flags"],
+                            "source_git_sha":cfg["checkpoint_0_source_git_sha"],
+                            "source_kernel":cfg["checkpoint_0_kernel"],
                             "numerical_motion":motion0,
                             "recovered_from_prior_private_kernel":True,
                             "native_output_stage_attested":True})
@@ -318,11 +347,20 @@ infer(settings)
             safe=OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+".mp4")
             shutil.copy2(clip,safe)
             videos.append(safe)
+            color_qa=_classify_recliner_color_qa(inspect_clip(safe))
+            motion=gray_motion(safe)
+            if (motion["mean_frame_luma_delta"]<=0.18 or
+                    motion["nonidentical_motion_frames"]<4):
+                raise RuntimeError("New native neural segment failed independent motion QA")
             records.append({"index":segment,"sha256":sha(safe),
                             "frames":33,"fps":24,"width":576,"height":768,
                             "model_seconds":observed["elapsed_seconds"],
-                            "color_qa":inspect_clip(safe)["status"],
-                            "numerical_motion":gray_motion(safe)})
+                            "color_qa":color_qa["status"],
+                            "color_qa_review_required":color_qa["review_required"],
+                            "color_qa_structural_flags":color_qa["structural_flags"],
+                            "source_git_sha":cfg["revision"],
+                            "source_kernel":cfg.get("kernel_id"),
+                            "numerical_motion":motion})
             # Condition segment 2 on the actual LAST RGB frame of segment 1.
             if segment<3:
                 conditioner=OUT/"STUDIO_RECLINER_PRIVATE_LASTFRAME.png"
@@ -358,7 +396,10 @@ infer(settings)
             "extra_interpolated_frames":0,
             "full_video_length_seconds":129/24,
             "private_media_only":True,"published":False,
-            "human_artistic_approved":False,"qa_color_all_segments":all(r['color_qa']=='NO_NEON_ARTIFACT_FOUND' for r in records),
+            "human_artistic_approved":False,
+            "qa_color_all_segments":all(r['color_qa']=='NO_NEON_ARTIFACT_FOUND' for r in records),
+            "qa_color_no_structural_artifacts":all(not any(r['color_qa_structural_flags'].values()) for r in records),
+            "qa_color_review_required":any(r['color_qa_review_required'] for r in records),
             "anatomical_continuity_human_review_required":True}
         (OUT/"STUDIO_RECLINER_TRUE_NATIVE_RECEIPT.json").write_text(json.dumps(receipt,indent=2))
         print("STUDIO_RECLINER_TRUE_NATIVE_GPU_DONE",receipt["output_sha256"],
