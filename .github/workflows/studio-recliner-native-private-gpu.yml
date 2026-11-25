@@ -1,0 +1,450 @@
+name: STUDIO Recliner — real LTX GPU original photo private MP4
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_native_start.trigger"]
+permissions:
+  contents: write
+concurrency:
+  group: studio-native-recliner-owner-20261124
+  cancel-in-progress: false
+jobs:
+  native_ltx_gpu:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      STUDIO_SECOND_GPU_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+      PYTHONUNBUFFERED: "1"
+      STUDIO_BRANCH: feature/studio-native-recliner-photo-20261124
+      STUDIO_SOURCE_SHA: 9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3
+      STUDIO_PREVIOUS_KERNEL: pavelbloody/studio-recliner-native-45480625216
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: CPU validate studio native LTX source and install necessary tools
+        id: cpu_preflight
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m py_compile tools/kaggle_studio_recliner_native.py
+          python -m unittest tests.test_studio_recliner_native tests.test_eb01_bounded_inference -v
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2' 'numpy>=1.26,<3' 'PyYAML>=6,<7'
+          test -s ops/studio_recliner_owner_recovery_public.pem
+          python - <<'PY'
+          import re,textwrap,yaml
+          from pathlib import Path
+          path=Path(".github/workflows/studio-recliner-native-private-gpu.yml")
+          document=yaml.safe_load(path.read_text(encoding="utf-8"))
+          steps=document["jobs"]["native_ltx_gpu"]["steps"]
+          compiled=0
+          for step in steps:
+              run=step.get("run","")
+              for block in re.findall(r"python - <<'PY'\n(.*?)\nPY(?=\n|$)",run,re.S):
+                  compile(textwrap.dedent(block),"<"+str(step.get("name","workflow"))+">","exec")
+                  compiled+=1
+          if compiled<6:
+              raise RuntimeError("Private GPU workflow embedded Python blocks were not all found")
+          print("STUDIO_RECLINER_WORKFLOW_YAML_AND_EMBEDDED_PYTHON_SYNTAX_PASS",compiled)
+          PY
+      - name: Recover stable RSA photo ingress key wrapped by private GitHub secret
+        run: |
+          set -euo pipefail
+          test -s ops/studio_recliner_ingress_persistent_public.pem
+          test -s ops/studio_recliner_ingress_private_wrapped.json
+          test -n "$KAGGLE_API_TOKEN"
+          python - <<'PY'
+          import base64,json,os
+          from pathlib import Path
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          src=Path("ops/studio_recliner_ingress_private_wrapped.json")
+          data=json.loads(src.read_text())
+          if data["schema"]!=1 or data["purpose"]!="studio-recliner-rsa-private-key-wrap":
+              raise RuntimeError("Persisted owner ingress policy mismatch")
+          key=HKDF(algorithm=hashes.SHA256(),length=32,
+            salt=base64.b64decode(data["salt"],validate=True),
+            info=b"TW_STUDIO_RECLINER_PRIVATE_KEY_WRAP_V1").derive(os.environ["KAGGLE_API_TOKEN"].encode())
+          original=AESGCM(key).decrypt(base64.b64decode(data["nonce"],validate=True),
+            base64.b64decode(data["sealed_private_key"],validate=True),b"TW_STUDIO_RECLINER_KEY_WRAP_V1")
+          dest=Path(os.environ["RUNNER_TEMP"])/"STUDIO_RECLINER_INPUT_PRIVATE.pem"
+          dest.write_bytes(original)
+          dest.chmod(0o600)
+          print("STUDIO_RECLINER_PERSISTENT_PRIVATE_RSA_KEY_RESTORED_IN_RUNNER_ONLY")
+          PY
+      - name: Decrypt authenticated original photo from persistent sealed chunks
+        run: |
+          set -euo pipefail
+          for i in 0 1 2 3 4 5 6; do
+            test -s "ops/studio_recliner_persistent_input.chunk$i"
+          done
+          for i in 0 1 2 3 4 5 6; do
+            cat "ops/studio_recliner_persistent_input.chunk$i"
+          done | base64 -d > "$RUNNER_TEMP/studio-recliner-private-input.twenc"
+          python - <<'PY'
+          import hashlib,os
+          from pathlib import Path
+          from PIL import Image
+          from studio.sealed_artifacts import unseal
+          root=Path(os.environ["RUNNER_TEMP"])
+          photo=root/"STUDIO_RECLINER_OWNER_REFERENCE.webp"
+          unseal(root/"studio-recliner-private-input.twenc",
+                 root/"STUDIO_RECLINER_INPUT_PRIVATE.pem",photo,
+                 {"purpose":"studio-recliner-input","schema":1,
+                  "source_sha256":os.environ["STUDIO_SOURCE_SHA"]})
+          assert hashlib.sha256(photo.read_bytes()).hexdigest()==os.environ["STUDIO_SOURCE_SHA"]
+          with Image.open(photo) as im:
+              assert im.format=="WEBP" and im.size==(576,768)
+              im.verify()
+          print("STUDIO_RECLINER_PERSISTENT_INPUT_DECRYPTED_AND_SHA_VERIFIED")
+          PY
+      - name: Recover and qualify original real segment 0 from failed private Kaggle kernel — NO GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          export KAGGLE_API_TOKEN="$STUDIO_SECOND_GPU_TOKEN"
+          prior="$STUDIO_PREVIOUS_KERNEL"
+          status="$(kaggle kernels status "$prior")"
+          [[ "$status" == *'KernelWorkerStatus.ERROR'* ]] || { echo "::error::Previous kernel is not terminal ERROR; refuse duplicate generation."; exit 1; }
+          python - <<'PY'
+          import os
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          from tools.eb01_kaggle2_auth_probe import query
+          token=os.environ["STUDIO_SECOND_GPU_TOKEN"]
+          auth,handle=query(token)
+          if auth!="AUTHENTICATED_READ_ONLY" or handle!="pavelbloody":
+              raise RuntimeError("Expected authorized second Kaggle account was not confirmed")
+          api=KaggleApi()
+          api.authenticate()
+          kernels=[]
+          for page in range(1,11):
+              current=api.kernels_list(mine=True,page_size=100,page=page)
+              kernels.extend(current)
+              if len(current)<100: break
+          else:
+              raise RuntimeError("Kaggle kernel inventory exceeded 1000 entries; active-job check incomplete")
+          if not kernels:
+              raise RuntimeError("Kaggle kernel inventory returned no rows; active-job check unverified")
+          terminal={"KernelWorkerStatus.COMPLETE","KernelWorkerStatus.ERROR",
+                    "KernelWorkerStatus.CANCELLED","KernelWorkerStatus.CANCELED"}
+          active=[]
+          refs=[]
+          for item in kernels:
+              slug=str(item.get("ref","") if isinstance(item,dict) else (getattr(item,"ref","") or ""))
+              if not slug: continue
+              refs.append(slug)
+              try:
+                  status_obj=api.kernels_status(slug)
+                  state=str(status_obj.get("status","UNKNOWN") if isinstance(status_obj,dict)
+                            else getattr(status_obj,"status","UNKNOWN"))
+              except Exception as exc:
+                  response=getattr(exc,"response",None)
+                  if response is not None and getattr(response,"status_code",None)==404:
+                      state="NO_ACTIVE_SESSION"
+                  else:
+                      raise
+              if state not in terminal and state!="NO_ACTIVE_SESSION":
+                  active.append(slug)
+          if os.environ["STUDIO_PREVIOUS_KERNEL"] not in refs:
+              raise RuntimeError("Previous private kernel missing from authenticated account inventory")
+          if active:
+              raise RuntimeError("Second Kaggle account still has active kernels; no GPU submission allowed")
+          print("STUDIO_RECLINER_SECOND_ACCOUNT_AUTHENTICATED_KERNELS_CHECKED",len(refs),
+                "ACTIVE_KERNELS",len(active))
+          PY
+          mkdir -p "$RUNNER_TEMP/studio-recliner-prior-output"
+          kaggle kernels output "$prior" -p "$RUNNER_TEMP/studio-recliner-prior-output" --force > "$RUNNER_TEMP/studio-recliner-prior-output-download.log" 2>&1
+          kaggle kernels logs "$prior" > "$RUNNER_TEMP/studio-recliner-prior-kernel.log" 2>&1
+          python - <<'PY'
+          import hashlib,json,os,subprocess,shutil
+          from pathlib import Path
+          from tools.kaggle_studio_recliner_native import _probe_recliner,_classify_recliner_color_qa
+          from studio.eb01_motion_artifact_gate import inspect_clip
+          from tools.eb01_true_gpu_clip_numbers import gray_motion
+          root=Path(os.environ["RUNNER_TEMP"])/"studio-recliner-prior-output"
+          source=root/"STUDIO_RECLINER_PRIVATE_REFERENCE.webp"
+          expected_source=os.environ["STUDIO_SOURCE_SHA"]
+          if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest()!=expected_source:
+              raise RuntimeError("Prior kernel did not use the authenticated original photo")
+          candidates=list((root/"STUDIO_RECLINER_NATIVE_PRIVATE_GENERATION"/"segment_0").rglob("*.mp4"))
+          if len(candidates)!=1:
+              raise RuntimeError("Prior kernel must contain exactly one original segment-0 MP4")
+          clip=candidates[0]
+          digest=hashlib.sha256(clip.read_bytes()).hexdigest()
+          expected_clip="124f259749f6fdbe8f2113f5d850d7a520b6ddf3413ba3cefb6bf11006c9461c"
+          if digest!=expected_clip:
+              raise RuntimeError("Recovered original segment-0 SHA does not match the forensic receipt")
+          stage_log=root/"STUDIO_RECLINER_PRIVATE_GPU_0.log"
+          parent_log=root/"studio-recliner-native-45480625216.log"
+          if not stage_log.is_file() or not parent_log.is_file():
+              raise RuntimeError("Original native stage log or parent failure log is missing")
+          stage_text=stage_log.read_text(encoding="utf-8",errors="replace")
+          parent_text=parent_log.read_text(encoding="utf-8",errors="replace")
+          if "WAVE_STAGE_NATIVE_VIDEO_OUTPUT_READY" not in stage_text or "WAVE_STAGE_END_DECODE" not in stage_text:
+              raise RuntimeError("Original LTX native video output/decode stage was not attested")
+          if ("STUDIO_RECLINER_NATIVE_MODEL_BLOCKED" not in parent_text or
+                  "Neural take has invalid native video geometry or frame clock" not in parent_text):
+              raise RuntimeError("Previous kernel failure does not match the diagnosed post-inference 9:16 validator rejection")
+          meta=_probe_recliner(clip)
+          if (meta["codec"],meta["width"],meta["height"],meta["fps"],meta["frames"])!=("h264",576,768,"24",33):
+              raise RuntimeError("Recovered native segment-0 geometry or codec mismatch")
+          subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(clip),"-f","null","-"],
+                         capture_output=True,check=True,timeout=120)
+          color=_classify_recliner_color_qa(inspect_clip(clip))
+          motion=gray_motion(clip)
+          if motion["mean_frame_luma_delta"]<=0.18 or motion["nonidentical_motion_frames"]<4:
+              raise RuntimeError("Recovered native segment-0 has insufficient decoded motion")
+          if color["status"]!="REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF" or any(color["structural_flags"].values()):
+              raise RuntimeError("Recovered native segment-0 no longer matches the explicitly reviewed cool-palette-only state")
+          checkpoint=Path(os.environ["RUNNER_TEMP"])/"STUDIO_RECLINER_SEGMENT0_CHECKPOINT.mp4"
+          shutil.copy2(clip,checkpoint)
+          checkpoint.chmod(0o600)
+          receipt={
+            "sha256":digest,"source_git_sha":"718524ed5629bd5749c282a86f2ee053180b2f03",
+            "source_kernel":"pavelbloody/studio-recliner-native-45480625216",
+            "model_seconds":None,"native_stage_attested":True,
+            "color_qa":color["status"],"color_qa_review_required":True,
+            "motion":motion,"video":meta
+          }
+          (Path(os.environ["RUNNER_TEMP"])/"STUDIO_RECLINER_SEGMENT0_CHECKPOINT.json").write_text(
+            json.dumps(receipt,sort_keys=True),encoding="utf-8")
+          print("STUDIO_RECLINER_ORIGINAL_NEURAL_SEGMENT0_RECOVERED_AND_VALIDATED",
+                json.dumps({"sha256":digest,"video":meta,"color_qa":color["status"],
+                            "motion":motion},sort_keys=True))
+          PY
+      - name: Build private LTX kernel with recovered segment 0 and the original photo
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64,hashlib,json,os,shutil
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          folder=root/"studio-recliner-private-kernel"
+          folder.mkdir(mode=0o700)
+          code=Path("tools/kaggle_studio_recliner_native.py").read_text()
+          source=(root/"STUDIO_RECLINER_OWNER_REFERENCE.webp").read_bytes()
+          checkpoint=(root/"STUDIO_RECLINER_SEGMENT0_CHECKPOINT.mp4").read_bytes()
+          proof=json.loads((root/"STUDIO_RECLINER_SEGMENT0_CHECKPOINT.json").read_text())
+          if hashlib.sha256(checkpoint).hexdigest()!=proof["sha256"]:
+              raise RuntimeError("Private checkpoint changed between qualification and kernel build")
+          from tools.eb01_kaggle2_auth_probe import query
+          second_token=os.environ.get("STUDIO_SECOND_GPU_TOKEN","")
+          state,handle=query(second_token)
+          if state!="AUTHENTICATED_READ_ONLY" or handle!="pavelbloody":
+              raise RuntimeError("Studio authorized second T4 credential unavailable")
+          kernel=handle+"/studio-recliner-native-"+os.environ["GITHUB_RUN_ID"]
+          cfg={"schema":1,"mode":"studio-native-wave",
+               "private":True,"no_paid_services":True,"allow_social_publish":False,
+               "human_artistic_approved":False,"branch":os.environ["STUDIO_BRANCH"],
+               "revision":os.environ["GITHUB_SHA"],"kernel_id":kernel,
+               "source_sha256":os.environ["STUDIO_SOURCE_SHA"],
+               "checkpoint_0_sha256":proof["sha256"],
+               "checkpoint_0_model_seconds":proof["model_seconds"],
+               "checkpoint_0_native_stage_attested":proof["native_stage_attested"],
+               "checkpoint_0_kernel":proof["source_kernel"],
+               "checkpoint_0_source_git_sha":proof["source_git_sha"],
+               "checkpoint_0_color_qa":proof["color_qa"]}
+          values=(
+            ("__STUDIO_RECLINER_CONFIG_B64__",base64.b64encode(json.dumps(cfg,sort_keys=True).encode()).decode()),
+            ("__STUDIO_RECLINER_IMAGE_B64__",base64.b64encode(source).decode()),
+            ("__STUDIO_RECLINER_CHECKPOINT_B64__",base64.b64encode(checkpoint).decode()),
+          )
+          for marker,value in values:
+              if code.count(marker)!=1:
+                  raise RuntimeError("Private LTX source marker missing or ambiguous")
+              code=code.replace(marker,value)
+          compile(code,"<private_studio_recliner>","exec")
+          (folder/"kernel_main.py").write_text(code)
+          metadata={"id":kernel,"title":kernel.split("/")[1],"code_file":"kernel_main.py",
+               "language":"python","kernel_type":"script","is_private":"true",
+               "enable_gpu":"true","enable_internet":"true","machine_shape":"NvidiaTeslaT4",
+               "dataset_sources":[],"competition_sources":[],"kernel_sources":[],"model_sources":[]}
+          (folder/"kernel-metadata.json").write_text(json.dumps(metadata))
+          (root/"STUDIO_RECLINER_KERNEL_ID.txt").write_text(kernel)
+          (root/"STUDIO_RECLINER_OWNER_REFERENCE.webp").unlink(missing_ok=True)
+          (root/"STUDIO_RECLINER_SEGMENT0_CHECKPOINT.mp4").unlink(missing_ok=True)
+          shutil.rmtree(root/"studio-recliner-prior-output",ignore_errors=True)
+          print("STUDIO_RECLINER_PRIVATE_KERNEL_READY_WITH_RECOVERED_SEGMENT0_NO_REGENERATION")
+          PY
+      - name: Resume from recovered segment 0 and generate only segments 1–3 on private Kaggle T4
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+        run: |
+          set -euo pipefail
+          # Kaggle CLI may print "Kernel push error" while exiting zero.
+          # Inspect the response AND independently verify the created kernel.
+          response="$(kaggle kernels push -p "$RUNNER_TEMP/studio-recliner-private-kernel" --timeout 3600 --accelerator NvidiaTeslaT4 2>&1)"
+          if printf "%s\n" "$response" | grep -Eiq "Kernel push error|Maximum batch GPU session|quota|429|403|404|Traceback"; then
+            echo "::error::Kaggle rejected the GPU submission; no real inference launched."
+            exit 1
+          fi
+          kernel="$(cat "$RUNNER_TEMP/STUDIO_RECLINER_KERNEL_ID.txt")"
+          if ! kaggle kernels status "$kernel" >/dev/null 2>&1; then
+            echo "::error::Kaggle kernel not confirmed after submission. No false PASS."
+            exit 1
+          fi
+          echo "STUDIO_RECLINER_REAL_GPU_LTX_SUBMITTED_AND_KERNEL_VERIFIED"
+      - name: Verify four genuine neural segments and complete MP4 decode
+        env:
+          KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+        run: |
+          set -euo pipefail
+          kernel="$(cat "$RUNNER_TEMP/STUDIO_RECLINER_KERNEL_ID.txt")"
+          complete=false
+          for attempt in $(seq 1 70); do
+            state="$(kaggle kernels status "$kernel")"
+            echo "STUDIO_RECLINER_PRIVATE_GPU_STATE" "$state"
+            if [[ "$state" == *'KernelWorkerStatus.COMPLETE'* ]]; then
+              mkdir -p "$RUNNER_TEMP/studio-recliner-private-output"
+              kaggle kernels output "$kernel" -p "$RUNNER_TEMP/studio-recliner-private-output" --force > "$RUNNER_TEMP/studio-recliner-private-output.log" 2>&1
+              complete=true
+              break
+            fi
+            if [[ "$state" == *'KernelWorkerStatus.ERROR'* || "$state" == *'KernelWorkerStatus.CANCEL'* ]]; then
+              echo "::error::LTX model failed; no fake video accepted. Preserve partial neural output."
+              exit 1
+            fi
+            sleep 55
+          done
+          [[ "$complete" == true ]] || { echo "::error::Original GPU job incomplete; do not fabricate result."; exit 1; }
+          python - <<'PY'
+          import hashlib,json,os,subprocess
+          from pathlib import Path
+          from tools.kaggle_studio_recliner_native import _probe_recliner,_recliner_region_motion,_recliner_region_motion_pass
+          kernel=(Path(os.environ["RUNNER_TEMP"])/"STUDIO_RECLINER_KERNEL_ID.txt").read_text().strip()
+          root=Path(os.environ["RUNNER_TEMP"])/"studio-recliner-private-output"
+          movie=root/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4"
+          data=json.loads((root/"STUDIO_RECLINER_TRUE_NATIVE_RECEIPT.json").read_text())
+          assert data["actual_native_gpu_inference"] is True
+          assert data["source_reference_sha256"]==os.environ["STUDIO_SOURCE_SHA"]
+          assert data["output_frames"]==129 and data["extra_interpolated_frames"]==0
+          assert data["output_sha256"]==hashlib.sha256(movie.read_bytes()).hexdigest()
+          assert len(data["original_neural_segments"])==4
+          assert data["qa_color_no_structural_artifacts"] is True
+          assert isinstance(data["qa_color_review_required"],bool)
+          allowed={"NO_NEON_ARTIFACT_FOUND","REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF"}
+          assert data["qa_color_all_segments"]==all(r["color_qa"]=="NO_NEON_ARTIFACT_FOUND" for r in data["original_neural_segments"])
+          assert data["qa_color_review_required"]==any(r["color_qa_review_required"] for r in data["original_neural_segments"])
+          assert data["qa_color_no_structural_artifacts"]==all(not any(r["color_qa_structural_flags"].values()) for r in data["original_neural_segments"])
+          for i,record in enumerate(data["original_neural_segments"]):
+              assert record["index"]==i and record["frames"]==33
+              if i==0:
+                  assert record["image_cond_noise_scale"]==0.15
+              else:
+                  from tools.kaggle_studio_recliner_native import _continuation_attempts
+                  assert (record["image_cond_noise_scale"],record["seed"])==_continuation_attempts(i)[record["attempt"]]
+                  assert record["native_output_stage_attested"] is True
+              assert record["color_qa"] in allowed
+              assert record["color_qa_review_required"]==(record["color_qa"]!="NO_NEON_ARTIFACT_FOUND")
+              assert not any(record["color_qa_structural_flags"].values())
+              assert record["numerical_motion"]["nonidentical_motion_frames"]>=4
+              assert record["numerical_motion"]["mean_frame_luma_delta"]>0.18
+              clip=root/("STUDIO_RECLINER_REAL_SEGMENT_"+str(i)+".mp4")
+              assert clip.is_file()
+              assert hashlib.sha256(clip.read_bytes()).hexdigest()==record["sha256"]
+              measured=_recliner_region_motion(clip)
+              assert _recliner_region_motion_pass(measured,i)
+              assert all(abs(measured[k]-record["region_motion"][k])<0.001 for k in measured)
+              if i==0:
+                  assert record["recovered_from_prior_private_kernel"] is True
+                  assert record["native_output_stage_attested"] is True
+                  assert record["source_kernel"]=="pavelbloody/studio-recliner-native-45480625216"
+                  assert record["source_git_sha"]=="718524ed5629bd5749c282a86f2ee053180b2f03"
+                  assert record["sha256"]=="124f259749f6fdbe8f2113f5d850d7a520b6ddf3413ba3cefb6bf11006c9461c"
+              else:
+                  assert record["source_git_sha"]==os.environ["GITHUB_SHA"]
+                  assert record["source_kernel"]==kernel
+          meta=_probe_recliner(movie)
+          assert (meta["codec"],meta["frames"],meta["fps"],meta["width"],meta["height"])==("h264",129,"24",576,768)
+          assert abs(meta["seconds"]-5.375)<0.01
+          subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(movie),"-f","null","-"],
+                         capture_output=True,check=True,timeout=120)
+          print("STUDIO_RECLINER_TRUE_NATIVE_MP4_TECHNICALLY_VERIFIED_VISUAL_REVIEW_REQUIRED",
+                json.dumps({"sha256":data["output_sha256"],"video":meta,
+                            "color_review_required":data["qa_color_review_required"],
+                            "human_artistic_approved":False},sort_keys=True))
+          PY
+      - name: Preserve failed or partial private LTX outputs without another GPU run
+        if: failure() && steps.cpu_preflight.outcome == 'success'
+        shell: bash
+        run: |
+          set +e
+          export KAGGLE_API_TOKEN="$STUDIO_SECOND_GPU_TOKEN"
+          if [[ -s "$RUNNER_TEMP/STUDIO_RECLINER_KERNEL_ID.txt" ]]; then
+            export STUDIO_FORENSIC_KERNEL="$(cat "$RUNNER_TEMP/STUDIO_RECLINER_KERNEL_ID.txt")"
+          else
+            export STUDIO_FORENSIC_KERNEL="$STUDIO_PREVIOUS_KERNEL"
+          fi
+          python -m tools.studio_recliner_private_forensic
+      - name: Upload redacted native failure report, if generation failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-native-failure-report
+          path: ${{ runner.temp }}/STUDIO_RECLINER_FORENSIC_REPORT.json
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Upload owner-encrypted native partials, if generation failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-native-encrypted-recovery
+          path: ${{ runner.temp }}/STUDIO_RECLINER_FORENSIC_RECOVERY.twenc
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Authenticated encrypt actual MP4 for user; never publish raw video
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from studio.sealed_artifacts import seal
+          root=Path(os.environ["RUNNER_TEMP"])
+          seal(root/"studio-recliner-private-output"/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4",
+               Path("ops/studio_recliner_owner_recovery_public.pem"),
+               root/"STUDIO_RECLINER_REAL_129F_USER_ONLY.twenc",
+               {"purpose":"studio-recliner-native-output","schema":1,
+                "source_sha256":os.environ["STUDIO_SOURCE_SHA"],
+                "verified_frames":129})
+          print("STUDIO_RECLINER_PRIVATE_ORIGINAL_MP4_OWNER_ENCRYPTED")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-real-ltx-neural-mp4-owner-encrypted
+          path: ${{ runner.temp }}/STUDIO_RECLINER_REAL_129F_USER_ONLY.twenc
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+      - name: Seal final MP4 and reference for the active local verification session
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,hashlib,zipfile
+          from pathlib import Path
+          from studio.sealed_artifacts import seal
+          root=Path(os.environ["RUNNER_TEMP"])
+          src=root/"studio-recliner-private-output"
+          reference=src/"STUDIO_RECLINER_PRIVATE_REFERENCE.webp"
+          assert hashlib.sha256(reference.read_bytes()).hexdigest()==os.environ["STUDIO_SOURCE_SHA"]
+          package=root/"studio-session-final.zip"
+          with zipfile.ZipFile(package,"w",compression=zipfile.ZIP_STORED) as z:
+              for name in ("STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4","STUDIO_RECLINER_TRUE_NATIVE_RECEIPT.json","STUDIO_RECLINER_PRIVATE_REFERENCE.webp"):
+                  z.write(src/name,name)
+          seal(package,Path("ops/studio_recliner_session_review_20261125_public.pem"),root/"studio-session-final.twenc",{"purpose":"studio-recliner-local-final-review","schema":1,"source_sha256":os.environ["STUDIO_SOURCE_SHA"],"verified_frames":129})
+          package.unlink()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-session-encrypted-final
+          path: ${{ runner.temp }}/studio-session-final.twenc
+          retention-days: 3
+          if-no-files-found: error

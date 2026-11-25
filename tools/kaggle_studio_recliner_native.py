@@ -1,0 +1,483 @@
+"""True native Studio image-to-video test on private Kaggle T4.
+Real LTX2B neural denoising only, pinned upstream, zero public portrait media.
+Source JPEG is provided in private kernel script only; never checked into GitHub.
+"""
+from __future__ import annotations
+import base64,hashlib,json,os,subprocess,sys,shutil,time,traceback,math
+from pathlib import Path
+CONFIG_B64="__STUDIO_RECLINER_CONFIG_B64__"
+IMAGE_B64="__STUDIO_RECLINER_IMAGE_B64__"
+# Optional real segment-0 bytes, passed ONLY into a private Kaggle script.
+CHECKPOINT_B64="__STUDIO_RECLINER_CHECKPOINT_B64__"
+ROOT=Path("/kaggle/temp/two-worlds-wave-repo")
+LTX=Path("/kaggle/temp/studio-wave-ltx")
+OUT=Path("/kaggle/working")
+LTX_SHA="50f0aef1297574a4b29acbdb874e3a363a6d5f2e"
+def run(args,timeout=360,cwd=None):
+    x=subprocess.run(list(map(str,args)),cwd=cwd,text=True,capture_output=True,timeout=timeout)
+    if x.returncode:raise RuntimeError("STUDIO_BOUNDED_COMMAND_FAILED:"+str(args[:2]))
+    return x.stdout
+def sha(p):
+    h=hashlib.sha256()
+    with Path(p).open('rb') as f:
+        for chunk in iter(lambda:f.read(1024*1024),b''):h.update(chunk)
+    return h.hexdigest()
+
+def _validate_recliner_video_stream(stream):
+    """Validate this job's locked 3:4 portrait clock, not the studio's 9:16 default."""
+    from fractions import Fraction
+    try:
+        fps = Fraction(str(stream["avg_frame_rate"]))
+        frames = int(stream["nb_read_frames"])
+        width = int(stream["width"])
+        height = int(stream["height"])
+        codec = str(stream["codec_name"]).lower()
+        seconds_value = stream.get("duration")
+        seconds = float(seconds_value) if seconds_value not in (None, "", "N/A") else float(frames / fps)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+        raise RuntimeError("Recliner native video clock metadata is incomplete") from exc
+    expected_seconds = float(frames / fps)
+    if (frames < 1 or fps != 24 or codec != "h264" or (width, height) != (576, 768)
+            or abs(width / height - 0.75) > 0.005
+            or not math.isfinite(seconds) or abs(seconds - expected_seconds) > 0.12):
+        raise RuntimeError("Recliner native video must be 576x768, 24 FPS, 3:4 with a valid frame clock")
+    return {
+        "codec": codec, "width": width, "height": height, "fps": str(fps),
+        "frames": frames, "seconds": round(seconds, 5),
+    }
+
+
+def _probe_recliner(path: Path) -> dict:
+    if not Path(path).is_file() or not shutil.which("ffprobe"):
+        raise RuntimeError("Recliner native MP4 or ffprobe is unavailable")
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0", "-count_frames",
+        "-show_entries", "stream=codec_name,width,height,avg_frame_rate,duration,nb_read_frames",
+        "-of", "json", str(path),
+    ], capture_output=True, text=True, timeout=120, check=True)
+    streams = json.loads(result.stdout).get("streams", [])
+    if len(streams) != 1:
+        raise RuntimeError("Recliner MP4 must contain exactly one video stream")
+    return _validate_recliner_video_stream(streams[0])
+
+
+
+def _classify_recliner_color_qa(qa: dict) -> dict:
+    """Allow the cool lounge palette only as explicit human-review status.
+
+    Structural RGB lines, broad neon bands and spectral intrusions remain blockers.
+    Persistent cool chroma alone is never an artistic PASS.
+    """
+    status = qa.get("status")
+    structural = {
+        "horizontal_neon_bands": len(qa.get("horizontal_neon_band_flagged_frames", [])),
+        "spectral_intrusions": len(qa.get("spectral_intrusion_flagged_frames", [])),
+        "neon_line_geometry": len(qa.get("neon_line_geometry_flagged_frames", [])),
+    }
+    if status == "NO_NEON_ARTIFACT_FOUND" and not any(structural.values()):
+        return {"status": status, "review_required": False, "structural_flags": structural}
+    if status == "REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF" and not any(structural.values()):
+        return {"status": status, "review_required": True, "structural_flags": structural}
+    raise RuntimeError("Recliner color QA found a structural artifact or unsupported review state")
+
+
+def _recliner_region_motion(path: Path) -> dict:
+    """Scene-specific RGB movement check: distinguish actor from wall flicker.
+    The regions are anchored to the authenticated 576x768 reference.
+    These measurements cannot prove facial acting or anatomical quality.
+    """
+    import numpy as np
+    raw=subprocess.run(["ffmpeg","-v","error","-xerror","-i",str(path),
+                        "-map","0:v:0","-f","rawvideo","-pix_fmt","rgb24","-"],
+                        capture_output=True,check=True,timeout=120).stdout
+    if len(raw)!=33*768*576*3:
+        raise RuntimeError("Region QA requires 33 complete native RGB frames")
+    frames=np.frombuffer(raw,dtype=np.uint8).reshape(33,768,576,3)
+    accum={name:0.0 for name in ("head","torso","wall")}
+    regions={"head":(300,318,390,398),"torso":(210,390,390,510),
+             "wall":(0,0,576,270)}
+    for i in range(1,33):
+        for name,(x0,y0,x1,y1) in regions.items():
+            a=frames[i,y0:y1,x0:x1].astype(np.int16)
+            b=frames[i-1,y0:y1,x0:x1].astype(np.int16)
+            accum[name]+=float(np.abs(a-b).mean())
+    return {name:round(value/32,6) for name,value in accum.items()}
+
+
+def _recliner_region_motion_pass(metrics: dict, segment: int) -> bool:
+    if segment not in (0,1,2,3):
+        raise ValueError("Unexpected segment")
+    head,torso,wall=(metrics.get(name) for name in ("head","torso","wall"))
+    if not all(isinstance(v,(int,float)) and math.isfinite(v) and v>=0
+               for v in (head,torso,wall)):
+        return False
+    actor=head if segment in (1,3) else max(head,torso)
+    return actor>=0.5 and wall<=1.0 and actor>=1.2*wall
+
+
+def _continuation_attempts(segment: int):
+    """Two bounded, distinct native trials; no relaxed motion or color gate."""
+    if segment not in (0, 1, 2, 3):
+        raise ValueError("Unexpected segment index")
+    seed = 2026112301 + segment
+    if segment == 0:
+        return ((0.15, seed),)
+    return ((0.25, seed), (0.28, seed + 1009))
+
+
+def main():
+    cfg=json.loads(base64.b64decode(CONFIG_B64,validate=True))
+    if (cfg.get("schema")!=1 or cfg.get("mode")!="studio-native-wave" or
+        cfg.get("private") is not True or cfg.get("no_paid_services") is not True or
+        cfg.get("allow_social_publish") is not False or cfg.get("human_artistic_approved") is not False or
+        cfg.get("source_sha256")!="9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3"):
+        raise ValueError("Unsafe native Studio reference or privacy policy")
+    import torch
+    from PIL import Image
+    if not torch.cuda.is_available() or torch.cuda.get_device_properties(0).total_memory<14*2**30:
+        raise RuntimeError("True CUDA T4 >=14GiB unavailable; no CPU fake")
+    reference=OUT/"STUDIO_RECLINER_PRIVATE_REFERENCE.webp"
+    reference.write_bytes(base64.b64decode(IMAGE_B64,validate=True))
+    if sha(reference)!=cfg["source_sha256"]:raise ValueError("Reference hash mismatch")
+    with Image.open(reference) as photo:
+        if photo.size!=(576,768):raise ValueError("Reference geometry mismatch")
+        photo.verify()
+    run(["git","clone","--depth","1","--branch",cfg["branch"],
+         "https://github.com/19wolfalone92/Two-Worlds-Studio.git",ROOT],timeout=300)
+    run(["git","fetch","--depth","1","origin",cfg["revision"]],cwd=ROOT)
+    run(["git","checkout","--detach",cfg["revision"]],cwd=ROOT)
+    if run(["git","rev-parse","HEAD"],cwd=ROOT).strip()!=cfg["revision"]:
+        raise RuntimeError("Source revision mismatch")
+    sys.path.insert(0,str(ROOT))
+    from studio.eb01_native_t4_profile import patch_native_sources
+    from tools.eb01_bounded_inference import run_native_bounded,InferenceTimeBudgetExpired
+    from studio.eb01_motion_artifact_gate import inspect_clip
+    from tools.eb01_true_gpu_clip_numbers import gray_motion
+    native_profile=True
+    run(["git","clone","--depth","1","https://github.com/Lightricks/LTX-Video.git",LTX],timeout=300)
+    run(["git","fetch","--depth","1","origin",LTX_SHA],cwd=LTX)
+    run(["git","checkout","--detach",LTX_SHA],cwd=LTX)
+    if run(["git","rev-parse","HEAD"],cwd=LTX).strip()!=LTX_SHA:
+        raise RuntimeError("Official LTX revision changed")
+    source=LTX/"ltx_video"/"inference.py"
+    code=source.read_text()
+    old=[
+      "return Transformer3DModel.from_pretrained(ckpt_path).to(torch.bfloat16)",
+      "vae = vae.to(torch.bfloat16)",
+      "text_encoder = text_encoder.to(torch.bfloat16)"
+    ]
+    for item in old:
+        if code.count(item)!=1:raise RuntimeError("Official LTX source changed; cannot safely patch T4")
+        # T4 cannot compute BF16. Keep 2B transformer/T5 in FP16 but
+        # use FP32 for sequentially-offloaded VIDEO VAE to avoid
+        # potential FP16 decoder overflows behind neon RGB artifacts.
+        # The previous full FP16 real GPU generated 33 valid frames yet
+        # color gate flagged 33/33, so this is an actual A/B numerical
+        # precision change, NOT another unchanged expensive rerun.
+        chosen=("torch.float32" if item.startswith("vae = vae.to(")
+                else "torch.float16")
+        code=code.replace(item,item.replace("torch.bfloat16",chosen))
+    # ROOT CAUSE VERIFIED IN FIRST LTX GPU LOG: ~14.42/14.56 GiB
+    # exhausted while create_ltx_video_pipeline simultaneously places
+    # transformer, T5 and VAE on CUDA, *before* offload_to_cpu can run.
+    # Stage all original official weights on CPU. Inside the sampler,
+    # move T5 -> CPU, transformer -> CPU, VAE -> CUDA sequentially.
+    # Keep the full actual LTX inference on the real T4, no fake frames.
+    original_call="        sampler=sampler,\n        device=device,\n        enhance_prompt=enhance_prompt,"
+    if code.count(original_call)!=1:
+        raise RuntimeError("Official LTX pipeline call changed; memory fix cannot be verified")
+    code=code.replace(original_call,
+        "        sampler=sampler,\n        device='cpu',\n        enhance_prompt=enhance_prompt,")
+    # Emit only predefined stage labels, not private actor prompts.
+    upstream_events=[
+      ("    pipeline = create_ltx_video_pipeline(",
+       "    print('WAVE_STAGE_BEGIN_MODEL_LOAD',flush=True)\n    pipeline = create_ltx_video_pipeline("),
+      ('    if pipeline_config.get("pipeline_type", None) == "multi-scale":',
+       '    print("WAVE_STAGE_END_MODEL_LOAD",flush=True)\n    if pipeline_config.get("pipeline_type", None) == "multi-scale":'),
+      ('        logger.warning(f"Output saved to {output_filename}")',
+       '        print("WAVE_STAGE_NATIVE_VIDEO_OUTPUT_READY",flush=True)\n        logger.warning(f"Output saved to {output_filename}")'),
+    ]
+    for original,updated in upstream_events:
+        if code.count(original)!=1:
+            raise RuntimeError("Pinned official LTX inference stage changed")
+        code=code.replace(original,updated)
+    source.write_text(code)
+    stages=LTX/"ltx_video"/"pipelines"/"pipeline_ltx_video.py"
+    pipe=stages.read_text()
+    updates=[
+      ("        device = self._execution_device\n\n        self.video_scale_factor",
+       "        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')\n\n        self.video_scale_factor"),
+      ("self.text_encoder = self.text_encoder.to(self._execution_device)",
+       "print('WAVE_STAGE_BEGIN_PROMPT_ENCODE',flush=True)\n            self.text_encoder = self.text_encoder.to(device)"),
+      # ROOT FIX 2: I2V input photo encoding invokes vae_encode()
+      # *before* denoising. The previous "memory fix" left VAE on
+      # CPU in FP16 and shifted the transformer to CUDA too early,
+      # causing slow/unsupported FP16 CPU VAE and GPU residency overlap.
+      # Encode the original reference on CUDA using just VAE, then
+      # offload VAE and load the transformer for 8-step sampling.
+      ("self.transformer = self.transformer.to(self._execution_device)",
+       "print('WAVE_STAGE_BEGIN_CONDITIONING_VAE',flush=True)\n        self.vae = self.vae.to(device)"),
+      (").to(dtype=init_latents.dtype)\n",
+       ").to(dtype=init_latents.dtype, device=init_latents.device)\n"),
+      ("            image = vae_decode(\n",
+       "            print('WAVE_STAGE_BEGIN_DECODE',flush=True)\n            self.vae = self.vae.to(device)\n            image = vae_decode(\n"),
+    ]
+    for previous,updated in updates:
+        if pipe.count(previous)!=1:
+            raise RuntimeError("Official LTX pipeline stage changed; unsafe GPU memory patch")
+        pipe=pipe.replace(previous,updated)
+    stage_events=[
+      ('        if offload_to_cpu and self.text_encoder is not None:',
+       '        print("WAVE_STAGE_END_PROMPT_ENCODE",flush=True)\n        if offload_to_cpu and self.text_encoder is not None:'),
+      ("            for i, t in enumerate(timesteps):",
+       "            for i, t in enumerate(timesteps):\n                print('WAVE_STAGE_DENOISE_STEP_START',i+1,flush=True)"),
+      ("                # call the callback, if provided",
+       "                print('WAVE_STAGE_DENOISE_STEP_END',i+1,flush=True)\n                # call the callback, if provided"),
+      ("        if offload_to_cpu:\n            self.transformer = self.transformer.cpu()",
+       "        print('WAVE_STAGE_END_TRANSFORMER',flush=True)\n        if offload_to_cpu:\n            self.transformer = self.transformer.cpu()"),
+      ("            image = self.image_processor.postprocess(image, output_type=output_type)",
+       "            image = self.image_processor.postprocess(image, output_type=output_type)\n            print('WAVE_STAGE_END_DECODE',flush=True)"),
+    ]
+    for original,updated in stage_events:
+        if pipe.count(original)!=1:
+            raise RuntimeError("Pinned official LTX pipeline stage instrumentation changed")
+        pipe=pipe.replace(original,updated)
+    # After the conditioning/photo VAE encoding completes, transfer it
+    # back to RAM before moving 2B transformer to GPU. Then after
+    # transformer sampling the existing decode-stage patch moves VAE
+    # back to GPU. Never keep all T5+VAE+transformer on T4 at once.
+    stage_after="        # 6. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline"
+    if pipe.count(stage_after)!=1:
+        raise RuntimeError("Official LTX after-conditioning boundary changed; cannot safely stage CUDA VAE")
+    pipe=pipe.replace(stage_after,
+        "        if offload_to_cpu:\n"
+        "            self.vae = self.vae.cpu()\n"
+        "            torch.cuda.empty_cache()\n"
+        "        print('WAVE_STAGE_END_CONDITIONING_VAE',flush=True)\n"
+        "        self.transformer = self.transformer.to(device)\n"
+        "        print('WAVE_STAGE_BEGIN_TRANSFORMER',flush=True)\n\n"
+        +stage_after)
+    stages.write_text(pipe)
+    if native_profile:
+        from studio.eb01_native_t4_profile import patch_native_sources
+        native_patch_sha=patch_native_sources(source,stages,LTX/"ltx_video/models/autoencoders/vae.py",stage_prefix="WAVE")
+    patched=sha(source)
+    stage_sha=sha(stages)
+    print("WAVE_T4_NATIVE_PRECISION_POLICY",
+          "transformer_fp16",True,"text_fp16",True,
+          "vae_encoder_decoder_fp32",True,flush=True)
+    print("WAVE_ALT_ENGINE_ROOT_CAUSE_OOM_FIXED_SEQUENTIAL_CPU_GPU_STAGE",
+          "inference_sha",patched,"pipeline_sha",stage_sha,flush=True)
+    run([sys.executable,"-m","pip","install","-q","-e",str(LTX)+"[inference]"],timeout=960)
+    c=LTX/"configs"/"ltxv-2b-0.9.6-distilled.yaml"
+    if not c.is_file() or "ltxv-2b-0.9.6-distilled-04-25.safetensors" not in c.read_text():
+        raise RuntimeError("Expected authentic LTX 2B model not configured")
+    # CONFIRMED ROOT CAUSE OF BOTH GPU TIMEOUTS: official config uses
+    # prompt_enhancement_words_threshold=120. The original 70-word
+    # EB01 actor prompt therefore silently loads Florence-2-large AND
+    # Llama-3.2-3B, then runs 3B prompt enhancement on CPU under the
+    # memory-offload patch. This is neither the LTX 2B distilled video
+    # sampler nor necessary for the original human-approved scene prompt.
+    # Disable the unsolicited extra 3B caption+LLM pipeline, preserving
+    # the original scene motion wording, official 2B video weights and
+    # EXACT 8-step distilled scheduler. Never change reference images.
+    original_config=c.read_text(encoding="utf-8")
+    threshold="prompt_enhancement_words_threshold: 120"
+    if original_config.count(threshold)!=1:
+        raise RuntimeError("Official LTX prompt-enhancer config changed; cannot remove unapproved 3B CPU bottleneck")
+    c.write_text(original_config.replace(
+        threshold,"prompt_enhancement_words_threshold: 0"
+    ),encoding="utf-8")
+    print("WAVE_REAL_LTX_2B_STAGING_ONLY_NO_FLORENCE_LLAMA_3B",
+          "original_config_sha256",hashlib.sha256(original_config.encode()).hexdigest(),
+          "patched_config_sha256",sha(c),
+          "distilled_native_steps",8,
+          "exact_approved_prompt_unmodified",True,flush=True)
+
+    print("STUDIO_RECLINER_OFFICIAL_LTX_PINNED_STAGE_READY",flush=True)
+    generated=OUT/"STUDIO_RECLINER_NATIVE_PRIVATE_GENERATION";generated.mkdir(exist_ok=False)
+    prompts=[
+        "Photorealistic continuous original camera shot of the same dark-haired bearded man resting in the wooden recliner of the exact same moody blue-and-gold modern lounge. He is wearing the same brown and beige checked flannel overshirt, black trousers, and light sneakers with dark details; arms and hands relaxed on lap. Starts eyes closed, natural gentle chest breathing, then slowly opens eyes. Subtle genuine neck, eyelid, and jaw motion. Locked camera, fixed plants, metal curtain, wooden chairs and tables, warm reflections. Real intact face, hairline, beard, hands, ring, clothing and geometry; absolutely no background drift, no text.",
+        "Continue exactly from the supplied final frame of the same bearded man in the same wooden recliner and unchanged blue-and-gold lounge. His eyes are closed at the beginning. His eyelids visibly open, he lifts his head a little off the chair and turns it toward the camera, with a clear but relaxed change in facial expression and gaze. His chest rises and falls with visible calm breathing and one shoulder adjusts naturally. Restrained real-time movement, same face, hairline, beard, checked shirt and body proportions; locked camera, stationary background, no morphing or flicker.",
+        "Continue from the exact supplied frame. A relaxed genuine smile gradually appears and changes the cheeks and mouth naturally. The man's right hand slides a few centimeters across his lap and settles again, with natural small finger articulation; his shoulder relaxes into the chair while breathing remains visible. Keep the same face and beard, five fingers, same clothing and body geometry; no camera motion or background drift.",
+        "Continue the same shot and identity. He performs one slow natural blink, gently exhales, lowers his chin slightly and settles back into the recliner; his shoulders relax and his chest continues a visible calm breathing cycle. The final pose is comfortable and stable, with the same hands, beard, clothes and fixed room; no sudden movement, no camera movement, no background animation."
+    ]
+    script="""from ltx_video.inference import infer,InferenceConfig
+import os
+settings=InferenceConfig(
+ pipeline_config=os.environ['LTX_CONFIG'],
+ prompt=os.environ['LTX_PROMPT'], seed=int(os.environ['STUDIO_SEED']),
+ height=768,width=576,num_frames=33,frame_rate=24,
+ offload_to_cpu=True,
+ conditioning_media_paths=[os.environ['LTX_INPUT']],
+ conditioning_strengths=[1.0],conditioning_start_frames=[0],
+ image_cond_noise_scale=float(os.environ.get('LTX_IMAGE_COND_NOISE_SCALE','0.15')),output_path=os.environ['LTX_OUTPUT'])
+print("STUDIO_RECLINER_NATIVE_LTX_SAMPLE_START",flush=True)
+infer(settings)
+"""
+    videos=[];records=[];conditioner=reference
+    try:
+        # Restore exactly the previous real T4 model output when a telemetry
+        # bug prevented the controller from accepting an already completed
+        # neural segment. Never regenerate/replace previously verified frames.
+        resume_native=cfg.get("checkpoint_0_sha256") is not None
+        if resume_native:
+            original=base64.b64decode(CHECKPOINT_B64,validate=True)
+            expected=cfg.get("checkpoint_0_sha256")
+            if (not isinstance(expected,str) or len(expected)!=64 or
+                    hashlib.sha256(original).hexdigest()!=expected):
+                raise RuntimeError("Private original neural checkpoint hash mismatch")
+            elapsed=cfg.get("checkpoint_0_model_seconds")
+            if elapsed is not None and (not isinstance(elapsed,(float,int)) or not 0<elapsed<3600):
+                raise RuntimeError("Invalid original model timing metadata")
+            if cfg.get("checkpoint_0_native_stage_attested") is not True:
+                raise RuntimeError("No original LTX actual GPU output stage attestation")
+            recovered=OUT/"STUDIO_RECLINER_REAL_SEGMENT_0.mp4"
+            recovered.write_bytes(original)
+            del original
+            m0=_probe_recliner(recovered)
+            run(["ffmpeg","-v","error","-xerror","-i",recovered,"-f","null","-"],timeout=120)
+            if (m0.get("frames")!=33 or m0.get("fps")!="24" or
+                    m0.get("width")!=576 or m0.get("height")!=768):
+                raise RuntimeError("Recovered first neural MP4 geometry mismatched")
+            qa0=_classify_recliner_color_qa(inspect_clip(recovered))
+            q0=qa0["status"]
+            motion0=gray_motion(recovered)
+            region0=_recliner_region_motion(recovered)
+            if not _recliner_region_motion_pass(region0,0):
+                raise RuntimeError("Recovered checkpoint actor-region motion failed")
+            if (motion0["mean_frame_luma_delta"]<=0.18 or
+                    motion0["nonidentical_motion_frames"]<4):
+                raise RuntimeError("Recovered first neural MP4 failed independent motion QA")
+            if (cfg.get("checkpoint_0_kernel")!="pavelbloody/studio-recliner-native-45480625216" or
+                    cfg.get("checkpoint_0_source_git_sha")!="718524ed5629bd5749c282a86f2ee053180b2f03" or
+                    cfg.get("checkpoint_0_color_qa")!=q0):
+                raise RuntimeError("Recovered first neural MP4 provenance or color-review receipt mismatch")
+            videos.append(recovered)
+            records.append({"index":0,"sha256":sha(recovered),
+                            "frames":33,"fps":24,"width":576,"height":768,
+                            "model_seconds":elapsed,"image_cond_noise_scale":cfg.get("checkpoint_0_image_cond_noise_scale",0.15),"color_qa":q0,
+                            "color_qa_review_required":qa0["review_required"],
+                            "color_qa_structural_flags":qa0["structural_flags"],
+                            "source_git_sha":cfg["checkpoint_0_source_git_sha"],
+                            "source_kernel":cfg["checkpoint_0_kernel"],
+                            "numerical_motion":motion0,"region_motion":region0,
+                            "recovered_from_prior_private_kernel":True,
+                            "native_output_stage_attested":True})
+            (OUT/"STUDIO_RECLINER_REAL_SEGMENT_0_ACCEPTED.json").write_text(json.dumps(records[0],indent=2))
+            conditioner=OUT/"STUDIO_RECLINER_PRIVATE_LASTFRAME_0.png"
+            run(["ffmpeg","-v","error","-xerror","-i",recovered,
+                 "-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
+            if not conditioner.is_file():
+                raise RuntimeError("Recovered native first-segment conditioning frame missing")
+            print("STUDIO_RECLINER_REAL_GPU_SEGMENT_0_RESTORED_SHA_VERIFIED",flush=True)
+        for segment in ((1,2,3) if resume_native else (0,1,2,3)):
+            accepted = False
+            for attempt, (noise_scale, seed) in enumerate(_continuation_attempts(segment)):
+                target=generated/("segment_"+str(segment))/("attempt_"+str(attempt))
+                target.mkdir(parents=True)
+                env=os.environ.copy()
+                env.update(LTX_CONFIG=str(c),LTX_PROMPT=prompts[segment],
+                    LTX_INPUT=str(conditioner),LTX_OUTPUT=str(target),
+                    LTX_IMAGE_COND_NOISE_SCALE=str(noise_scale),STUDIO_SEED=str(seed),
+                    PYTHONPATH=str(ROOT)+os.pathsep+env.get("PYTHONPATH",""))
+                observed=run_native_bounded([sys.executable,"-u","-c",script],
+                    cwd=LTX,env=env,
+                    log_path=OUT/("STUDIO_RECLINER_PRIVATE_GPU_"+str(segment)+"_attempt_"+str(attempt)+".log"),
+                    deadline_seconds=1400,heartbeat_seconds=20,stage_prefix="WAVE")
+                clips=list(target.rglob("*.mp4"))
+                if len(clips)!=1:raise RuntimeError("Genuine neural MP4 missing or ambiguous")
+                clip=clips[0]
+                meta=_probe_recliner(clip)
+                run(["ffmpeg","-v","error","-xerror","-i",clip,"-f","null","-"],timeout=90)
+                if meta.get("frames")!=33 or meta.get("fps")!="24" or meta.get("width")!=576 or meta.get("height")!=768:
+                    raise RuntimeError("Native model geometry/frame verification failed")
+                qa=inspect_clip(clip)
+                motion=gray_motion(clip)
+                region_motion=_recliner_region_motion(clip)
+                rejection=None
+                try:
+                    color_qa=_classify_recliner_color_qa(qa)
+                except RuntimeError:
+                    rejection="COLOR_QA_REJECTED"
+                if (motion["mean_frame_luma_delta"]<=0.18 or
+                        motion["nonidentical_motion_frames"]<4):
+                    rejection="MOTION_QA_REJECTED" if rejection is None else "COLOR_AND_MOTION_QA_REJECTED"
+                if not _recliner_region_motion_pass(region_motion,segment):
+                    rejection="ACTOR_REGION_QA_REJECTED" if rejection is None else rejection+"+ACTOR_REGION_QA_REJECTED"
+                trial={"index":segment,"attempt":attempt,"seed":seed,"sha256":sha(clip),
+                       "image_cond_noise_scale":noise_scale,"color_qa":qa["status"],
+                       "numerical_motion":motion,"region_motion":region_motion,"rejection":rejection,"model_seconds":observed["elapsed_seconds"]}
+                (OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+"_ATTEMPT_"+str(attempt)+".json")).write_text(json.dumps(trial,indent=2))
+                print("STUDIO_RECLINER_NATIVE_TRIAL_QA",json.dumps(trial,sort_keys=True),flush=True)
+                if rejection is not None:
+                    continue
+                safe=OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+".mp4")
+                shutil.copy2(clip,safe)
+                record={"index":segment,"sha256":sha(safe),
+                        "frames":33,"fps":24,"width":576,"height":768,
+                        "model_seconds":observed["elapsed_seconds"],
+                        "image_cond_noise_scale":noise_scale,"attempt":attempt,"seed":seed,
+                        "color_qa":color_qa["status"],
+                        "color_qa_review_required":color_qa["review_required"],
+                        "color_qa_structural_flags":color_qa["structural_flags"],
+                        "source_git_sha":cfg["revision"],
+                        "source_kernel":cfg.get("kernel_id"),"numerical_motion":motion,"region_motion":region_motion,
+                        "native_output_stage_attested":True}
+                records.append(record)
+                videos.append(safe)
+                (OUT/("STUDIO_RECLINER_REAL_SEGMENT_"+str(segment)+"_ACCEPTED.json")).write_text(json.dumps(record,indent=2))
+                if segment<3:
+                    conditioner=OUT/("STUDIO_RECLINER_PRIVATE_LASTFRAME_"+str(segment)+".png")
+                    run(["ffmpeg","-v","error","-xerror","-i",safe,"-vf","select=eq(n\\,32)","-frames:v","1",conditioner],timeout=45)
+                    if not conditioner.is_file():raise RuntimeError("No continuity image from accepted native segment")
+                accepted=True
+                break
+            if not accepted:
+                raise RuntimeError("New native neural segment failed independent motion QA or color QA after bounded trials")
+        # Drop duplicated conditioning frame from next segment, preserve all true model frames.
+        merged=OUT/"STUDIO_RECLINER_TRUE_NATIVE_129F_24FPS.mp4"
+        # Four independently denoised 33-frame LTX segments, overlapping
+        # only the conditioned first frame of each next segment: 4*33-3=129.
+        clip_inputs = sum((["-i",str(v)] for v in videos), [])
+        if len(videos)!=4: raise RuntimeError("Four original neural source segments required")
+        filters = ";".join(
+            f"[{i}:v]trim=start_frame={0 if i==0 else 1},setpts=PTS-STARTPTS[v{i}]"
+            for i in range(4))
+        filters += ";"+"".join(f"[v{i}]" for i in range(4))+"concat=n=4:v=1:a=0[out]"
+        run(["ffmpeg","-v","error","-xerror"]+clip_inputs+
+            ["-filter_complex",filters,"-map","[out]","-an","-r","24",
+             "-c:v","libx264","-preset","medium","-crf","17",
+             "-pix_fmt","yuv420p",str(merged)],timeout=240)
+        m=_probe_recliner(merged)
+        run(["ffmpeg","-v","error","-xerror","-i",merged,"-f","null","-"],timeout=120)
+        if m.get("frames")!=129 or m.get("fps")!="24" or m.get("width")!=576 or m.get("height")!=768:
+            raise RuntimeError("Full assembled native Studio clip failed format/frame check")
+        receipt={"schema":1,"status":"NATIVE_NEURAL_VIDEO_GENERATED_ARTISTIC_REVIEW_REQUIRED",
+            "model":"Lightricks/LTX-Video-2B-0.9.6-distilled",
+            "source":"original_user_reference_image_for_segment0_and_prior_native_LTX_last_frame_for_continuity",
+            "source_reference_sha256":sha(reference),"source_git_sha":cfg["revision"],
+            "upstream_git_sha":LTX_SHA,
+            "actual_native_gpu_inference":True,
+            "original_neural_segments":records,
+            "output_sha256":sha(merged),"output_frames":129,
+            "output_width":576,"output_height":768,"output_fps":24,
+            "extra_interpolated_frames":0,
+            "full_video_length_seconds":129/24,
+            "private_media_only":True,"published":False,
+            "human_artistic_approved":False,
+            "qa_color_all_segments":all(r['color_qa']=='NO_NEON_ARTIFACT_FOUND' for r in records),
+            "qa_color_no_structural_artifacts":all(not any(r['color_qa_structural_flags'].values()) for r in records),
+            "qa_color_review_required":any(r['color_qa_review_required'] for r in records),
+            "anatomical_continuity_human_review_required":True}
+        (OUT/"STUDIO_RECLINER_TRUE_NATIVE_RECEIPT.json").write_text(json.dumps(receipt,indent=2))
+        print("STUDIO_RECLINER_TRUE_NATIVE_GPU_DONE",receipt["output_sha256"],
+              "native_frames",m["frames"],"seconds",round(129/24,3),flush=True)
+    except BaseException as exc:
+        (OUT/"STUDIO_RECLINER_TRUE_NATIVE_FAILURE_SAFE.json").write_text(json.dumps({
+         "stage":"NATIVE_GPU_PIPELINE","error_type":type(exc).__name__,
+         "successful_native_segments":len(records),
+         "public_private_source_leak":False,"human_artistic_approved":False,"published":False}))
+        print("STUDIO_RECLINER_NATIVE_MODEL_BLOCKED",type(exc).__name__,"partial_segments",len(records),flush=True)
+        raise
+if __name__=="__main__":main()

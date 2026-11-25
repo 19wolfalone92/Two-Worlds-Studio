@@ -1,0 +1,56 @@
+name: STUDIO Recliner — verify durable encrypted original image CPU only
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths:
+      - "ops/studio_recliner_persistent_input.chunk6"
+      - ".github/workflows/studio-recliner-private-photo-preflight.yml"
+permissions:
+  contents: read
+jobs:
+  owner_private_original_sha_proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip -q install "cryptography>=42,<47" "Pillow>=10,<12"
+      - name: Prove source encrypted input RSA and AES-GCM provenance and photo SHA without GPU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os,base64,json,hashlib
+          from pathlib import Path
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from studio.sealed_artifacts import unseal
+          from PIL import Image
+          assert os.environ["KAGGLE_API_TOKEN"]
+          wrap=json.loads(Path("ops/studio_recliner_ingress_private_wrapped.json").read_text())
+          assert wrap["schema"]==1
+          key=HKDF(algorithm=hashes.SHA256(),length=32,
+              salt=base64.b64decode(wrap["salt"],validate=True),
+              info=b"TW_STUDIO_RECLINER_PRIVATE_KEY_WRAP_V1").derive(os.environ["KAGGLE_API_TOKEN"].encode())
+          p=Path(os.environ["RUNNER_TEMP"])
+          original=AESGCM(key).decrypt(base64.b64decode(wrap["nonce"],validate=True),
+              base64.b64decode(wrap["sealed_private_key"],validate=True),b"TW_STUDIO_RECLINER_KEY_WRAP_V1")
+          private=p/"studio-private-rsa-unwrapped.pem"
+          private.write_bytes(original)
+          sealed=p/"input.twenc"
+          sealed.write_bytes(base64.b64decode("".join(Path(f"ops/studio_recliner_persistent_input.chunk{i}").read_text() for i in range(7)),validate=True))
+          photo=p/"original.webp"
+          expected="9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895b3"
+          unseal(sealed,private,photo,{"purpose":"studio-recliner-input","schema":1,"source_sha256":expected})
+          assert hashlib.sha256(photo.read_bytes()).hexdigest()==expected
+          with Image.open(photo) as im:
+              assert im.size==(576,768) and im.format=="WEBP"
+              im.verify()
+          print("STUDIO_RECLINER_DURABLE_PRIVATE_ORIGINAL_SHA_DECRYPT_AND_IMAGE_PROOF_PASS")
+          print("STUDIO_RECLINER_CPU_ONLY_NO_EXTERNAL_AI_NO_PUBLIC_RAW_MEDIA")
+          PY

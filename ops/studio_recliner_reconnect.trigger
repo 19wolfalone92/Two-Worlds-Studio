@@ -1,0 +1,3 @@
+kernel=pavelbloody/studio-recliner-native-45646563589
+original_revision=4e477ddb46c6eec52ba9395512bff73b0c2ca569
+mode=read_only_pickup

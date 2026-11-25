@@ -1,0 +1,52 @@
+name: STUDIO Recliner — read-only failed Kaggle GPU forensic
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_failure_forensic.trigger"]
+permissions:
+  contents: read
+jobs:
+  retrieve_existing_private_kernel_logs:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN2 }}
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install read-only Kaggle client and CPU media probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install -q "kaggle==2.2.4" "six>=1.16,<2" "cryptography>=42,<47" "numpy>=1.26,<3"
+      - name: Run tests and retrieve the existing failed kernel only — NO GPU submission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile tools/studio_recliner_private_forensic.py
+          python -m unittest tests.test_studio_recliner_private_forensic -v
+          python -m tools.studio_recliner_private_forensic
+      - name: Upload redacted forensic report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-private-kaggle-forensic-report
+          path: ${{ runner.temp }}/STUDIO_RECLINER_FORENSIC_REPORT.json
+          retention-days: 3
+          if-no-files-found: error
+      - name: Upload owner-encrypted recoverable native outputs, if any
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-recliner-private-kaggle-recovery
+          path: ${{ runner.temp }}/STUDIO_RECLINER_FORENSIC_RECOVERY.twenc
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: ignore

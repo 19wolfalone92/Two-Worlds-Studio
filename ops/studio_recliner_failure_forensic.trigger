@@ -1,0 +1,13 @@
+read_only=true
+kernel=pavelbloody/studio-recliner-native-45480625216
+operation=retrieve_kaggle_kernel_logs_and_existing_outputs
+new_gpu_submissions=0
+no_kernel_push=true
+no_private_photo_export=true
+preserve_partial_native_segments_encrypted=true
+
+diagnostic_attempt=2
+
+diagnostic_attempt=3
+
+diagnostic_attempt=4

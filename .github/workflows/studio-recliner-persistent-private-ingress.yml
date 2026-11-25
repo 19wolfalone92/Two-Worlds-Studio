@@ -1,0 +1,74 @@
+name: STUDIO Recliner — stable encrypted photo ingress bootstrap (CPU ONLY)
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_ingress_bootstrap.trigger"]
+permissions:
+  contents: write
+concurrency:
+  group: studio-recliner-secure-ingress-setup
+  cancel-in-progress: false
+jobs:
+  wrap_one_time_rsa_key_with_existing_github_secret:
+    if: github.repository == '19wolfalone92/Two-Worlds-Studio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Create stable owner RSA input key; seal PRIVATE component under existing secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python -m pip -q install "cryptography>=42,<47"
+          python - <<'PY'
+          import os,base64,json
+          from pathlib import Path
+          from cryptography.hazmat.primitives import hashes
+          from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+          from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+          from studio.sealed_artifacts import generate_keys
+          pub=Path("ops/studio_recliner_ingress_persistent_public.pem")
+          enc=Path("ops/studio_recliner_ingress_private_wrapped.json")
+          if pub.exists() or enc.exists():
+              if pub.is_file() and enc.is_file():
+                  print("STUDIO_RECLINER_PERSISTENT_INGRESS_ALREADY_EXISTS")
+                  raise SystemExit(0)
+              raise RuntimeError("Stable sealed ingress partial state; refuse replacing existing keys")
+          priv=Path(os.environ["RUNNER_TEMP"])/"studio_recliner_private_once.pem"
+          generate_keys(priv,pub)
+          salt=os.urandom(16)
+          nonce=os.urandom(12)
+          secret=os.environ["KAGGLE_API_TOKEN"].encode("utf-8")
+          key=HKDF(algorithm=hashes.SHA256(),length=32,salt=salt,
+              info=b"TW_STUDIO_RECLINER_PRIVATE_KEY_WRAP_V1").derive(secret)
+          cipher=AESGCM(key).encrypt(nonce,priv.read_bytes(),b"TW_STUDIO_RECLINER_KEY_WRAP_V1")
+          enc.write_text(json.dumps({"schema":1,"purpose":"studio-recliner-rsa-private-key-wrap",
+             "salt":base64.b64encode(salt).decode("ascii"),
+             "nonce":base64.b64encode(nonce).decode("ascii"),
+             "sealed_private_key":base64.b64encode(cipher).decode("ascii")},sort_keys=True))
+          priv.unlink()
+          print("STUDIO_RECLINER_PERSISTENT_RSA_PUBLIC_AND_SECRET_WRAPPED_PRIVATE_ONLY")
+          PY
+          if ! git diff --quiet -- ops/studio_recliner_ingress_private_wrapped.json; then
+            echo "::error::Unexpected modifications to saved wrapped key"; exit 1;
+          fi
+          if [[ -f ops/studio_recliner_ingress_persistent_public.pem ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add ops/studio_recliner_ingress_persistent_public.pem ops/studio_recliner_ingress_private_wrapped.json
+            if ! git diff --cached --quiet; then
+              git commit -m "Studio: stable RSA input key protected by Kaggle secret, no original image"
+              git fetch origin feature/studio-native-recliner-photo-20261124 -q
+              git rebase origin/feature/studio-native-recliner-photo-20261124
+              git push origin HEAD:refs/heads/feature/studio-native-recliner-photo-20261124
+            fi
+          fi

@@ -1,0 +1,87 @@
+name: STUDIO Recliner — inspect Kaggle T4 active session quota READ ONLY
+on:
+  push:
+    branches: ["feature/studio-native-recliner-photo-20261124"]
+    paths: ["ops/studio_recliner_quota_probe.trigger"]
+permissions:
+  contents: read
+jobs:
+  exact_private_gpu_quota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip -q install "kaggle==2.2.4" "six>=1.16,<2"
+      - name: Read only owner kernel statuses, never submit GPU or user media
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$KAGGLE_API_TOKEN"
+          python - <<'PY'
+          import json,re
+          from kaggle.api.kaggle_api_extended import KaggleApi
+          api=KaggleApi()
+          api.authenticate()
+          try:
+              entries=api.kernels_list(mine=True,page_size=100)
+          except Exception as exc:
+              print("STUDIO_GPU_QUOTA_PROBE_ERROR_CLASS",type(exc).__name__)
+              raise SystemExit(1)
+          safe=[]
+          counts={}
+          exemplars=[]
+          for x in entries:
+              slug=str(getattr(x,"ref",getattr(x,"slug","")) or "")
+              if not re.fullmatch(r"[A-Za-z0-9_/-]{1,130}",slug): slug="REDACTED"
+              status=str(getattr(x,"status",getattr(x,"last_run_status","UNKNOWN")))
+              if not re.fullmatch(r"[A-Za-z0-9_. -]{1,80}",status): status="REDACTED"
+              attr_status=str(getattr(x,"last_run_status","MISSING"))
+              counts[status+" | "+attr_status]=counts.get(status+" | "+attr_status,0)+1
+              if len(exemplars)<5: exemplars.append({"slug":slug,"status":status,"last_run_status":attr_status})
+              if any(t in (status+" "+attr_status).upper() for t in ("RUNNING","QUEUED","INITIALIZ","PENDING","STARTING")):
+                  safe.append({"owner_job":slug,"state":status})
+          print("STUDIO_GPU_QUOTA_ACTIVE_OWNER_JOBS",json.dumps(safe[:25],sort_keys=True))
+          print("STUDIO_GPU_QUOTA_TOTAL_LISTED",len(entries))
+          print("STUDIO_GPU_QUOTA_STATUS_DISTRIBUTION",json.dumps(counts,sort_keys=True))
+          print("STUDIO_GPU_QUOTA_RECENT_EXEMPLARS",json.dumps(exemplars,sort_keys=True))
+          found=[]
+          checked=0
+          more=[]
+          for page_number in (2,3,4):
+              try:
+                  batch=api.kernels_list(mine=True,page_size=100,page=page_number)
+              except Exception as exc:
+                  print("STUDIO_GPU_QUOTA_PAGE_READ_ERROR",page_number,type(exc).__name__)
+                  break
+              more.extend(batch)
+              if len(batch)<100: break
+          entries.extend(more)
+          seen=set()
+          errors={}
+          # Private status reads, bounded to current most-recent 30 jobs.
+          for item in entries[:400]:
+              slug=str(getattr(item,"ref","") or "")
+              if not re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_-]+",slug): continue
+              if slug in seen: continue
+              seen.add(slug)
+              checked+=1
+              try:
+                  details=api.kernels_status(slug)
+                  st=str(getattr(details,"status",getattr(details,"worker_status","UNKNOWN")))
+                  status_text=st if re.fullmatch(r"[A-Za-z0-9_. ]{1,80}",st) else "REDACTED"
+                  if status_text not in ("KernelWorkerStatus.COMPLETE","KernelWorkerStatus.ERROR","KernelWorkerStatus.CANCELLED","KernelWorkerStatus.CANCELED"):
+                      found.append({"owner_kernel":slug,"state":status_text})
+              except Exception as exc:
+                  kind=type(exc).__name__
+                  errors[kind]=errors.get(kind,0)+1
+          print("STUDIO_GPU_QUOTA_OWNER_STATUS_CHECKED",checked)
+          print("STUDIO_GPU_QUOTA_EXTRA_PAGE_ITEMS",len(more))
+          print("STUDIO_GPU_QUOTA_OWNER_KERNEL_STATUSES",json.dumps(found,sort_keys=True))
+          print("STUDIO_GPU_QUOTA_OWNER_READ_ERRORS",json.dumps(errors,sort_keys=True))
+          print("STUDIO_GPU_QUOTA_NO_SUBMISSION_NO_PRIVATE_MEDIA")
+          PY
