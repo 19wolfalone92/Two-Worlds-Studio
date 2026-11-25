@@ -163,10 +163,17 @@ jobs:
           expected_clip="124f259749f6fdbe8f2113f5d850d7a520b6ddf3413ba3cefb6bf11006c9461c"
           if digest!=expected_clip:
               raise RuntimeError("Recovered original segment-0 SHA does not match the forensic receipt")
-          logs=Path(os.environ["RUNNER_TEMP"])/"studio-recliner-prior-kernel.log"
-          log_text=logs.read_text(encoding="utf-8",errors="replace")
-          if "WAVE_STAGE_NATIVE_VIDEO_OUTPUT_READY" not in log_text:
-              raise RuntimeError("Original LTX native video output stage was not attested in Kaggle logs")
+          stage_log=root/"STUDIO_RECLINER_PRIVATE_GPU_0.log"
+          parent_log=root/"studio-recliner-native-45480625216.log"
+          if not stage_log.is_file() or not parent_log.is_file():
+              raise RuntimeError("Original native stage log or parent failure log is missing")
+          stage_text=stage_log.read_text(encoding="utf-8",errors="replace")
+          parent_text=parent_log.read_text(encoding="utf-8",errors="replace")
+          if "WAVE_STAGE_NATIVE_VIDEO_OUTPUT_READY" not in stage_text or "WAVE_STAGE_END_DECODE" not in stage_text:
+              raise RuntimeError("Original LTX native video output/decode stage was not attested")
+          if ("STUDIO_RECLINER_NATIVE_MODEL_BLOCKED" not in parent_text or
+                  "Neural take has invalid native video geometry or frame clock" not in parent_text):
+              raise RuntimeError("Previous kernel failure does not match the diagnosed post-inference 9:16 validator rejection")
           meta=_probe_recliner(clip)
           if (meta["codec"],meta["width"],meta["height"],meta["fps"],meta["frames"])!=("h264",576,768,"24",33):
               raise RuntimeError("Recovered native segment-0 geometry or codec mismatch")
@@ -304,6 +311,9 @@ jobs:
           assert data["qa_color_no_structural_artifacts"] is True
           assert isinstance(data["qa_color_review_required"],bool)
           allowed={"NO_NEON_ARTIFACT_FOUND","REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF"}
+          assert data["qa_color_all_segments"]==all(r["color_qa"]=="NO_NEON_ARTIFACT_FOUND" for r in data["original_neural_segments"])
+          assert data["qa_color_review_required"]==any(r["color_qa_review_required"] for r in data["original_neural_segments"])
+          assert data["qa_color_no_structural_artifacts"]==all(not any(r["color_qa_structural_flags"].values()) for r in data["original_neural_segments"])
           for i,record in enumerate(data["original_neural_segments"]):
               assert record["index"]==i and record["frames"]==33
               assert record["color_qa"] in allowed

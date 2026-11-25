@@ -74,7 +74,7 @@ def _classify_recliner_color_qa(qa: dict) -> dict:
         "spectral_intrusions": len(qa.get("spectral_intrusion_flagged_frames", [])),
         "neon_line_geometry": len(qa.get("neon_line_geometry_flagged_frames", [])),
     }
-    if status == "NO_NEON_ARTIFACT_FOUND":
+    if status == "NO_NEON_ARTIFACT_FOUND" and not any(structural.values()):
         return {"status": status, "review_required": False, "structural_flags": structural}
     if status == "REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF" and not any(structural.values()):
         return {"status": status, "review_required": True, "structural_flags": structural}
@@ -386,7 +386,7 @@ infer(settings)
             raise RuntimeError("Full assembled native Studio clip failed format/frame check")
         receipt={"schema":1,"status":"NATIVE_NEURAL_VIDEO_GENERATED_ARTISTIC_REVIEW_REQUIRED",
             "model":"Lightricks/LTX-Video-2B-0.9.6-distilled",
-            "source":"original_user_reference_jpeg_only_not_previous_video_frames",
+            "source":"original_user_reference_image_for_segment0_and_prior_native_LTX_last_frame_for_continuity",
             "source_reference_sha256":sha(reference),"source_git_sha":cfg["revision"],
             "upstream_git_sha":LTX_SHA,
             "actual_native_gpu_inference":True,

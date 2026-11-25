@@ -11,6 +11,16 @@ USER_IMAGE_SHA = "9b1310c91f9718e29d026d6346dbc3ebd7687027a871ac5dbdf4a4f2e36895
 
 class ReclinerNativeStudioTests(unittest.TestCase):
 
+    def test_recliner_color_qa_blocks_inconsistent_clean_status_with_structural_flags(self):
+        with self.assertRaises(RuntimeError):
+            _classify_recliner_color_qa({
+                "status": "NO_NEON_ARTIFACT_FOUND",
+                "horizontal_neon_band_flagged_frames": [],
+                "spectral_intrusion_flagged_frames": [],
+                "neon_line_geometry_flagged_frames": [9],
+            })
+
+
     def test_cool_lounge_palette_is_review_not_false_green(self):
         result = _classify_recliner_color_qa({
             "status": "REVIEW_PERSISTENT_COOL_CHROMA_NO_STRUCTURAL_PROOF",
