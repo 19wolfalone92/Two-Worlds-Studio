@@ -1,0 +1,76 @@
+name: FREEVIDEO - recover completed candidate for local review (no GPU)
+on:
+  push:
+    branches:
+      - research/freevideo-t4-adaptive-20261123
+    paths:
+      - '.github/workflows/freevideo-completed-local-review.yml'
+permissions:
+  contents: read
+concurrency:
+  group: freevideo-completed-local-review
+  cancel-in-progress: false
+jobs:
+  review-copy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      KAGGLE_API_TOKEN: ${{ secrets.KAGGLE_API_TOKEN }}
+      KAGGLE_USERNAME: ${{ vars.KAGGLE_USERNAME }}
+      REVIEW_PUBLIC_KEY: PkQNWNLemNR6v26h2Ji7sFX3QRhWrYTdu0WpBzCNOxI=
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install readback dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install -q 'kaggle==2.2.4' 'six>=1.16,<2' 'cryptography>=43,<48' 'Pillow>=10,<12'
+          python -m pip install -e .
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq ffmpeg
+          fi
+      - name: Resolve private account
+        run: python -m studio.kaggle_identity --github-env "$GITHUB_ENV"
+      - name: Read existing completed candidate, verify, and seal
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os, subprocess, hashlib, json, zipfile
+          from pathlib import Path
+          from experiments.freevideo_t4.kaggle_private_job import verify_private_result
+          from experiments.freevideo_t4.secure_transport import seal_result_zip
+          nonce = 'night-awakens-20261124-05'
+          revision = '107bed852f5961dcb2da5c92fafc0fbb3aaf5e25'
+          root = Path(os.environ['RUNNER_TEMP'])
+          work = root / 'freevideo_review_private'
+          work.mkdir(mode=0o700)
+          kernel = os.environ['KAGGLE_USERNAME'] + '/freevideo-hybrid-' + hashlib.sha256(nonce.encode()).hexdigest()[:12]
+          proc = subprocess.run(['kaggle','kernels','output',kernel,'-p',str(work),'--file-pattern','^(FREEVIDEO_PRIVATE_CANDIDATE[.]zip|freevideo_candidate_result[.]json)$','--page-size','200'],capture_output=True,text=True,timeout=180)
+          if proc.returncode:
+              from studio.kaggle_api_limits import _classify_cli_error
+              code, _ = _classify_cli_error(proc.stderr or '',proc.stdout or '')
+              raise SystemExit('FREEVIDEO_READBACK_' + code.upper())
+          receipt = json.loads((work/'freevideo_candidate_result.json').read_text())
+          expected = json.loads(Path('experiments/freevideo_t4/private_transport/night-awakens.encrypted.json').read_text())
+          assert receipt['source_revision'] == revision
+          assert receipt['source_sha256'] == expected['source_sha256']
+          verify_private_result(work, nonce, 'candidate')
+          archive = work/'FREEVIDEO_PRIVATE_CANDIDATE.zip'
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+          payload = seal_result_zip(archive.read_bytes(), os.environ['REVIEW_PUBLIC_KEY'])
+          (root/'freevideo_candidate_review.encrypted.json').write_text(json.dumps(payload,separators=(',',':')))
+          print('FREEVIDEO_COMPLETED_CANDIDATE_VERIFIED_AND_SEALED')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freevideo-completed-candidate-local-review
+          path: ${{ runner.temp }}/freevideo_candidate_review.encrypted.json
+          if-no-files-found: error
+          retention-days: 3
