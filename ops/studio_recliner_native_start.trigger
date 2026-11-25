@@ -41,3 +41,6 @@ retry_image_cond_noise_scale_segment1=0.35
 retry_image_cond_noise_scale_segment2=0.30
 retry_image_cond_noise_scale_segment3=0.25
 motion_gate_remains_enabled=true
+
+resume_attempt=3
+preflight_previous_workflow_run=45569135866
