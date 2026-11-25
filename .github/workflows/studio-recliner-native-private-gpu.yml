@@ -182,7 +182,7 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import base64,json,os,shutil
+          import base64,hashlib,json,os,shutil
           from pathlib import Path
           root=Path(os.environ["RUNNER_TEMP"])
           folder=root/"studio-recliner-private-kernel"
