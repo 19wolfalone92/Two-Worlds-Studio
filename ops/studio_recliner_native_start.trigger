@@ -44,3 +44,8 @@ motion_gate_remains_enabled=true
 
 resume_attempt=3
 preflight_previous_workflow_run=45569135866
+
+resume_attempt=4
+cpu_qualification_run=45643259660
+actor_region_motion_gate=true
+bounded_noise_trials=0.25,0.28
