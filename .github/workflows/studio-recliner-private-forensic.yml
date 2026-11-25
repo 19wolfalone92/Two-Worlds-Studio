@@ -25,7 +25,7 @@ jobs:
           test -n "$KAGGLE_API_TOKEN"
           sudo apt-get update -qq
           sudo apt-get install -y -qq ffmpeg
-          python -m pip install -q "kaggle==2.2.4" "cryptography>=42,<47"
+          python -m pip install -q "kaggle==2.2.4" "six>=1.16,<2" "cryptography>=42,<47"
       - name: Run tests and retrieve the existing failed kernel only — NO GPU submission
         shell: bash
         run: |
