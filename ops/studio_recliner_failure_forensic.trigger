@@ -5,3 +5,5 @@ new_gpu_submissions=0
 no_kernel_push=true
 no_private_photo_export=true
 preserve_partial_native_segments_encrypted=true
+
+diagnostic_attempt=2

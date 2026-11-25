@@ -12,7 +12,7 @@ class ReclinerForensicTests(unittest.TestCase):
             '  File "/kaggle/working/kernel_main.py", line 18, in run\n'
             "RuntimeError: CUDA out of memory. Tried to allocate 512 MiB\n"
         )
-        self.assertEqual(result["last_stage"], "END_MODEL_LOAD")
+        self.assertEqual(result["last_stage"], "WAVE_STAGE_END_MODEL_LOAD")
         self.assertIn("RuntimeError", result["exception_classes"])
         self.assertTrue(result["error_markers"]["cuda_oom"])
         self.assertEqual(result["traceback_functions"], ["run"])
