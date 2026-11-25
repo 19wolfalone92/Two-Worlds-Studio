@@ -140,10 +140,17 @@ jobs:
               slug=str(item.get("ref","") if isinstance(item,dict) else (getattr(item,"ref","") or ""))
               if not slug: continue
               refs.append(slug)
-              status_obj=api.kernels_status(slug)
-              state=str(status_obj.get("status","UNKNOWN") if isinstance(status_obj,dict)
-                        else getattr(status_obj,"status","UNKNOWN"))
-              if state not in terminal:
+              try:
+                  status_obj=api.kernels_status(slug)
+                  state=str(status_obj.get("status","UNKNOWN") if isinstance(status_obj,dict)
+                            else getattr(status_obj,"status","UNKNOWN"))
+              except Exception as exc:
+                  response=getattr(exc,"response",None)
+                  if response is not None and getattr(response,"status_code",None)==404:
+                      state="NO_ACTIVE_SESSION"
+                  else:
+                      raise
+              if state not in terminal and state!="NO_ACTIVE_SESSION":
                   active.append(slug)
           if os.environ["STUDIO_PREVIOUS_KERNEL"] not in refs:
               raise RuntimeError("Previous private kernel missing from authenticated account inventory")
