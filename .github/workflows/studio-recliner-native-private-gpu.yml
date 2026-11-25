@@ -35,8 +35,24 @@ jobs:
           python -m py_compile tools/kaggle_studio_recliner_native.py
           python -m unittest tests.test_studio_recliner_native tests.test_eb01_bounded_inference -v
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-          python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2' 'numpy>=1.26,<3'
+          python -m pip -q install 'kaggle>=2.2.4' 'cryptography>=42,<47' 'Pillow>=10,<12' 'six>=1.16,<2' 'numpy>=1.26,<3' 'PyYAML>=6,<7'
           test -s ops/studio_recliner_owner_recovery_public.pem
+          python - <<'PY'
+          import re,textwrap,yaml
+          from pathlib import Path
+          path=Path(".github/workflows/studio-recliner-native-private-gpu.yml")
+          document=yaml.safe_load(path.read_text(encoding="utf-8"))
+          steps=document["jobs"]["native_ltx_gpu"]["steps"]
+          compiled=0
+          for step in steps:
+              run=step.get("run","")
+              for block in re.findall(r"python - <<'PY'\n(.*?)\nPY(?=\n|$)",run,re.S):
+                  compile(textwrap.dedent(block),"<"+str(step.get("name","workflow"))+">","exec")
+                  compiled+=1
+          if compiled<6:
+              raise RuntimeError("Private GPU workflow embedded Python blocks were not all found")
+          print("STUDIO_RECLINER_WORKFLOW_YAML_AND_EMBEDDED_PYTHON_SYNTAX_PASS",compiled)
+          PY
       - name: Recover stable RSA photo ingress key wrapped by private GitHub secret
         run: |
           set -euo pipefail
